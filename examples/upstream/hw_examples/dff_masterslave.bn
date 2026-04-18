@@ -1,0 +1,27 @@
+-- Master-slave D flip-flop
+-- Edge-triggered storage element using two D latches
+-- Structural (gate-level) implementation - clk is a data input signal
+
+FUNCTION d_latch(d, e) {
+    BLOCK {
+        nd: d |> Bool/not()
+        s: e |> Bool/and(that: d)
+        r: e |> Bool/and(that: nd)
+        q: r |> Bool/not() |> Bool/and(that: nq |> Bool/not())
+        nq: s |> Bool/not() |> Bool/and(that: q |> Bool/not())
+
+        [q: q, nq: nq]
+    }
+}
+
+FUNCTION dff_master_slave(clk, d) {
+    BLOCK {
+        nclk: clk |> Bool/not()
+        -- Master latch (transparent when clk high)
+        master: d_latch(d: d, e: clk)
+        -- Slave latch (transparent when clk low / nclk high)
+        slave: d_latch(d: master.q, e: nclk)
+
+        [o: slave.q]
+    }
+}

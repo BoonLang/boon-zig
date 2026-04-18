@@ -1,0 +1,37 @@
+-- Linear feedback shift register
+-- 8-bit LFSR with feedback taps at positions 7 and 3
+-- Generates pseudo-random sequences
+-- Why BITS: Shift operations are concise (1 line vs 8 lines with LIST)
+
+-- Transpiler model:
+--   - Clock accessed via PASSED.clk (ambient context from hardware module)
+--   - PASSED.clk: [] = impulse, SKIP = no impulse
+--   - THEN triggers when PASSED.clk = [] (clock tick/impulse occurs)
+--   - HOLD allows access to current register value for feedback computation
+--   - Next value is transformation of current value (shift + feedback)
+
+FUNCTION lfsr(reset) {
+    -- reset: Bool - synchronous reset
+    -- Returns: BITS[8] { ...  } - current LFSR state
+
+    out: BITS[8] { 10u0  } |> HOLD out {
+        PASSED.clk |> THEN {
+            reset |> WHILE {
+                True => BITS[8] { 10u0  }
+                False => BLOCK {
+                    -- Linear feedback: NOT(out[7] XOR out[3])
+                    feedback: out |> Bits/get(index: 7) |> Bool/xor(that:
+                        out |> Bits/get(index: 3)
+                    ) |> Bool/not()
+
+                    -- Shift right, feedback enters at MSB (position 7)
+                    out
+                        |> Bits/shift_right(by: 1)
+                        |> Bits/set(index: 7, value: feedback)
+                }
+            }
+        }
+    }
+
+    [out: out]
+}

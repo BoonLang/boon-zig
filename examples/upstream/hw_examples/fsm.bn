@@ -1,0 +1,53 @@
+-- Finite State Machine
+-- 4-state FSM with input-dependent transitions
+-- Demonstrates state transitions with pattern matching
+
+-- State encoding using tags
+-- A = 2'b00, B = 2'b01, C = 2'b10, D = 2'b11
+
+-- Transpiler model:
+--   - Clock accessed via PASSED.clk (ambient context from hardware module)
+--   - PASSED.clk: [] = impulse, SKIP = no impulse
+--   - THEN triggers when PASSED.clk = [] (clock tick/impulse occurs)
+--   - When PASSED.clk = SKIP, no update occurs (state holds previous value)
+--   - HOLD allows controlled self-reference for state transitions
+--   - Pattern matching models state transitions (case statement)
+
+FUNCTION fsm(rst, a) {
+    BLOCK {
+        -- Sequential state register
+        -- PASSED.clk accessed from ambient context (no parameter needed)
+        -- THEN triggers on each [] impulse, providing edge-triggered behavior
+        -- HOLD holds state between clock ticks
+        -- FSMs use HOLD because next state depends on current state
+        state: B |> HOLD state {
+            PASSED.clk |> THEN {
+                rst |> WHILE {
+                    True => B
+
+                    False => state |> WHEN {
+                        A => C
+                        B => D
+
+                        C => a |> WHILE {
+                            True => D
+                            False => B
+                        }
+
+                        D => A
+                    }
+                }
+            }
+        }
+
+        -- Combinational output logic
+        b: state |> WHEN {
+            A => False
+            B => True
+            C => a
+            D => False
+        }
+
+        [b: b]
+    }
+}

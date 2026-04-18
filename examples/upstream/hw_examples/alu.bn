@@ -1,0 +1,33 @@
+-- Arithmetic Logic Unit (ALU)
+-- Demonstrates multiple BITS operations (arithmetic, logic, shifts)
+-- Why BITS: All arithmetic and bit manipulation operations in one place
+
+-- ALU operation codes
+AluOp: [Add, Sub, And, Or, Xor, ShiftLeft, ShiftRight, Equal]
+
+FUNCTION alu(a, b, op) {
+    -- 8-bit ALU operations
+    -- a and b are BITS[8] { ...  } (unsigned)
+    -- Returns BITS[8] { ...  } result
+
+    op |> WHEN {
+        -- Arithmetic operations
+        Add => a |> Bits/add(b)              -- a + b (wrapping)
+        Sub => a |> Bits/subtract(b)          -- a - b (wrapping)
+
+        -- Bitwise logic
+        And => a |> Bits/and(b)               -- a & b
+        Or => a |> Bits/or(b)                 -- a | b
+        Xor => a |> Bits/xor(b)               -- a ^ b
+
+        -- Shift operations (shift amount from low bits of b)
+        ShiftLeft => a |> Bits/shift_left(by: b |> Bits/slice(high: 2, low: 0) |> Bits/to_number())
+        ShiftRight => a |> Bits/shift_right(by: b |> Bits/slice(high: 2, low: 0) |> Bits/to_number())
+
+        -- Comparison (return all 1s if equal, all 0s if not)
+        Equal => a |> Bits/equal(b) |> WHEN {
+            True => BITS[8] { 16uFF  }    -- All ones
+            False => BITS[8] { 10u0  }    -- All zeros
+        }
+    }
+}

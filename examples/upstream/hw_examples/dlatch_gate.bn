@@ -1,0 +1,17 @@
+-- D latch (gate model)
+-- Level-sensitive latch: captures D when enable E is high
+-- Boon's reactive model naturally represents combinational logic
+
+FUNCTION d_latch(d, e) {
+    BLOCK {
+        -- Gate-level implementation
+        nd: d |> Bool/not()
+        s: e |> Bool/and(that: d)
+        r: e |> Bool/and(that: nd)
+        -- SR latch core (NOR gates)
+        q: r |> Bool/not() |> Bool/and(that: nq |> Bool/not())
+        nq: s |> Bool/not() |> Bool/and(that: q |> Bool/not())
+
+        [q: q, nq: nq]
+    }
+}

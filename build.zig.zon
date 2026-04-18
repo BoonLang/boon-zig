@@ -1,0 +1,19 @@
+.{
+    .name = .tmp_AtbyubZrpi,
+    .version = "0.0.0",
+    .fingerprint = 0xc32bd07b47714019,
+    .minimum_zig_version = "0.17.0-dev.9+046002d1a",
+    .dependencies = .{},
+    .paths = .{
+        "PLAN.md",
+        "WORKLOG.md",
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "tests",
+        "examples",
+        "fixtures",
+        "third_party",
+        "tools",
+    },
+}

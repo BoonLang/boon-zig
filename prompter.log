@@ -1,0 +1,54 @@
+2026-04-18T10:58:59.891363386+00:00 INFO prompter: Persistent log file: /home/martinkavik/repos/boon-zig/prompter.log
+2026-04-18T10:58:59.891569872+00:00 INFO prompter: Detected backend: Codex
+2026-04-18T10:58:59.891659220+00:00 INFO prompter: Saved port=4545 command=["co"] store_prompts=false to prompter.json
+2026-04-18T10:58:59.891667529+00:00 INFO prompter: Starting prompter with command: co []
+2026-04-18T10:58:59.891693001+00:00 INFO prompter: Web UI will be available at http://127.0.0.1:4545
+2026-04-18T10:58:59.891731425+00:00 INFO prompter::pty::handler: Rewriting Codex launch to `resume --last` from -c parameter
+2026-04-18T10:58:59.891842057+00:00 INFO prompter::web::server: Web server listening on http://0.0.0.0:4545
+2026-04-18T10:58:59.906485216+00:00 INFO prompter::pty::handler: Launching backend via bash wrapper: co resume --last
+2026-04-18T10:59:00.892521993+00:00 INFO prompter::watcher::transcript: Discovered codex session: 019da029-8b10-7f71-bb61-55b091d7257e
+2026-04-18T10:59:00.892540193+00:00 INFO prompter::watcher::transcript: Watching session ID: 019da029-8b10-7f71-bb61-55b091d7257e
+2026-04-18T10:59:00.893843802+00:00 INFO prompter::watcher::transcript: Watching transcript file: "/home/martinkavik/.codex/sessions/2026/04/18/rollout-2026-04-18T12-36-10-019da029-8b10-7f71-bb61-55b091d7257e.jsonl"
+2026-04-18T10:59:00.893991405+00:00 INFO prompter::watcher::transcript: Watching directory: "/home/martinkavik/.codex/sessions/2026/04/18"
+2026-04-18T10:59:00.894000551+00:00 INFO prompter::watcher::transcript: Starting from file position: 0 (will process existing content)
+2026-04-18T10:59:00.894045766+00:00 INFO prompter::watcher::transcript: Processing existing transcript content
+2026-04-18T10:59:00.894113112+00:00 WARN prompter::state::shared: Working time RESET: gap_secs=None, supervisor_status=Stopped
+2026-04-18T10:59:00.896666411+00:00 INFO prompter::watcher::transcript: Processed existing content up to position: 857882
+2026-04-18T10:59:01.525516816+00:00 INFO prompter::pty::handler: Model from output: gpt-5.4 high   /model to change │
+2026-04-18T10:59:21.931035189+00:00 WARN prompter::state::shared: Working time RESET: gap_secs=Some(21), supervisor_status=Stopped
+2026-04-18T11:00:58.438108405+00:00 WARN prompter::state::shared: Working time RESET: gap_secs=Some(64), supervisor_status=Stopped
+2026-04-18T11:01:15.404951841+00:00 INFO prompter::web::routes: SSE: Broadcasting supervisor state, kick_count=0
+2026-04-18T11:01:30.235980844+00:00 INFO prompter::web::routes: SSE: Broadcasting supervisor state, kick_count=0
+2026-04-18T11:01:49.732569009+00:00 INFO prompter::web::routes: SSE: Broadcasting supervisor state, kick_count=0
+2026-04-18T11:01:51.282705622+00:00 INFO prompter::web::routes: SSE: Broadcasting supervisor state, kick_count=0
+2026-04-18T11:02:08.020449929+00:00 INFO prompter::web::routes: SSE: Broadcasting supervisor state, kick_count=0
+2026-04-18T11:02:16.386597227+00:00 INFO prompter::pty::handler: Child process exited, stopping passthrough loop
+2026-04-18T11:02:16.386658714+00:00 INFO prompter::pty::handler: Backend child exited: program=co status=ExitStatus(unix_wait_status(0))
+2026-04-18T11:02:16.386713295+00:00 INFO prompter::supervisor: Supervisor: Shutting down
+2026-04-18T11:02:16.391311101+00:00 INFO prompter::watcher::transcript: Transcript watcher shutting down
+2026-04-18T11:02:21.058543604+00:00 INFO prompter: Persistent log file: /home/martinkavik/repos/boon-zig/prompter.log
+2026-04-18T11:02:26.186087589+00:00 INFO prompter: Persistent log file: /home/martinkavik/repos/boon-zig/prompter.log
+2026-04-18T11:02:42.081536109+00:00 INFO prompter: Persistent log file: /home/martinkavik/repos/boon-zig/prompter.log
+2026-04-18T11:02:42.081765396+00:00 INFO prompter: Detected backend: Codex
+2026-04-18T11:02:42.081914191+00:00 INFO prompter: Saved port=4545 command=["co"] store_prompts=false to prompter.json
+2026-04-18T11:02:42.081930367+00:00 INFO prompter: Starting prompter with command: co []
+2026-04-18T11:02:42.081960267+00:00 INFO prompter: Web UI will be available at http://127.0.0.1:4545
+2026-04-18T11:02:42.082009318+00:00 INFO prompter::pty::handler: Rewriting Codex launch to `resume --last` from -c parameter
+2026-04-18T11:02:42.082106716+00:00 INFO prompter::web::server: Web server listening on http://0.0.0.0:4545
+2026-04-18T11:02:42.097219976+00:00 INFO prompter::pty::handler: Launching backend via bash wrapper: co resume --last
+2026-04-18T11:02:43.083096338+00:00 INFO prompter::watcher::transcript: Discovered codex session: 019da029-8b10-7f71-bb61-55b091d7257e
+2026-04-18T11:02:43.083114965+00:00 INFO prompter::watcher::transcript: Watching session ID: 019da029-8b10-7f71-bb61-55b091d7257e
+2026-04-18T11:02:43.084412074+00:00 INFO prompter::watcher::transcript: Watching transcript file: "/home/martinkavik/.codex/sessions/2026/04/18/rollout-2026-04-18T12-36-10-019da029-8b10-7f71-bb61-55b091d7257e.jsonl"
+2026-04-18T11:02:43.084537709+00:00 INFO prompter::watcher::transcript: Watching directory: "/home/martinkavik/.codex/sessions/2026/04/18"
+2026-04-18T11:02:43.084547269+00:00 INFO prompter::watcher::transcript: Starting from file position: 0 (will process existing content)
+2026-04-18T11:02:43.084568725+00:00 INFO prompter::watcher::transcript: Processing existing transcript content
+2026-04-18T11:02:43.084633865+00:00 WARN prompter::state::shared: Working time RESET: gap_secs=None, supervisor_status=Stopped
+2026-04-18T11:02:43.087489162+00:00 INFO prompter::watcher::transcript: Processed existing content up to position: 953586
+2026-04-18T11:02:43.489545886+00:00 INFO prompter::pty::handler: Model from output: gpt-5.4 high   /model to change │
+2026-04-18T11:02:44.536455067+00:00 INFO prompter::web::routes: SSE: Broadcasting supervisor state, kick_count=0
+2026-04-18T11:02:47.723194487+00:00 INFO prompter::web::routes: SSE: Broadcasting supervisor state, kick_count=0
+2026-04-18T11:02:49.351493419+00:00 INFO prompter::web::routes: SSE: Broadcasting supervisor state, kick_count=0
+2026-04-18T11:03:08.410581698+00:00 WARN prompter::state::shared: Working time RESET: gap_secs=Some(25), supervisor_status=Stopped
+2026-04-18T11:04:06.005911812+00:00 WARN prompter::state::shared: Working time RESET: gap_secs=Some(29), supervisor_status=Stopped
+2026-04-18T11:04:49.506909748+00:00 INFO prompter::web::routes: SSE: Broadcasting supervisor state, kick_count=0
+2026-04-18T11:05:01.819532707+00:00 WARN prompter::state::shared: Working time RESET: gap_secs=Some(16), supervisor_status=Stopped

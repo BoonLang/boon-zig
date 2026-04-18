@@ -1,0 +1,30 @@
+-- Simple synchronous RAM
+-- Parameterized address and data width
+-- Asynchronous read, synchronous write
+
+-- Transpiler model:
+--   - Clock accessed via PASSED.clk (ambient context from hardware module)
+--   - PASSED.clk: [] = impulse, SKIP = no impulse
+--   - MEMORY primitive handles stateful storage internally
+--   - Memory/write accesses PASSED.clk for synchronous writes
+--   - Memory/read is asynchronous (combinational)
+
+FUNCTION ram(addr, wraddr, wrdata) {
+    BLOCK {
+        -- addr: Number (0-15) - read address
+        -- wraddr: Number (0-15) - write address
+        -- wrdata: Number - data to write
+
+        -- Memory state: synchronous write on clock edges
+        -- MEMORY primitive handles state internally, accesses PASSED.clk
+        -- Initial: mem[address] = address
+        mem: MEMORY[16] { 0  }
+            |> Memory/initialize(address, data: address)
+            |> Memory/write(address: wraddr, data: wrdata)
+
+        -- Asynchronous read (combinational)
+        data: mem |> Memory/read(address: addr)
+
+        [data: data]
+    }
+}

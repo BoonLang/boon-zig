@@ -1,0 +1,58 @@
+-- Loadable up/down counter
+-- Demonstrates BITS arithmetic with delta/sum pattern for hardware
+-- Why BITS: Signed arithmetic (10s1, 10s-1) handles increment/decrement elegantly
+
+-- Transpiler model:
+--   - Clock accessed via PASSED.clk (ambient context from hardware module)
+--   - PASSED.clk: [] = impulse, SKIP = no impulse
+--   - THEN triggers when PASSED.clk = [] (clock tick/impulse occurs)
+--   - HOLD creates register that holds count value
+--   - Pipeline describes next-state logic for the register
+--
+-- Key pattern: State-based pattern matching with delta accumulation
+--   - All logic matches on single `control_signals` record (truth table style)
+--   - WHILE: Allows flowing dependencies (record fields react to signal changes)
+--   - Bits/set: absolute value updates (reset, load)
+--   - Bits/sum: relative delta updates (increment/decrement)
+--   - Wildcards (__) show which signals are don't-care for each operation
+--   - Flat patterns (no nested WHILEs) - each pattern is one truth table row
+
+-- Parameters:
+--   rst, load, en, up: Bool - control signals
+--   load_value: BITS[8] { ...  } - value to load
+-- Returns:
+--   count: BITS[8] { ...  } - current counter value
+
+FUNCTION counter(rst, load, load_value, up, en) {
+    BLOCK {
+        count_width: 8
+        default: BITS[count_width] { 10s0  }
+
+        -- Bundle all control signals for pattern matching
+        control_signals: [reset: rst, load: load, up: up, enabled: en]
+
+        -- Sequential register with clock-triggered updates
+        count: default |> HOLD count {
+            PASSED.clk |> THEN {
+                count
+                    |> Bits/set(control_signals |> WHILE {
+                        [reset: True, load: __, up: __, enabled: __] => default
+                        __ => SKIP
+                    })
+                    |> Bits/set(control_signals |> WHILE {
+                        [reset: False, load: True, up: __, enabled: True] => load_value
+                        __ => SKIP
+                    })
+                    |> Bits/sum(delta: control_signals |> WHILE {
+                        [reset: False, load: False, up: True, enabled: True] =>
+                            BITS[count_width] { 10s1  }
+                        [reset: False, load: False, up: False, enabled: True] =>
+                            BITS[count_width] { 10s-1  }
+                        __ => SKIP
+                    })
+            }
+        }
+
+        [count: count]
+    }
+}

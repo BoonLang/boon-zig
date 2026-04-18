@@ -1,0 +1,1302 @@
+{
+  "generated_by": "tools/corpus.py",
+  "source_repo": {
+    "url": "https://github.com/BoonLang/boon",
+    "commit": "c924d9f7d7e1c156604c9377e0487db48c278353",
+    "example_root": "third_party/boon-upstream/playground/frontend/src/examples",
+    "imported_root": "examples/upstream"
+  },
+  "planned_p0_repo_examples": [
+    {
+      "name": "pong",
+      "category": "terminal_only",
+      "hard_gate": true,
+      "status": "NOT_STARTED",
+      "notes": [
+        "Repo-authored terminal example; not present in upstream corpus yet."
+      ]
+    },
+    {
+      "name": "arkanoid",
+      "category": "terminal_only",
+      "hard_gate": true,
+      "status": "NOT_STARTED",
+      "notes": [
+        "Repo-authored terminal example; not present in upstream corpus yet."
+      ]
+    }
+  ],
+  "shared_root_files": [
+    "checkbox_test.bn",
+    "reference_metadata.json"
+  ],
+  "examples": [
+    {
+      "name": "button_hover_test",
+      "relative_path": "button_hover_test",
+      "source_path": "third_party/boon-upstream/playground/frontend/src/examples/button_hover_test",
+      "imported_path": "examples/upstream/button_hover_test",
+      "category": "playground",
+      "hard_gate": false,
+      "status": "NOT_STARTED",
+      "parser_status": "NOT_STARTED",
+      "runtime_status": "NOT_STARTED",
+      "terminal_status": "NOT_STARTED",
+      "browser_status": "NOT_STARTED",
+      "bn_files": [
+        "button_hover_test.bn"
+      ],
+      "expected_files": [
+        "button_hover_test.expected"
+      ],
+      "reference_assets": [],
+      "helper_files": [],
+      "docs": [],
+      "all_files": [
+        "button_hover_test.bn",
+        "button_hover_test.expected"
+      ],
+      "blockers": [],
+      "notes": []
+    },
+    {
+      "name": "button_hover_to_click_test",
+      "relative_path": "button_hover_to_click_test",
+      "source_path": "third_party/boon-upstream/playground/frontend/src/examples/button_hover_to_click_test",
+      "imported_path": "examples/upstream/button_hover_to_click_test",
+      "category": "playground",
+      "hard_gate": false,
+      "status": "NOT_STARTED",
+      "parser_status": "NOT_STARTED",
+      "runtime_status": "NOT_STARTED",
+      "terminal_status": "NOT_STARTED",
+      "browser_status": "NOT_STARTED",
+      "bn_files": [
+        "button_hover_to_click_test.bn"
+      ],
+      "expected_files": [
+        "button_hover_to_click_test.expected"
+      ],
+      "reference_assets": [],
+      "helper_files": [],
+      "docs": [],
+      "all_files": [
+        "button_hover_to_click_test.bn",
+        "button_hover_to_click_test.expected"
+      ],
+      "blockers": [],
+      "notes": []
+    },
+    {
+      "name": "cells",
+      "relative_path": "cells",
+      "source_path": "third_party/boon-upstream/playground/frontend/src/examples/cells",
+      "imported_path": "examples/upstream/cells",
+      "category": "playground",
+      "hard_gate": true,
+      "status": "NOT_STARTED",
+      "parser_status": "NOT_STARTED",
+      "runtime_status": "NOT_STARTED",
+      "terminal_status": "NOT_STARTED",
+      "browser_status": "NOT_STARTED",
+      "bn_files": [
+        "cells.bn"
+      ],
+      "expected_files": [
+        "cells.expected"
+      ],
+      "reference_assets": [
+        "reference_700x700_(1400x1400).png"
+      ],
+      "helper_files": [],
+      "docs": [],
+      "all_files": [
+        "cells.bn",
+        "cells.expected",
+        "reference_700x700_(1400x1400).png"
+      ],
+      "blockers": [],
+      "notes": []
+    },
+    {
+      "name": "cells_dynamic",
+      "relative_path": "cells_dynamic",
+      "source_path": "third_party/boon-upstream/playground/frontend/src/examples/cells_dynamic",
+      "imported_path": "examples/upstream/cells_dynamic",
+      "category": "playground",
+      "hard_gate": false,
+      "status": "NOT_STARTED",
+      "parser_status": "NOT_STARTED",
+      "runtime_status": "NOT_STARTED",
+      "terminal_status": "NOT_STARTED",
+      "browser_status": "NOT_STARTED",
+      "bn_files": [
+        "cells_dynamic.bn"
+      ],
+      "expected_files": [
+        "cells_dynamic.expected"
+      ],
+      "reference_assets": [],
+      "helper_files": [],
+      "docs": [],
+      "all_files": [
+        "cells_dynamic.bn",
+        "cells_dynamic.expected"
+      ],
+      "blockers": [],
+      "notes": []
+    },
+    {
+      "name": "chained_list_remove_bug",
+      "relative_path": "chained_list_remove_bug",
+      "source_path": "third_party/boon-upstream/playground/frontend/src/examples/chained_list_remove_bug",
+      "imported_path": "examples/upstream/chained_list_remove_bug",
+      "category": "playground",
+      "hard_gate": false,
+      "status": "NOT_STARTED",
+      "parser_status": "NOT_STARTED",
+      "runtime_status": "NOT_STARTED",
+      "terminal_status": "NOT_STARTED",
+      "browser_status": "NOT_STARTED",
+      "bn_files": [
+        "chained_list_remove_bug.bn"
+      ],
+      "expected_files": [
+        "chained_list_remove_bug.expected"
+      ],
+      "reference_assets": [],
+      "helper_files": [],
+      "docs": [],
+      "all_files": [
+        "chained_list_remove_bug.bn",
+        "chained_list_remove_bug.expected"
+      ],
+      "blockers": [],
+      "notes": []
+    },
+    {
+      "name": "checkbox_test",
+      "relative_path": "checkbox_test",
+      "source_path": "third_party/boon-upstream/playground/frontend/src/examples/checkbox_test",
+      "imported_path": "examples/upstream/checkbox_test",
+      "category": "playground",
+      "hard_gate": false,
+      "status": "NOT_STARTED",
+      "parser_status": "NOT_STARTED",
+      "runtime_status": "NOT_STARTED",
+      "terminal_status": "NOT_STARTED",
+      "browser_status": "NOT_STARTED",
+      "bn_files": [
+        "checkbox_test.bn"
+      ],
+      "expected_files": [
+        "checkbox_test.expected"
+      ],
+      "reference_assets": [],
+      "helper_files": [],
+      "docs": [],
+      "all_files": [
+        "checkbox_test.bn",
+        "checkbox_test.expected"
+      ],
+      "blockers": [],
+      "notes": []
+    },
+    {
+      "name": "circle_drawer",
+      "relative_path": "circle_drawer",
+      "source_path": "third_party/boon-upstream/playground/frontend/src/examples/circle_drawer",
+      "imported_path": "examples/upstream/circle_drawer",
+      "category": "playground",
+      "hard_gate": false,
+      "status": "NOT_STARTED",
+      "parser_status": "NOT_STARTED",
+      "runtime_status": "NOT_STARTED",
+      "terminal_status": "NOT_STARTED",
+      "browser_status": "NOT_STARTED",
+      "bn_files": [
+        "circle_drawer.bn"
+      ],
+      "expected_files": [
+        "circle_drawer.expected"
+      ],
+      "reference_assets": [
+        "reference_700x700_(1400x1400).png"
+      ],
+      "helper_files": [],
+      "docs": [],
+      "all_files": [
+        "circle_drawer.bn",
+        "circle_drawer.expected",
+        "reference_700x700_(1400x1400).png"
+      ],
+      "blockers": [],
+      "notes": []
+    },
+    {
+      "name": "complex_counter",
+      "relative_path": "complex_counter",
+      "source_path": "third_party/boon-upstream/playground/frontend/src/examples/complex_counter",
+      "imported_path": "examples/upstream/complex_counter",
+      "category": "playground",
+      "hard_gate": false,
+      "status": "NOT_STARTED",
+      "parser_status": "NOT_STARTED",
+      "runtime_status": "NOT_STARTED",
+      "terminal_status": "NOT_STARTED",
+      "browser_status": "NOT_STARTED",
+      "bn_files": [
+        "complex_counter.bn"
+      ],
+      "expected_files": [
+        "complex_counter.expected"
+      ],
+      "reference_assets": [],
+      "helper_files": [],
+      "docs": [
+        "complex_counter_flow.md",
+        "complex_counter_state.md"
+      ],
+      "all_files": [
+        "complex_counter.bn",
+        "complex_counter.expected",
+        "complex_counter_flow.md",
+        "complex_counter_state.md"
+      ],
+      "blockers": [],
+      "notes": []
+    },
+    {
+      "name": "counter",
+      "relative_path": "counter",
+      "source_path": "third_party/boon-upstream/playground/frontend/src/examples/counter",
+      "imported_path": "examples/upstream/counter",
+      "category": "playground",
+      "hard_gate": true,
+      "status": "NOT_STARTED",
+      "parser_status": "NOT_STARTED",
+      "runtime_status": "NOT_STARTED",
+      "terminal_status": "NOT_STARTED",
+      "browser_status": "NOT_STARTED",
+      "bn_files": [
+        "counter.bn"
+      ],
+      "expected_files": [
+        "counter.expected"
+      ],
+      "reference_assets": [],
+      "helper_files": [],
+      "docs": [
+        "counter_flow.md",
+        "counter_flow_horizontal.md",
+        "counter_state.md",
+        "counter_state_horizontal.md"
+      ],
+      "all_files": [
+        "counter.bn",
+        "counter.expected",
+        "counter_flow.md",
+        "counter_flow_horizontal.md",
+        "counter_state.md",
+        "counter_state_horizontal.md"
+      ],
+      "blockers": [],
+      "notes": []
+    },
+    {
+      "name": "counter_hold",
+      "relative_path": "counter_hold",
+      "source_path": "third_party/boon-upstream/playground/frontend/src/examples/counter_hold",
+      "imported_path": "examples/upstream/counter_hold",
+      "category": "playground",
+      "hard_gate": false,
+      "status": "NOT_STARTED",
+      "parser_status": "NOT_STARTED",
+      "runtime_status": "NOT_STARTED",
+      "terminal_status": "NOT_STARTED",
+      "browser_status": "NOT_STARTED",
+      "bn_files": [
+        "counter_hold.bn"
+      ],
+      "expected_files": [
+        "counter_hold.expected"
+      ],
+      "reference_assets": [],
+      "helper_files": [],
+      "docs": [],
+      "all_files": [
+        "counter_hold.bn",
+        "counter_hold.expected"
+      ],
+      "blockers": [],
+      "notes": []
+    },
+    {
+      "name": "crud",
+      "relative_path": "crud",
+      "source_path": "third_party/boon-upstream/playground/frontend/src/examples/crud",
+      "imported_path": "examples/upstream/crud",
+      "category": "playground",
+      "hard_gate": false,
+      "status": "NOT_STARTED",
+      "parser_status": "NOT_STARTED",
+      "runtime_status": "NOT_STARTED",
+      "terminal_status": "NOT_STARTED",
+      "browser_status": "NOT_STARTED",
+      "bn_files": [
+        "crud.bn"
+      ],
+      "expected_files": [
+        "crud.expected"
+      ],
+      "reference_assets": [
+        "reference_700x700_(1400x1400).png"
+      ],
+      "helper_files": [],
+      "docs": [],
+      "all_files": [
+        "crud.bn",
+        "crud.expected",
+        "reference_700x700_(1400x1400).png"
+      ],
+      "blockers": [],
+      "notes": []
+    },
+    {
+      "name": "fibonacci",
+      "relative_path": "fibonacci",
+      "source_path": "third_party/boon-upstream/playground/frontend/src/examples/fibonacci",
+      "imported_path": "examples/upstream/fibonacci",
+      "category": "playground",
+      "hard_gate": false,
+      "status": "NOT_STARTED",
+      "parser_status": "NOT_STARTED",
+      "runtime_status": "NOT_STARTED",
+      "terminal_status": "NOT_STARTED",
+      "browser_status": "NOT_STARTED",
+      "bn_files": [
+        "fibonacci.bn"
+      ],
+      "expected_files": [
+        "fibonacci.expected"
+      ],
+      "reference_assets": [],
+      "helper_files": [],
+      "docs": [],
+      "all_files": [
+        "fibonacci.bn",
+        "fibonacci.expected"
+      ],
+      "blockers": [],
+      "notes": []
+    },
+    {
+      "name": "filter_checkbox_bug",
+      "relative_path": "filter_checkbox_bug",
+      "source_path": "third_party/boon-upstream/playground/frontend/src/examples/filter_checkbox_bug",
+      "imported_path": "examples/upstream/filter_checkbox_bug",
+      "category": "playground",
+      "hard_gate": false,
+      "status": "NOT_STARTED",
+      "parser_status": "NOT_STARTED",
+      "runtime_status": "NOT_STARTED",
+      "terminal_status": "NOT_STARTED",
+      "browser_status": "NOT_STARTED",
+      "bn_files": [
+        "filter_checkbox_bug.bn"
+      ],
+      "expected_files": [
+        "filter_checkbox_bug.expected"
+      ],
+      "reference_assets": [],
+      "helper_files": [],
+      "docs": [],
+      "all_files": [
+        "filter_checkbox_bug.bn",
+        "filter_checkbox_bug.expected"
+      ],
+      "blockers": [],
+      "notes": []
+    },
+    {
+      "name": "flight_booker",
+      "relative_path": "flight_booker",
+      "source_path": "third_party/boon-upstream/playground/frontend/src/examples/flight_booker",
+      "imported_path": "examples/upstream/flight_booker",
+      "category": "playground",
+      "hard_gate": false,
+      "status": "NOT_STARTED",
+      "parser_status": "NOT_STARTED",
+      "runtime_status": "NOT_STARTED",
+      "terminal_status": "NOT_STARTED",
+      "browser_status": "NOT_STARTED",
+      "bn_files": [
+        "flight_booker.bn"
+      ],
+      "expected_files": [
+        "flight_booker.expected"
+      ],
+      "reference_assets": [
+        "reference_700x700_(1400x1400).png"
+      ],
+      "helper_files": [],
+      "docs": [],
+      "all_files": [
+        "flight_booker.bn",
+        "flight_booker.expected",
+        "reference_700x700_(1400x1400).png"
+      ],
+      "blockers": [],
+      "notes": []
+    },
+    {
+      "name": "hello_world",
+      "relative_path": "hello_world",
+      "source_path": "third_party/boon-upstream/playground/frontend/src/examples/hello_world",
+      "imported_path": "examples/upstream/hello_world",
+      "category": "playground",
+      "hard_gate": false,
+      "status": "NOT_STARTED",
+      "parser_status": "NOT_STARTED",
+      "runtime_status": "NOT_STARTED",
+      "terminal_status": "NOT_STARTED",
+      "browser_status": "NOT_STARTED",
+      "bn_files": [
+        "hello_world.bn"
+      ],
+      "expected_files": [
+        "hello_world.expected"
+      ],
+      "reference_assets": [],
+      "helper_files": [],
+      "docs": [],
+      "all_files": [
+        "hello_world.bn",
+        "hello_world.expected"
+      ],
+      "blockers": [],
+      "notes": []
+    },
+    {
+      "name": "hw_examples",
+      "relative_path": "hw_examples",
+      "source_path": "third_party/boon-upstream/playground/frontend/src/examples/hw_examples",
+      "imported_path": "examples/upstream/hw_examples",
+      "category": "hardware",
+      "hard_gate": false,
+      "status": "NOT_STARTED",
+      "parser_status": "NOT_STARTED",
+      "runtime_status": "NOT_STARTED",
+      "terminal_status": "NOT_STARTED",
+      "browser_status": "NOT_STARTED",
+      "bn_files": [
+        "alu.bn",
+        "counter.bn",
+        "cycleadder_arst.bn",
+        "dff_masterslave.bn",
+        "dlatch_gate.bn",
+        "fsm.bn",
+        "fulladder.bn",
+        "lfsr.bn",
+        "prio_encoder.bn",
+        "ram.bn",
+        "rom.bn",
+        "serialadder.bn",
+        "sr_gate.bn",
+        "sr_neg_gate.bn",
+        "super_counter/super_counter.bn"
+      ],
+      "expected_files": [],
+      "reference_assets": [],
+      "helper_files": [
+        "alu.sv",
+        "counter.sv",
+        "cycleadder_arst.sv",
+        "dff_masterslave.sv",
+        "dlatch_gate.sv",
+        "fsm.sv",
+        "fulladder.sv",
+        "lfsr.sv",
+        "prio_encoder.sv",
+        "ram.sv",
+        "rom.sv",
+        "serialadder.sv",
+        "sr_gate.sv",
+        "sr_neg_gate.sv",
+        "super_counter/super_counter.sv"
+      ],
+      "docs": [
+        "CLOCK_SEMANTICS.md",
+        "README.md",
+        "hdl_analysis/ACCIDENTALLY_MOTIVATING_REVIEW.md",
+        "hdl_analysis/NATURAL_EMERGENCE_ANALYSIS.md",
+        "hdl_analysis/QUICK_REPORT.md",
+        "hdl_analysis/README.md",
+        "hdl_analysis/REMAINING_FEATURES_EMERGENCE.md",
+        "super_counter/README.md"
+      ],
+      "all_files": [
+        "CLOCK_SEMANTICS.md",
+        "README.md",
+        "alu.bn",
+        "alu.sv",
+        "counter.bn",
+        "counter.sv",
+        "cycleadder_arst.bn",
+        "cycleadder_arst.sv",
+        "dff_masterslave.bn",
+        "dff_masterslave.sv",
+        "dlatch_gate.bn",
+        "dlatch_gate.sv",
+        "fsm.bn",
+        "fsm.sv",
+        "fulladder.bn",
+        "fulladder.sv",
+        "hdl_analysis/ACCIDENTALLY_MOTIVATING_REVIEW.md",
+        "hdl_analysis/NATURAL_EMERGENCE_ANALYSIS.md",
+        "hdl_analysis/QUICK_REPORT.md",
+        "hdl_analysis/README.md",
+        "hdl_analysis/REMAINING_FEATURES_EMERGENCE.md",
+        "lfsr.bn",
+        "lfsr.sv",
+        "prio_encoder.bn",
+        "prio_encoder.sv",
+        "ram.bn",
+        "ram.sv",
+        "rom.bn",
+        "rom.sv",
+        "serialadder.bn",
+        "serialadder.sv",
+        "sr_gate.bn",
+        "sr_gate.sv",
+        "sr_neg_gate.bn",
+        "sr_neg_gate.sv",
+        "super_counter/README.md",
+        "super_counter/super_counter.bn",
+        "super_counter/super_counter.sv"
+      ],
+      "blockers": [],
+      "notes": [
+        "Directory mixes multiple HDL-oriented .bn/.sv programs and analysis docs."
+      ]
+    },
+    {
+      "name": "interval",
+      "relative_path": "interval",
+      "source_path": "third_party/boon-upstream/playground/frontend/src/examples/interval",
+      "imported_path": "examples/upstream/interval",
+      "category": "playground",
+      "hard_gate": true,
+      "status": "NOT_STARTED",
+      "parser_status": "NOT_STARTED",
+      "runtime_status": "NOT_STARTED",
+      "terminal_status": "NOT_STARTED",
+      "browser_status": "NOT_STARTED",
+      "bn_files": [
+        "interval.bn"
+      ],
+      "expected_files": [
+        "interval.expected"
+      ],
+      "reference_assets": [],
+      "helper_files": [],
+      "docs": [
+        "interval_flow.md",
+        "interval_state.md"
+      ],
+      "all_files": [
+        "interval.bn",
+        "interval.expected",
+        "interval_flow.md",
+        "interval_state.md"
+      ],
+      "blockers": [],
+      "notes": []
+    },
+    {
+      "name": "interval_hold",
+      "relative_path": "interval_hold",
+      "source_path": "third_party/boon-upstream/playground/frontend/src/examples/interval_hold",
+      "imported_path": "examples/upstream/interval_hold",
+      "category": "playground",
+      "hard_gate": false,
+      "status": "NOT_STARTED",
+      "parser_status": "NOT_STARTED",
+      "runtime_status": "NOT_STARTED",
+      "terminal_status": "NOT_STARTED",
+      "browser_status": "NOT_STARTED",
+      "bn_files": [
+        "interval_hold.bn"
+      ],
+      "expected_files": [
+        "interval_hold.expected"
+      ],
+      "reference_assets": [],
+      "helper_files": [],
+      "docs": [],
+      "all_files": [
+        "interval_hold.bn",
+        "interval_hold.expected"
+      ],
+      "blockers": [],
+      "notes": []
+    },
+    {
+      "name": "latest",
+      "relative_path": "latest",
+      "source_path": "third_party/boon-upstream/playground/frontend/src/examples/latest",
+      "imported_path": "examples/upstream/latest",
+      "category": "playground",
+      "hard_gate": false,
+      "status": "NOT_STARTED",
+      "parser_status": "NOT_STARTED",
+      "runtime_status": "NOT_STARTED",
+      "terminal_status": "NOT_STARTED",
+      "browser_status": "NOT_STARTED",
+      "bn_files": [
+        "latest.bn"
+      ],
+      "expected_files": [
+        "latest.expected"
+      ],
+      "reference_assets": [],
+      "helper_files": [],
+      "docs": [],
+      "all_files": [
+        "latest.bn",
+        "latest.expected"
+      ],
+      "blockers": [],
+      "notes": []
+    },
+    {
+      "name": "layers",
+      "relative_path": "layers",
+      "source_path": "third_party/boon-upstream/playground/frontend/src/examples/layers",
+      "imported_path": "examples/upstream/layers",
+      "category": "playground",
+      "hard_gate": false,
+      "status": "NOT_STARTED",
+      "parser_status": "NOT_STARTED",
+      "runtime_status": "NOT_STARTED",
+      "terminal_status": "NOT_STARTED",
+      "browser_status": "NOT_STARTED",
+      "bn_files": [
+        "layers.bn"
+      ],
+      "expected_files": [
+        "layers.expected"
+      ],
+      "reference_assets": [],
+      "helper_files": [],
+      "docs": [],
+      "all_files": [
+        "layers.bn",
+        "layers.expected"
+      ],
+      "blockers": [],
+      "notes": []
+    },
+    {
+      "name": "list_map_block",
+      "relative_path": "list_map_block",
+      "source_path": "third_party/boon-upstream/playground/frontend/src/examples/list_map_block",
+      "imported_path": "examples/upstream/list_map_block",
+      "category": "playground",
+      "hard_gate": false,
+      "status": "NOT_STARTED",
+      "parser_status": "NOT_STARTED",
+      "runtime_status": "NOT_STARTED",
+      "terminal_status": "NOT_STARTED",
+      "browser_status": "NOT_STARTED",
+      "bn_files": [
+        "list_map_block.bn"
+      ],
+      "expected_files": [
+        "list_map_block.expected"
+      ],
+      "reference_assets": [],
+      "helper_files": [],
+      "docs": [],
+      "all_files": [
+        "list_map_block.bn",
+        "list_map_block.expected"
+      ],
+      "blockers": [],
+      "notes": []
+    },
+    {
+      "name": "list_map_external_dep",
+      "relative_path": "list_map_external_dep",
+      "source_path": "third_party/boon-upstream/playground/frontend/src/examples/list_map_external_dep",
+      "imported_path": "examples/upstream/list_map_external_dep",
+      "category": "playground",
+      "hard_gate": false,
+      "status": "NOT_STARTED",
+      "parser_status": "NOT_STARTED",
+      "runtime_status": "NOT_STARTED",
+      "terminal_status": "NOT_STARTED",
+      "browser_status": "NOT_STARTED",
+      "bn_files": [
+        "list_map_external_dep.bn"
+      ],
+      "expected_files": [
+        "list_map_external_dep.expected"
+      ],
+      "reference_assets": [],
+      "helper_files": [],
+      "docs": [],
+      "all_files": [
+        "list_map_external_dep.bn",
+        "list_map_external_dep.expected"
+      ],
+      "blockers": [],
+      "notes": []
+    },
+    {
+      "name": "list_object_state",
+      "relative_path": "list_object_state",
+      "source_path": "third_party/boon-upstream/playground/frontend/src/examples/list_object_state",
+      "imported_path": "examples/upstream/list_object_state",
+      "category": "playground",
+      "hard_gate": false,
+      "status": "NOT_STARTED",
+      "parser_status": "NOT_STARTED",
+      "runtime_status": "NOT_STARTED",
+      "terminal_status": "NOT_STARTED",
+      "browser_status": "NOT_STARTED",
+      "bn_files": [
+        "list_object_state.bn"
+      ],
+      "expected_files": [
+        "list_object_state.expected"
+      ],
+      "reference_assets": [],
+      "helper_files": [],
+      "docs": [],
+      "all_files": [
+        "list_object_state.bn",
+        "list_object_state.expected"
+      ],
+      "blockers": [],
+      "notes": []
+    },
+    {
+      "name": "list_retain_count",
+      "relative_path": "list_retain_count",
+      "source_path": "third_party/boon-upstream/playground/frontend/src/examples/list_retain_count",
+      "imported_path": "examples/upstream/list_retain_count",
+      "category": "playground",
+      "hard_gate": false,
+      "status": "NOT_STARTED",
+      "parser_status": "NOT_STARTED",
+      "runtime_status": "NOT_STARTED",
+      "terminal_status": "NOT_STARTED",
+      "browser_status": "NOT_STARTED",
+      "bn_files": [
+        "list_retain_count.bn"
+      ],
+      "expected_files": [
+        "list_retain_count.expected"
+      ],
+      "reference_assets": [],
+      "helper_files": [],
+      "docs": [],
+      "all_files": [
+        "list_retain_count.bn",
+        "list_retain_count.expected"
+      ],
+      "blockers": [],
+      "notes": []
+    },
+    {
+      "name": "list_retain_reactive",
+      "relative_path": "list_retain_reactive",
+      "source_path": "third_party/boon-upstream/playground/frontend/src/examples/list_retain_reactive",
+      "imported_path": "examples/upstream/list_retain_reactive",
+      "category": "playground",
+      "hard_gate": false,
+      "status": "NOT_STARTED",
+      "parser_status": "NOT_STARTED",
+      "runtime_status": "NOT_STARTED",
+      "terminal_status": "NOT_STARTED",
+      "browser_status": "NOT_STARTED",
+      "bn_files": [
+        "list_retain_reactive.bn"
+      ],
+      "expected_files": [
+        "list_retain_reactive.expected"
+      ],
+      "reference_assets": [],
+      "helper_files": [],
+      "docs": [],
+      "all_files": [
+        "list_retain_reactive.bn",
+        "list_retain_reactive.expected"
+      ],
+      "blockers": [],
+      "notes": []
+    },
+    {
+      "name": "list_retain_remove",
+      "relative_path": "list_retain_remove",
+      "source_path": "third_party/boon-upstream/playground/frontend/src/examples/list_retain_remove",
+      "imported_path": "examples/upstream/list_retain_remove",
+      "category": "playground",
+      "hard_gate": false,
+      "status": "NOT_STARTED",
+      "parser_status": "NOT_STARTED",
+      "runtime_status": "NOT_STARTED",
+      "terminal_status": "NOT_STARTED",
+      "browser_status": "NOT_STARTED",
+      "bn_files": [
+        "list_retain_remove.bn"
+      ],
+      "expected_files": [
+        "list_retain_remove.expected"
+      ],
+      "reference_assets": [],
+      "helper_files": [],
+      "docs": [],
+      "all_files": [
+        "list_retain_remove.bn",
+        "list_retain_remove.expected"
+      ],
+      "blockers": [],
+      "notes": []
+    },
+    {
+      "name": "minimal",
+      "relative_path": "minimal",
+      "source_path": "third_party/boon-upstream/playground/frontend/src/examples/minimal",
+      "imported_path": "examples/upstream/minimal",
+      "category": "playground",
+      "hard_gate": false,
+      "status": "NOT_STARTED",
+      "parser_status": "NOT_STARTED",
+      "runtime_status": "NOT_STARTED",
+      "terminal_status": "NOT_STARTED",
+      "browser_status": "NOT_STARTED",
+      "bn_files": [
+        "minimal.bn"
+      ],
+      "expected_files": [
+        "minimal.expected"
+      ],
+      "reference_assets": [],
+      "helper_files": [],
+      "docs": [],
+      "all_files": [
+        "minimal.bn",
+        "minimal.expected"
+      ],
+      "blockers": [],
+      "notes": []
+    },
+    {
+      "name": "pages",
+      "relative_path": "pages",
+      "source_path": "third_party/boon-upstream/playground/frontend/src/examples/pages",
+      "imported_path": "examples/upstream/pages",
+      "category": "playground",
+      "hard_gate": false,
+      "status": "NOT_STARTED",
+      "parser_status": "NOT_STARTED",
+      "runtime_status": "NOT_STARTED",
+      "terminal_status": "NOT_STARTED",
+      "browser_status": "NOT_STARTED",
+      "bn_files": [
+        "pages.bn"
+      ],
+      "expected_files": [
+        "pages.expected"
+      ],
+      "reference_assets": [],
+      "helper_files": [],
+      "docs": [],
+      "all_files": [
+        "pages.bn",
+        "pages.expected"
+      ],
+      "blockers": [],
+      "notes": []
+    },
+    {
+      "name": "shopping_list",
+      "relative_path": "shopping_list",
+      "source_path": "third_party/boon-upstream/playground/frontend/src/examples/shopping_list",
+      "imported_path": "examples/upstream/shopping_list",
+      "category": "playground",
+      "hard_gate": false,
+      "status": "NOT_STARTED",
+      "parser_status": "NOT_STARTED",
+      "runtime_status": "NOT_STARTED",
+      "terminal_status": "NOT_STARTED",
+      "browser_status": "NOT_STARTED",
+      "bn_files": [
+        "shopping_list.bn"
+      ],
+      "expected_files": [
+        "shopping_list.expected"
+      ],
+      "reference_assets": [],
+      "helper_files": [],
+      "docs": [],
+      "all_files": [
+        "shopping_list.bn",
+        "shopping_list.expected"
+      ],
+      "blockers": [],
+      "notes": []
+    },
+    {
+      "name": "switch_hold_test",
+      "relative_path": "switch_hold_test",
+      "source_path": "third_party/boon-upstream/playground/frontend/src/examples/switch_hold_test",
+      "imported_path": "examples/upstream/switch_hold_test",
+      "category": "playground",
+      "hard_gate": false,
+      "status": "NOT_STARTED",
+      "parser_status": "NOT_STARTED",
+      "runtime_status": "NOT_STARTED",
+      "terminal_status": "NOT_STARTED",
+      "browser_status": "NOT_STARTED",
+      "bn_files": [
+        "switch_hold_test.bn"
+      ],
+      "expected_files": [
+        "switch_hold_test.expected"
+      ],
+      "reference_assets": [],
+      "helper_files": [],
+      "docs": [],
+      "all_files": [
+        "switch_hold_test.bn",
+        "switch_hold_test.expected"
+      ],
+      "blockers": [],
+      "notes": []
+    },
+    {
+      "name": "temperature_converter",
+      "relative_path": "temperature_converter",
+      "source_path": "third_party/boon-upstream/playground/frontend/src/examples/temperature_converter",
+      "imported_path": "examples/upstream/temperature_converter",
+      "category": "playground",
+      "hard_gate": false,
+      "status": "NOT_STARTED",
+      "parser_status": "NOT_STARTED",
+      "runtime_status": "NOT_STARTED",
+      "terminal_status": "NOT_STARTED",
+      "browser_status": "NOT_STARTED",
+      "bn_files": [
+        "temperature_converter.bn"
+      ],
+      "expected_files": [
+        "temperature_converter.expected"
+      ],
+      "reference_assets": [
+        "reference_700x700_(1400x1400).png"
+      ],
+      "helper_files": [],
+      "docs": [],
+      "all_files": [
+        "reference_700x700_(1400x1400).png",
+        "temperature_converter.bn",
+        "temperature_converter.expected"
+      ],
+      "blockers": [],
+      "notes": []
+    },
+    {
+      "name": "text_interpolation_update",
+      "relative_path": "text_interpolation_update",
+      "source_path": "third_party/boon-upstream/playground/frontend/src/examples/text_interpolation_update",
+      "imported_path": "examples/upstream/text_interpolation_update",
+      "category": "playground",
+      "hard_gate": false,
+      "status": "NOT_STARTED",
+      "parser_status": "NOT_STARTED",
+      "runtime_status": "NOT_STARTED",
+      "terminal_status": "NOT_STARTED",
+      "browser_status": "NOT_STARTED",
+      "bn_files": [
+        "text_interpolation_update.bn"
+      ],
+      "expected_files": [
+        "text_interpolation_update.expected"
+      ],
+      "reference_assets": [],
+      "helper_files": [],
+      "docs": [],
+      "all_files": [
+        "text_interpolation_update.bn",
+        "text_interpolation_update.expected"
+      ],
+      "blockers": [],
+      "notes": []
+    },
+    {
+      "name": "then",
+      "relative_path": "then",
+      "source_path": "third_party/boon-upstream/playground/frontend/src/examples/then",
+      "imported_path": "examples/upstream/then",
+      "category": "playground",
+      "hard_gate": false,
+      "status": "NOT_STARTED",
+      "parser_status": "NOT_STARTED",
+      "runtime_status": "NOT_STARTED",
+      "terminal_status": "NOT_STARTED",
+      "browser_status": "NOT_STARTED",
+      "bn_files": [
+        "then.bn"
+      ],
+      "expected_files": [
+        "then.expected"
+      ],
+      "reference_assets": [],
+      "helper_files": [],
+      "docs": [],
+      "all_files": [
+        "then.bn",
+        "then.expected"
+      ],
+      "blockers": [],
+      "notes": []
+    },
+    {
+      "name": "timer",
+      "relative_path": "timer",
+      "source_path": "third_party/boon-upstream/playground/frontend/src/examples/timer",
+      "imported_path": "examples/upstream/timer",
+      "category": "playground",
+      "hard_gate": false,
+      "status": "NOT_STARTED",
+      "parser_status": "NOT_STARTED",
+      "runtime_status": "NOT_STARTED",
+      "terminal_status": "NOT_STARTED",
+      "browser_status": "NOT_STARTED",
+      "bn_files": [
+        "timer.bn"
+      ],
+      "expected_files": [
+        "timer.expected"
+      ],
+      "reference_assets": [
+        "reference_700x700_(1400x1400).png"
+      ],
+      "helper_files": [],
+      "docs": [],
+      "all_files": [
+        "reference_700x700_(1400x1400).png",
+        "timer.bn",
+        "timer.expected"
+      ],
+      "blockers": [],
+      "notes": []
+    },
+    {
+      "name": "todo_mvc",
+      "relative_path": "todo_mvc",
+      "source_path": "third_party/boon-upstream/playground/frontend/src/examples/todo_mvc",
+      "imported_path": "examples/upstream/todo_mvc",
+      "category": "playground",
+      "hard_gate": true,
+      "status": "NOT_STARTED",
+      "parser_status": "NOT_STARTED",
+      "runtime_status": "NOT_STARTED",
+      "terminal_status": "NOT_STARTED",
+      "browser_status": "NOT_STARTED",
+      "bn_files": [
+        "todo_mvc.bn"
+      ],
+      "expected_files": [
+        "todo_mvc.expected"
+      ],
+      "reference_assets": [
+        "reference_700x700_(1400x1400).png",
+        "reference_metadata.json"
+      ],
+      "helper_files": [
+        "verify_visual.sh"
+      ],
+      "docs": [],
+      "all_files": [
+        "reference_700x700_(1400x1400).png",
+        "reference_metadata.json",
+        "todo_mvc.bn",
+        "todo_mvc.expected",
+        "verify_visual.sh"
+      ],
+      "blockers": [],
+      "notes": []
+    },
+    {
+      "name": "todo_mvc_physical",
+      "relative_path": "todo_mvc_physical",
+      "source_path": "third_party/boon-upstream/playground/frontend/src/examples/todo_mvc_physical",
+      "imported_path": "examples/upstream/todo_mvc_physical",
+      "category": "physical",
+      "hard_gate": true,
+      "status": "NOT_STARTED",
+      "parser_status": "NOT_STARTED",
+      "runtime_status": "NOT_STARTED",
+      "terminal_status": "NOT_STARTED",
+      "browser_status": "NOT_STARTED",
+      "bn_files": [
+        "BUILD.bn",
+        "Generated/Assets.bn",
+        "RUN.bn",
+        "Theme/Glassmorphism.bn",
+        "Theme/Neobrutalism.bn",
+        "Theme/Neumorphism.bn",
+        "Theme/Professional.bn",
+        "Theme/Theme.bn"
+      ],
+      "expected_files": [
+        "todo_mvc_physical.expected"
+      ],
+      "reference_assets": [
+        "assets/icons/checkbox_active.svg",
+        "assets/icons/checkbox_completed.svg"
+      ],
+      "helper_files": [],
+      "docs": [
+        "README.md",
+        "docs/3D_API_DESIGN.md",
+        "docs/ARCHITECTURE.md",
+        "docs/CODE_ANALYSIS_AND_IMPROVEMENTS.md",
+        "docs/EMERGENT_BORDERS.md",
+        "docs/EMERGENT_GEOMETRY_CONCEPT.md",
+        "docs/EMERGENT_THEME_TOKENS.md",
+        "docs/LANGUAGE_FEATURES_RESEARCH.md",
+        "docs/PATTERNS_STATUS.md",
+        "docs/PHYSICALLY_BASED_RENDERING.md",
+        "docs/POINTER_MAGNETISM.md",
+        "docs/TEXT_DEPTH_HIERARCHY.md",
+        "docs/theme/ARCHITECTURE.md",
+        "docs/theme/README.md",
+        "docs/theme/STRUCTURE.md",
+        "docs/theme/USAGE.md"
+      ],
+      "all_files": [
+        "BUILD.bn",
+        "Generated/Assets.bn",
+        "README.md",
+        "RUN.bn",
+        "Theme/Glassmorphism.bn",
+        "Theme/Neobrutalism.bn",
+        "Theme/Neumorphism.bn",
+        "Theme/Professional.bn",
+        "Theme/Theme.bn",
+        "assets/icons/checkbox_active.svg",
+        "assets/icons/checkbox_completed.svg",
+        "docs/3D_API_DESIGN.md",
+        "docs/ARCHITECTURE.md",
+        "docs/CODE_ANALYSIS_AND_IMPROVEMENTS.md",
+        "docs/EMERGENT_BORDERS.md",
+        "docs/EMERGENT_GEOMETRY_CONCEPT.md",
+        "docs/EMERGENT_THEME_TOKENS.md",
+        "docs/LANGUAGE_FEATURES_RESEARCH.md",
+        "docs/PATTERNS_STATUS.md",
+        "docs/PHYSICALLY_BASED_RENDERING.md",
+        "docs/POINTER_MAGNETISM.md",
+        "docs/TEXT_DEPTH_HIERARCHY.md",
+        "docs/theme/ARCHITECTURE.md",
+        "docs/theme/README.md",
+        "docs/theme/STRUCTURE.md",
+        "docs/theme/USAGE.md",
+        "todo_mvc_physical.expected"
+      ],
+      "blockers": [],
+      "notes": [
+        "Physical renderer work is tracked separately; import includes docs, themes, assets, BUILD.bn, and RUN.bn.",
+        "Model/cut(from, remove) remains an internal renderer TODO in upstream docs."
+      ]
+    },
+    {
+      "name": "when",
+      "relative_path": "when",
+      "source_path": "third_party/boon-upstream/playground/frontend/src/examples/when",
+      "imported_path": "examples/upstream/when",
+      "category": "playground",
+      "hard_gate": false,
+      "status": "NOT_STARTED",
+      "parser_status": "NOT_STARTED",
+      "runtime_status": "NOT_STARTED",
+      "terminal_status": "NOT_STARTED",
+      "browser_status": "NOT_STARTED",
+      "bn_files": [
+        "when.bn"
+      ],
+      "expected_files": [
+        "when.expected"
+      ],
+      "reference_assets": [],
+      "helper_files": [],
+      "docs": [],
+      "all_files": [
+        "when.bn",
+        "when.expected"
+      ],
+      "blockers": [],
+      "notes": []
+    },
+    {
+      "name": "while",
+      "relative_path": "while",
+      "source_path": "third_party/boon-upstream/playground/frontend/src/examples/while",
+      "imported_path": "examples/upstream/while",
+      "category": "playground",
+      "hard_gate": false,
+      "status": "NOT_STARTED",
+      "parser_status": "NOT_STARTED",
+      "runtime_status": "NOT_STARTED",
+      "terminal_status": "NOT_STARTED",
+      "browser_status": "NOT_STARTED",
+      "bn_files": [
+        "while.bn"
+      ],
+      "expected_files": [
+        "while.expected"
+      ],
+      "reference_assets": [],
+      "helper_files": [],
+      "docs": [],
+      "all_files": [
+        "while.bn",
+        "while.expected"
+      ],
+      "blockers": [],
+      "notes": []
+    },
+    {
+      "name": "while_function_call",
+      "relative_path": "while_function_call",
+      "source_path": "third_party/boon-upstream/playground/frontend/src/examples/while_function_call",
+      "imported_path": "examples/upstream/while_function_call",
+      "category": "playground",
+      "hard_gate": false,
+      "status": "NOT_STARTED",
+      "parser_status": "NOT_STARTED",
+      "runtime_status": "NOT_STARTED",
+      "terminal_status": "NOT_STARTED",
+      "browser_status": "NOT_STARTED",
+      "bn_files": [
+        "while_function_call.bn"
+      ],
+      "expected_files": [
+        "while_function_call.expected"
+      ],
+      "reference_assets": [],
+      "helper_files": [],
+      "docs": [],
+      "all_files": [
+        "while_function_call.bn",
+        "while_function_call.expected"
+      ],
+      "blockers": [],
+      "notes": []
+    }
+  ]
+}

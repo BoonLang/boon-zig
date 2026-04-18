@@ -1,0 +1,300 @@
+{
+  "source_commit": "c924d9f7d7e1c156604c9377e0487db48c278353",
+  "scanned_file_count": 123,
+  "detections": {
+    "FUNCTION": {
+      "detected": true,
+      "sample_paths": [
+        "third_party/boon-upstream/playground/frontend/src/examples/checkbox_test.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/button_hover_test/button_hover_test.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/todo_mvc_physical/BUILD.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/todo_mvc_physical/RUN.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/complex_counter/complex_counter.bn"
+      ]
+    },
+    "BLOCK": {
+      "detected": true,
+      "sample_paths": [
+        "third_party/boon-upstream/playground/frontend/src/examples/todo_mvc_physical/BUILD.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/todo_mvc_physical/RUN.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/hw_examples/cycleadder_arst.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/hw_examples/dff_masterslave.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/hw_examples/rom.bn"
+      ]
+    },
+    "LIST": {
+      "detected": true,
+      "sample_paths": [
+        "third_party/boon-upstream/playground/frontend/src/examples/checkbox_test.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/button_hover_test/button_hover_test.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/todo_mvc_physical/RUN.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/complex_counter/complex_counter.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/hw_examples/prio_encoder.bn"
+      ]
+    },
+    "MAP": {
+      "detected": true,
+      "sample_paths": [
+        "third_party/boon-upstream/docs/language/HOLD.md",
+        "third_party/boon-upstream/docs/language/storage/TABLE_BYTES_RESEARCH.md"
+      ]
+    },
+    "LINK": {
+      "detected": true,
+      "sample_paths": [
+        "third_party/boon-upstream/playground/frontend/src/examples/checkbox_test.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/button_hover_test/button_hover_test.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/todo_mvc_physical/RUN.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/complex_counter/complex_counter.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/cells/cells.bn"
+      ]
+    },
+    "LATEST": {
+      "detected": true,
+      "sample_paths": [
+        "third_party/boon-upstream/playground/frontend/src/examples/todo_mvc_physical/RUN.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/complex_counter/complex_counter.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/timer/timer.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/when/when.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/temperature_converter/temperature_converter.bn"
+      ]
+    },
+    "HOLD": {
+      "detected": true,
+      "sample_paths": [
+        "third_party/boon-upstream/playground/frontend/src/examples/checkbox_test.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/interval_hold/interval_hold.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/todo_mvc_physical/RUN.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/complex_counter/complex_counter.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/hw_examples/cycleadder_arst.bn"
+      ]
+    },
+    "THEN": {
+      "detected": true,
+      "sample_paths": [
+        "third_party/boon-upstream/playground/frontend/src/examples/checkbox_test.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/interval_hold/interval_hold.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/todo_mvc_physical/RUN.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/complex_counter/complex_counter.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/hw_examples/cycleadder_arst.bn"
+      ]
+    },
+    "WHEN": {
+      "detected": true,
+      "sample_paths": [
+        "third_party/boon-upstream/playground/frontend/src/examples/checkbox_test.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/todo_mvc_physical/BUILD.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/todo_mvc_physical/RUN.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/complex_counter/complex_counter.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/hw_examples/alu.bn"
+      ]
+    },
+    "WHILE": {
+      "detected": true,
+      "sample_paths": [
+        "third_party/boon-upstream/playground/frontend/src/examples/button_hover_test/button_hover_test.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/todo_mvc_physical/RUN.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/hw_examples/cycleadder_arst.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/hw_examples/lfsr.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/hw_examples/counter.bn"
+      ]
+    },
+    "SKIP": {
+      "detected": true,
+      "sample_paths": [
+        "third_party/boon-upstream/playground/frontend/src/examples/todo_mvc_physical/RUN.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/hw_examples/cycleadder_arst.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/hw_examples/lfsr.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/hw_examples/ram.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/hw_examples/counter.bn"
+      ]
+    },
+    "PASS": {
+      "detected": true,
+      "sample_paths": [
+        "third_party/boon-upstream/playground/frontend/src/examples/todo_mvc_physical/RUN.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/complex_counter/complex_counter.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/timer/timer.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/temperature_converter/temperature_converter.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/flight_booker/flight_booker.bn"
+      ]
+    },
+    "PASSED": {
+      "detected": true,
+      "sample_paths": [
+        "third_party/boon-upstream/playground/frontend/src/examples/button_hover_test/button_hover_test.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/todo_mvc_physical/RUN.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/complex_counter/complex_counter.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/hw_examples/cycleadder_arst.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/hw_examples/lfsr.bn"
+      ]
+    },
+    "FLUSH": {
+      "detected": true,
+      "sample_paths": [
+        "third_party/boon-upstream/playground/frontend/src/examples/todo_mvc_physical/BUILD.bn",
+        "third_party/boon-upstream/docs/language/BOON_SYNTAX.md",
+        "third_party/boon-upstream/docs/language/FLUSH.md",
+        "third_party/boon-upstream/docs/language/ERROR_HANDLING.md",
+        "third_party/boon-upstream/docs/language/DATAFLOW.md"
+      ]
+    },
+    "PULSES": {
+      "detected": true,
+      "sample_paths": [
+        "third_party/boon-upstream/docs/language/BOON_SYNTAX.md",
+        "third_party/boon-upstream/docs/language/HOLD.md",
+        "third_party/boon-upstream/docs/language/DATAFLOW.md",
+        "third_party/boon-upstream/docs/language/gpu/GPU_RESEARCH.md",
+        "third_party/boon-upstream/docs/language/gpu/HVM_BEND_ANALYSIS.md"
+      ]
+    },
+    "UNPLUGGED": {
+      "detected": true,
+      "sample_paths": [
+        "third_party/boon-upstream/docs/language/BOON_SYNTAX.md",
+        "third_party/boon-upstream/docs/language/SPREAD_OPERATOR.md",
+        "third_party/boon-upstream/playground/frontend/src/examples/todo_mvc_physical/docs/CODE_ANALYSIS_AND_IMPROVEMENTS.md",
+        "third_party/boon-upstream/playground/frontend/src/examples/todo_mvc_physical/docs/LANGUAGE_FEATURES_RESEARCH.md",
+        "third_party/boon-upstream/playground/frontend/src/examples/todo_mvc_physical/docs/PATTERNS_STATUS.md"
+      ]
+    },
+    "NoElement": {
+      "detected": true,
+      "sample_paths": [
+        "third_party/boon-upstream/playground/frontend/src/examples/todo_mvc_physical/RUN.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/chained_list_remove_bug/chained_list_remove_bug.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/list_map_external_dep/list_map_external_dep.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/todo_mvc/todo_mvc.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/list_map_block/list_map_block.bn"
+      ]
+    },
+    "TEXT": {
+      "detected": true,
+      "sample_paths": [
+        "third_party/boon-upstream/playground/frontend/src/examples/checkbox_test.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/button_hover_test/button_hover_test.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/todo_mvc_physical/BUILD.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/todo_mvc_physical/RUN.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/complex_counter/complex_counter.bn"
+      ]
+    },
+    "BITS": {
+      "detected": true,
+      "sample_paths": [
+        "third_party/boon-upstream/playground/frontend/src/examples/hw_examples/cycleadder_arst.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/hw_examples/alu.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/hw_examples/prio_encoder.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/hw_examples/lfsr.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/hw_examples/counter.bn"
+      ]
+    },
+    "BYTES": {
+      "detected": true,
+      "sample_paths": [
+        "third_party/boon-upstream/docs/language/LIST.md",
+        "third_party/boon-upstream/docs/language/BITS.md",
+        "third_party/boon-upstream/docs/language/ENCODING.md",
+        "third_party/boon-upstream/docs/language/BYTES.md",
+        "third_party/boon-upstream/docs/language/TEXT_SYNTAX.md"
+      ]
+    },
+    "MEMORY": {
+      "detected": true,
+      "sample_paths": [
+        "third_party/boon-upstream/playground/frontend/src/examples/hw_examples/rom.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/hw_examples/ram.bn",
+        "third_party/boon-upstream/docs/language/LIST.md",
+        "third_party/boon-upstream/docs/language/LATEST_COMPILER_RULES.md",
+        "third_party/boon-upstream/docs/language/MEMORY.md"
+      ]
+    },
+    "DRAIN": {
+      "detected": false,
+      "sample_paths": []
+    },
+    "pipe": {
+      "detected": true,
+      "sample_paths": [
+        "third_party/boon-upstream/playground/frontend/src/examples/checkbox_test.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/button_hover_test/button_hover_test.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/interval_hold/interval_hold.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/todo_mvc_physical/BUILD.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/todo_mvc_physical/RUN.bn"
+      ]
+    },
+    "wildcard": {
+      "detected": true,
+      "sample_paths": [
+        "third_party/boon-upstream/playground/frontend/src/examples/todo_mvc_physical/RUN.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/hw_examples/cycleadder_arst.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/hw_examples/prio_encoder.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/hw_examples/counter.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/hw_examples/serialadder.bn"
+      ]
+    },
+    "arrow": {
+      "detected": true,
+      "sample_paths": [
+        "third_party/boon-upstream/playground/frontend/src/examples/checkbox_test.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/button_hover_test/button_hover_test.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/todo_mvc_physical/BUILD.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/todo_mvc_physical/RUN.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/complex_counter/complex_counter.bn"
+      ]
+    },
+    "spread": {
+      "detected": true,
+      "sample_paths": [
+        "third_party/boon-upstream/playground/frontend/src/examples/todo_mvc_physical/RUN.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/hw_examples/alu.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/hw_examples/lfsr.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/hw_examples/counter.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/hw_examples/serialadder.bn"
+      ]
+    },
+    "optional_access": {
+      "detected": true,
+      "sample_paths": [
+        "third_party/boon-upstream/playground/frontend/src/examples/button_hover_test/button_hover_test.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/todo_mvc_physical/RUN.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/hw_examples/prio_encoder.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/while_function_call/while_function_call.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/text_interpolation_update/text_interpolation_update.bn"
+      ]
+    },
+    "tagged_object": {
+      "detected": true,
+      "sample_paths": [
+        "third_party/boon-upstream/playground/frontend/src/examples/checkbox_test.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/button_hover_test/button_hover_test.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/interval_hold/interval_hold.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/todo_mvc_physical/BUILD.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/todo_mvc_physical/RUN.bn"
+      ]
+    },
+    "dynamic_list": {
+      "detected": true,
+      "sample_paths": [
+        "third_party/boon-upstream/playground/frontend/src/examples/checkbox_test.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/button_hover_test/button_hover_test.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/todo_mvc_physical/RUN.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/complex_counter/complex_counter.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/hw_examples/serialadder.bn"
+      ]
+    },
+    "static_list": {
+      "detected": true,
+      "sample_paths": [
+        "third_party/boon-upstream/playground/frontend/src/examples/hw_examples/prio_encoder.bn",
+        "third_party/boon-upstream/playground/frontend/src/examples/hw_examples/super_counter/super_counter.bn",
+        "third_party/boon-upstream/docs/language/LIST.md",
+        "third_party/boon-upstream/playground/frontend/src/examples/hw_examples/README.md"
+      ]
+    }
+  },
+  "summary": {
+    "detection_policy": "Presence is based on regex scans over upstream example .bn files and related docs.",
+    "drain_status": "No exact DRAIN token found in scanned upstream example/docs sources."
+  }
+}
