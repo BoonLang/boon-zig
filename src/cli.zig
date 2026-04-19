@@ -5,6 +5,7 @@ const browser_assets = @import("browser_assets");
 pub const Command = union(enum) {
     help,
     version,
+    format: []const u8,
     parse: []const u8,
     hir: []const u8,
     flow: []const u8,
@@ -62,6 +63,7 @@ pub fn run(
             try stdout.print("boon-zig {s}\n", .{boon.version});
             return 0;
         },
+        .format => |path| return try runFormat(allocator, io, path, stdout, stderr),
         .parse => |path| return try runParse(allocator, io, path, stdout, stderr),
         .hir => |path| return try runHir(allocator, io, path, stdout, stderr),
         .flow => |path| return try runFlow(allocator, io, path, stdout, stderr),
@@ -87,6 +89,10 @@ fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) !Command {
     if (std.mem.eql(u8, arg, "parse")) {
         if (args.len <= 2) return error.MissingPath;
         return .{ .parse = args[2] };
+    }
+    if (std.mem.eql(u8, arg, "format")) {
+        if (args.len <= 2) return error.MissingPath;
+        return .{ .format = args[2] };
     }
     if (std.mem.eql(u8, arg, "hir")) {
         if (args.len <= 2) return error.MissingPath;
@@ -285,6 +291,7 @@ pub fn writeHelp(writer: *std.Io.Writer) !void {
         \\Usage:
         \\  boon-zig [--help]
         \\  boon-zig [--version]
+        \\  boon-zig format <path>
         \\  boon-zig parse <path>
         \\  boon-zig hir <path>
         \\  boon-zig flow <path>
@@ -295,6 +302,7 @@ pub fn writeHelp(writer: *std.Io.Writer) !void {
         \\  boon-zig run-terminal <path> [--trace] [--virtual-time <duration>] [--script <path>]
         \\
         \\Current phase support:
+        \\  format   Format a Boon source file in place.
         \\  parse    Lex and parse a Boon source file and print structural stats.
         \\  hir      Lower a Boon source file into HIR and print lowering stats.
         \\  flow     Lower a Boon source file into Flow IR and print graph stats.
@@ -335,6 +343,38 @@ fn runParse(
         },
         .err => |failure| {
             try stderr.print("failed to parse {s}\n", .{path});
+            try failure.render(source, stderr);
+            return 1;
+        },
+    }
+}
+
+fn runFormat(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    path: []const u8,
+    stdout: *std.Io.Writer,
+    stderr: *std.Io.Writer,
+) !u8 {
+    const source = try std.Io.Dir.cwd().readFileAlloc(
+        io,
+        path,
+        allocator,
+        .limited(std.math.maxInt(usize)),
+    );
+    defer allocator.free(source);
+
+    const outcome = try boon.fmt.formatAlloc(allocator, source);
+    switch (outcome) {
+        .ok => |formatted| {
+            defer allocator.free(formatted);
+            var cwd = std.Io.Dir.cwd();
+            try cwd.writeFile(io, .{ .sub_path = path, .data = formatted });
+            try stdout.print("formatted {s}\n", .{path});
+            return 0;
+        },
+        .err => |failure| {
+            try stderr.print("failed to format {s}\n", .{path});
             try failure.render(source, stderr);
             return 1;
         },
