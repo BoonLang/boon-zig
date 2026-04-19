@@ -1,0 +1,133 @@
+FUNCTION next_ball(ball, paddle) {
+    ball |> WHEN {
+        -1 => -1
+        __ => ball == paddle |> WHEN {
+            True => -1
+            False => ball == 4 |> WHEN {
+                True => -1
+                False => ball + 1
+            }
+        }
+    }
+}
+
+FUNCTION next_bricks(bricks, ball, paddle) {
+    ball |> WHEN {
+        -1 => bricks
+        __ => ball == paddle |> WHEN {
+            True => bricks |> WHEN {
+                0 => 0
+                __ => bricks - 1
+            }
+            False => bricks
+        }
+    }
+}
+
+FUNCTION border_row() {
+    TEXT { ###### }
+}
+
+left_button: Element/button(
+    element: [event: [press: LINK]]
+    style: []
+    label: TEXT { Left }
+)
+
+right_button: Element/button(
+    element: [event: [press: LINK]]
+    style: []
+    label: TEXT { Right }
+)
+
+launch_button: Element/button(
+    element: [event: [press: LINK]]
+    style: []
+    label: TEXT { Launch }
+)
+
+tick_button: Element/button(
+    element: [event: [press: LINK]]
+    style: []
+    label: TEXT { Tick }
+)
+
+paddle: 0 |> HOLD paddle {
+    left_button.event.press |> THEN {
+        paddle |> WHEN {
+            0 => 0
+            __ => paddle - 1
+        }
+    }
+    right_button.event.press |> THEN {
+        paddle |> WHEN {
+            4 => 4
+            __ => paddle + 1
+        }
+    }
+}
+
+ball: -1 |> HOLD ball {
+    launch_button.event.press |> THEN { 0 }
+    tick_button.event.press |> THEN { next_ball(ball: ball, paddle: paddle) }
+}
+
+bricks: 3 |> HOLD bricks {
+    tick_button.event.press |> THEN { next_bricks(bricks: bricks, ball: ball, paddle: paddle) }
+}
+
+bricks_display: bricks |> WHEN {
+    0 => TEXT { ...... }
+    1 => TEXT { #..... }
+    2 => TEXT { ##.... }
+    __ => TEXT { ###... }
+}
+
+ball_display: ball |> WHEN {
+    -1 => TEXT { ...... }
+    0 => TEXT { o..... }
+    1 => TEXT { .o.... }
+    2 => TEXT { ..o... }
+    3 => TEXT { ...o.. }
+    __ => TEXT { ....o. }
+}
+
+paddle_display: paddle |> WHEN {
+    0 => TEXT { p..... }
+    1 => TEXT { .p.... }
+    2 => TEXT { ..p... }
+    3 => TEXT { ...p.. }
+    __ => TEXT { ....p. }
+}
+
+status: bricks == 0 |> WHEN {
+    True => TEXT { Cleared }
+    False => ball |> WHEN {
+        -1 => TEXT { Ready }
+        __ => TEXT { Flight }
+    }
+}
+
+document: Document/new(root: Element/stripe(
+    element: []
+    direction: Column
+    gap: 0
+    style: []
+
+    items: LIST {
+        left_button
+        right_button
+        launch_button
+        tick_button
+        Element/label(element: [], style: [], label: TEXT { Arkanoid })
+        Element/label(element: [], style: [], label: border_row())
+        Element/label(element: [], style: [], label: bricks_display)
+        Element/label(element: [], style: [], label: ball_display)
+        Element/label(element: [], style: [], label: paddle_display)
+        Element/label(element: [], style: [], label: border_row())
+        Element/label(element: [], style: [], label: TEXT { Bricks:{bricks} })
+        Element/label(element: [], style: [], label: TEXT { Paddle:{paddle} })
+        Element/label(element: [], style: [], label: TEXT { Ball:{ball} })
+        Element/label(element: [], style: [], label: status)
+    }
+))

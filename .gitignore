@@ -1,3 +1,4 @@
 .zig-cache/
 zig-out/
 third_party/boon-upstream/
+tools/__pycache__/

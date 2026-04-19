@@ -1,0 +1,14 @@
+[Left]
+[Right]
+[Launch]
+[Tick]
+Arkanoid
+######
+##....
+.o....
+.p....
+######
+Bricks:2
+Paddle:1
+Ball:1
+Flight

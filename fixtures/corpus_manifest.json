@@ -11,24 +11,47 @@
       "name": "pong",
       "category": "terminal_only",
       "hard_gate": true,
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
+      "runtime_status": "DONE",
+      "persistence_status": "NOT_STARTED",
+      "terminal_status": "DONE",
+      "browser_status": "PARTIAL",
       "notes": [
-        "Repo-authored terminal example; not present in upstream corpus yet."
-      ]
+        "Repo-authored terminal example tracked outside the upstream corpus.",
+        "Phase 7 headless verification replays the repo-authored Pong lane via tests/examples/pong_sequence.json and expects a scored rally.",
+        "Phase 8 terminal-grid verification replays the repo-authored Pong lane and compares the snapshot in tests/terminal_grid/pong.expected.",
+        "Repo-authored terminal example tracked as browser PARTIAL-by-design; no browser host lane is implemented for it."
+      ],
+      "path": "examples/terminal/pong/pong.bn",
+      "parser_status": "DONE"
     },
     {
       "name": "arkanoid",
       "category": "terminal_only",
       "hard_gate": true,
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
+      "runtime_status": "DONE",
+      "persistence_status": "NOT_STARTED",
+      "terminal_status": "DONE",
+      "browser_status": "PARTIAL",
       "notes": [
-        "Repo-authored terminal example; not present in upstream corpus yet."
-      ]
+        "Repo-authored terminal example tracked outside the upstream corpus.",
+        "Phase 7 headless verification replays the repo-authored Arkanoid lane via tests/examples/arkanoid_sequence.json and expects one brick break.",
+        "Phase 8 terminal-grid verification replays the repo-authored Arkanoid lane and compares the snapshot in tests/terminal_grid/arkanoid.expected.",
+        "Repo-authored terminal example tracked as browser PARTIAL-by-design; no browser host lane is implemented for it."
+      ],
+      "path": "examples/terminal/arkanoid/arkanoid.bn",
+      "parser_status": "DONE"
     }
   ],
   "shared_root_files": [
-    "checkbox_test.bn",
-    "reference_metadata.json"
+    {
+      "path": "checkbox_test.bn",
+      "parser_status": "DONE"
+    },
+    {
+      "path": "reference_metadata.json"
+    }
   ],
   "examples": [
     {
@@ -38,11 +61,14 @@
       "imported_path": "examples/upstream/button_hover_test",
       "category": "playground",
       "hard_gate": false,
-      "status": "NOT_STARTED",
-      "parser_status": "NOT_STARTED",
-      "runtime_status": "NOT_STARTED",
-      "terminal_status": "NOT_STARTED",
-      "browser_status": "NOT_STARTED",
+      "status": "PARTIAL",
+      "parser_status": "DONE",
+      "runtime_status": "PARTIAL",
+      "persistence_status": "NOT_STARTED",
+      "persistence_cases": 0,
+      "persistence_script": null,
+      "terminal_status": "PARTIAL",
+      "browser_status": "PARTIAL",
       "bn_files": [
         "button_hover_test.bn"
       ],
@@ -57,7 +83,11 @@
         "button_hover_test.expected"
       ],
       "blockers": [],
-      "notes": []
+      "notes": [
+        "Phase 10 headless smoke boots the example via plain `run-headless` without a runtime crash.",
+        "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+      ]
     },
     {
       "name": "button_hover_to_click_test",
@@ -66,11 +96,14 @@
       "imported_path": "examples/upstream/button_hover_to_click_test",
       "category": "playground",
       "hard_gate": false,
-      "status": "NOT_STARTED",
-      "parser_status": "NOT_STARTED",
-      "runtime_status": "NOT_STARTED",
-      "terminal_status": "NOT_STARTED",
-      "browser_status": "NOT_STARTED",
+      "status": "PARTIAL",
+      "parser_status": "DONE",
+      "runtime_status": "PARTIAL",
+      "persistence_status": "NOT_STARTED",
+      "persistence_cases": 0,
+      "persistence_script": null,
+      "terminal_status": "PARTIAL",
+      "browser_status": "PARTIAL",
       "bn_files": [
         "button_hover_to_click_test.bn"
       ],
@@ -85,7 +118,11 @@
         "button_hover_to_click_test.expected"
       ],
       "blockers": [],
-      "notes": []
+      "notes": [
+        "Phase 10 headless smoke boots the example via plain `run-headless` without a runtime crash.",
+        "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+      ]
     },
     {
       "name": "cells",
@@ -94,11 +131,14 @@
       "imported_path": "examples/upstream/cells",
       "category": "playground",
       "hard_gate": true,
-      "status": "NOT_STARTED",
-      "parser_status": "NOT_STARTED",
-      "runtime_status": "NOT_STARTED",
-      "terminal_status": "NOT_STARTED",
-      "browser_status": "NOT_STARTED",
+      "status": "PARTIAL",
+      "parser_status": "DONE",
+      "runtime_status": "DONE",
+      "persistence_status": "NOT_STARTED",
+      "persistence_cases": 0,
+      "persistence_script": null,
+      "terminal_status": "DONE",
+      "browser_status": "PARTIAL",
       "bn_files": [
         "cells.bn"
       ],
@@ -116,7 +156,11 @@
         "reference_700x700_(1400x1400).png"
       ],
       "blockers": [],
-      "notes": []
+      "notes": [
+        "Phase 7 headless verification asserts the deterministic initial spreadsheet render; deeper edit semantics stay covered by focused headless tests.",
+        "Phase 8 terminal-grid verification compares the deterministic spreadsheet snapshot in tests/terminal_grid/cells.expected.",
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+      ]
     },
     {
       "name": "cells_dynamic",
@@ -125,11 +169,14 @@
       "imported_path": "examples/upstream/cells_dynamic",
       "category": "playground",
       "hard_gate": false,
-      "status": "NOT_STARTED",
-      "parser_status": "NOT_STARTED",
-      "runtime_status": "NOT_STARTED",
-      "terminal_status": "NOT_STARTED",
-      "browser_status": "NOT_STARTED",
+      "status": "PARTIAL",
+      "parser_status": "DONE",
+      "runtime_status": "PARTIAL",
+      "persistence_status": "NOT_STARTED",
+      "persistence_cases": 0,
+      "persistence_script": null,
+      "terminal_status": "PARTIAL",
+      "browser_status": "PARTIAL",
       "bn_files": [
         "cells_dynamic.bn"
       ],
@@ -144,7 +191,11 @@
         "cells_dynamic.expected"
       ],
       "blockers": [],
-      "notes": []
+      "notes": [
+        "Phase 10 headless smoke boots the dynamic spreadsheet variant via plain `run-headless`.",
+        "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+      ]
     },
     {
       "name": "chained_list_remove_bug",
@@ -153,11 +204,14 @@
       "imported_path": "examples/upstream/chained_list_remove_bug",
       "category": "playground",
       "hard_gate": false,
-      "status": "NOT_STARTED",
-      "parser_status": "NOT_STARTED",
-      "runtime_status": "NOT_STARTED",
-      "terminal_status": "NOT_STARTED",
-      "browser_status": "NOT_STARTED",
+      "status": "PARTIAL",
+      "parser_status": "DONE",
+      "runtime_status": "PARTIAL",
+      "persistence_status": "NOT_STARTED",
+      "persistence_cases": 0,
+      "persistence_script": null,
+      "terminal_status": "PARTIAL",
+      "browser_status": "PARTIAL",
       "bn_files": [
         "chained_list_remove_bug.bn"
       ],
@@ -172,7 +226,11 @@
         "chained_list_remove_bug.expected"
       ],
       "blockers": [],
-      "notes": []
+      "notes": [
+        "Phase 10 headless smoke boots the dedicated chained List/remove regression example via plain `run-headless`.",
+        "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+      ]
     },
     {
       "name": "checkbox_test",
@@ -181,11 +239,14 @@
       "imported_path": "examples/upstream/checkbox_test",
       "category": "playground",
       "hard_gate": false,
-      "status": "NOT_STARTED",
-      "parser_status": "NOT_STARTED",
-      "runtime_status": "NOT_STARTED",
-      "terminal_status": "NOT_STARTED",
-      "browser_status": "NOT_STARTED",
+      "status": "PARTIAL",
+      "parser_status": "DONE",
+      "runtime_status": "PARTIAL",
+      "persistence_status": "NOT_STARTED",
+      "persistence_cases": 0,
+      "persistence_script": null,
+      "terminal_status": "PARTIAL",
+      "browser_status": "PARTIAL",
       "bn_files": [
         "checkbox_test.bn"
       ],
@@ -200,7 +261,11 @@
         "checkbox_test.expected"
       ],
       "blockers": [],
-      "notes": []
+      "notes": [
+        "Phase 10 headless smoke boots the checkbox interaction example via plain `run-headless`.",
+        "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+      ]
     },
     {
       "name": "circle_drawer",
@@ -209,11 +274,14 @@
       "imported_path": "examples/upstream/circle_drawer",
       "category": "playground",
       "hard_gate": false,
-      "status": "NOT_STARTED",
-      "parser_status": "NOT_STARTED",
-      "runtime_status": "NOT_STARTED",
-      "terminal_status": "NOT_STARTED",
-      "browser_status": "NOT_STARTED",
+      "status": "PARTIAL",
+      "parser_status": "DONE",
+      "runtime_status": "PARTIAL",
+      "persistence_status": "NOT_STARTED",
+      "persistence_cases": 0,
+      "persistence_script": null,
+      "terminal_status": "PARTIAL",
+      "browser_status": "PARTIAL",
       "bn_files": [
         "circle_drawer.bn"
       ],
@@ -231,7 +299,11 @@
         "reference_700x700_(1400x1400).png"
       ],
       "blockers": [],
-      "notes": []
+      "notes": [
+        "Phase 10 headless smoke now boots the circle drawer example and renders the initial count, with narrow headless support for `List/remove_last` and SVG host nodes.",
+        "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+      ]
     },
     {
       "name": "complex_counter",
@@ -240,11 +312,14 @@
       "imported_path": "examples/upstream/complex_counter",
       "category": "playground",
       "hard_gate": false,
-      "status": "NOT_STARTED",
-      "parser_status": "NOT_STARTED",
-      "runtime_status": "NOT_STARTED",
-      "terminal_status": "NOT_STARTED",
-      "browser_status": "NOT_STARTED",
+      "status": "PARTIAL",
+      "parser_status": "DONE",
+      "runtime_status": "PARTIAL",
+      "persistence_status": "NOT_STARTED",
+      "persistence_cases": 0,
+      "persistence_script": null,
+      "terminal_status": "PARTIAL",
+      "browser_status": "PARTIAL",
       "bn_files": [
         "complex_counter.bn"
       ],
@@ -264,7 +339,11 @@
         "complex_counter_state.md"
       ],
       "blockers": [],
-      "notes": []
+      "notes": [
+        "Phase 10 headless smoke boots the PASS/PASSED user-function counter lane via plain `run-headless`.",
+        "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+      ]
     },
     {
       "name": "counter",
@@ -273,11 +352,14 @@
       "imported_path": "examples/upstream/counter",
       "category": "playground",
       "hard_gate": true,
-      "status": "NOT_STARTED",
-      "parser_status": "NOT_STARTED",
-      "runtime_status": "NOT_STARTED",
-      "terminal_status": "NOT_STARTED",
-      "browser_status": "NOT_STARTED",
+      "status": "PARTIAL",
+      "parser_status": "DONE",
+      "runtime_status": "DONE",
+      "persistence_status": "DONE",
+      "persistence_cases": 3,
+      "persistence_script": "tests/examples/counter_sequence.json",
+      "terminal_status": "DONE",
+      "browser_status": "DONE",
       "bn_files": [
         "counter.bn"
       ],
@@ -301,7 +383,12 @@
         "counter_state_horizontal.md"
       ],
       "blockers": [],
-      "notes": []
+      "notes": [
+        "Phase 7 headless verification replays deterministic counter clicks via tests/examples/counter_sequence.json and expects final render `5+`.",
+        "Phase 8 terminal-grid verification replays the counter script and compares the snapshot in tests/terminal_grid/counter.expected.",
+        "Scripted Phase 6 CLI persistence verification is implemented with --script and --expect-text.",
+        "Phase 11 browser smoke runs the generated bundle through tools/browser_smoke.mjs and proves click persistence plus clear-state semantics with IndexedDB-style storage."
+      ]
     },
     {
       "name": "counter_hold",
@@ -310,11 +397,14 @@
       "imported_path": "examples/upstream/counter_hold",
       "category": "playground",
       "hard_gate": false,
-      "status": "NOT_STARTED",
-      "parser_status": "NOT_STARTED",
-      "runtime_status": "NOT_STARTED",
-      "terminal_status": "NOT_STARTED",
-      "browser_status": "NOT_STARTED",
+      "status": "PARTIAL",
+      "parser_status": "DONE",
+      "runtime_status": "PARTIAL",
+      "persistence_status": "DONE",
+      "persistence_cases": 1,
+      "persistence_script": "tests/examples/counter_hold_sequence.json",
+      "terminal_status": "PARTIAL",
+      "browser_status": "PARTIAL",
       "bn_files": [
         "counter_hold.bn"
       ],
@@ -329,7 +419,12 @@
         "counter_hold.expected"
       ],
       "blockers": [],
-      "notes": []
+      "notes": [
+        "Phase 10 headless smoke boots the HOLD-based counter example via plain `run-headless`.",
+        "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
+        "Scripted Phase 6 CLI persistence verification covers scalar HOLD restore/clear-state behavior.",
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+      ]
     },
     {
       "name": "crud",
@@ -338,11 +433,14 @@
       "imported_path": "examples/upstream/crud",
       "category": "playground",
       "hard_gate": false,
-      "status": "NOT_STARTED",
-      "parser_status": "NOT_STARTED",
-      "runtime_status": "NOT_STARTED",
-      "terminal_status": "NOT_STARTED",
-      "browser_status": "NOT_STARTED",
+      "status": "PARTIAL",
+      "parser_status": "DONE",
+      "runtime_status": "PARTIAL",
+      "persistence_status": "NOT_STARTED",
+      "persistence_cases": 0,
+      "persistence_script": null,
+      "terminal_status": "PARTIAL",
+      "browser_status": "PARTIAL",
       "bn_files": [
         "crud.bn"
       ],
@@ -360,7 +458,11 @@
         "reference_700x700_(1400x1400).png"
       ],
       "blockers": [],
-      "notes": []
+      "notes": [
+        "Phase 10 headless smoke now boots the CRUD example and renders the initial people list after adding inline `WHILE` arm commas, deterministic `Ulid/generate()`, and narrower scoped-subscriber filtering.",
+        "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+      ]
     },
     {
       "name": "fibonacci",
@@ -369,11 +471,14 @@
       "imported_path": "examples/upstream/fibonacci",
       "category": "playground",
       "hard_gate": false,
-      "status": "NOT_STARTED",
-      "parser_status": "NOT_STARTED",
-      "runtime_status": "NOT_STARTED",
-      "terminal_status": "NOT_STARTED",
-      "browser_status": "NOT_STARTED",
+      "status": "PARTIAL",
+      "parser_status": "DONE",
+      "runtime_status": "PARTIAL",
+      "persistence_status": "NOT_STARTED",
+      "persistence_cases": 1,
+      "persistence_script": null,
+      "terminal_status": "PARTIAL",
+      "browser_status": "PARTIAL",
       "bn_files": [
         "fibonacci.bn"
       ],
@@ -388,7 +493,12 @@
         "fibonacci.expected"
       ],
       "blockers": [],
-      "notes": []
+      "notes": [
+        "Phase 10 headless smoke now renders the expected Fibonacci value after adding scoped `Stream/pulses()` plus scoped `Stream/skip` runtime support.",
+        "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
+        "Imported .expected file(s) declare persistence behavior, but repo-side scripted/example-specific persistence verification is not recorded yet.",
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+      ]
     },
     {
       "name": "filter_checkbox_bug",
@@ -397,11 +507,14 @@
       "imported_path": "examples/upstream/filter_checkbox_bug",
       "category": "playground",
       "hard_gate": false,
-      "status": "NOT_STARTED",
-      "parser_status": "NOT_STARTED",
-      "runtime_status": "NOT_STARTED",
-      "terminal_status": "NOT_STARTED",
-      "browser_status": "NOT_STARTED",
+      "status": "PARTIAL",
+      "parser_status": "DONE",
+      "runtime_status": "PARTIAL",
+      "persistence_status": "NOT_STARTED",
+      "persistence_cases": 0,
+      "persistence_script": null,
+      "terminal_status": "PARTIAL",
+      "browser_status": "PARTIAL",
       "bn_files": [
         "filter_checkbox_bug.bn"
       ],
@@ -416,7 +529,11 @@
         "filter_checkbox_bug.expected"
       ],
       "blockers": [],
-      "notes": []
+      "notes": [
+        "Phase 10 headless smoke boots the filter/checkbox regression example via plain `run-headless`.",
+        "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+      ]
     },
     {
       "name": "flight_booker",
@@ -425,11 +542,14 @@
       "imported_path": "examples/upstream/flight_booker",
       "category": "playground",
       "hard_gate": false,
-      "status": "NOT_STARTED",
-      "parser_status": "NOT_STARTED",
-      "runtime_status": "NOT_STARTED",
-      "terminal_status": "NOT_STARTED",
-      "browser_status": "NOT_STARTED",
+      "status": "PARTIAL",
+      "parser_status": "DONE",
+      "runtime_status": "PARTIAL",
+      "persistence_status": "NOT_STARTED",
+      "persistence_cases": 0,
+      "persistence_script": null,
+      "terminal_status": "PARTIAL",
+      "browser_status": "PARTIAL",
       "bn_files": [
         "flight_booker.bn"
       ],
@@ -447,7 +567,11 @@
         "reference_700x700_(1400x1400).png"
       ],
       "blockers": [],
-      "notes": []
+      "notes": [
+        "Phase 10 headless smoke boots the booking form example via plain `run-headless`.",
+        "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+      ]
     },
     {
       "name": "hello_world",
@@ -456,11 +580,14 @@
       "imported_path": "examples/upstream/hello_world",
       "category": "playground",
       "hard_gate": false,
-      "status": "NOT_STARTED",
-      "parser_status": "NOT_STARTED",
-      "runtime_status": "NOT_STARTED",
-      "terminal_status": "NOT_STARTED",
-      "browser_status": "NOT_STARTED",
+      "status": "PARTIAL",
+      "parser_status": "DONE",
+      "runtime_status": "PARTIAL",
+      "persistence_status": "NOT_STARTED",
+      "persistence_cases": 1,
+      "persistence_script": null,
+      "terminal_status": "PARTIAL",
+      "browser_status": "PARTIAL",
       "bn_files": [
         "hello_world.bn"
       ],
@@ -475,7 +602,12 @@
         "hello_world.expected"
       ],
       "blockers": [],
-      "notes": []
+      "notes": [
+        "Phase 10 headless smoke boots the hello world example via plain `run-headless`.",
+        "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
+        "Imported .expected file(s) declare persistence behavior, but repo-side scripted/example-specific persistence verification is not recorded yet.",
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+      ]
     },
     {
       "name": "hw_examples",
@@ -484,11 +616,14 @@
       "imported_path": "examples/upstream/hw_examples",
       "category": "hardware",
       "hard_gate": false,
-      "status": "NOT_STARTED",
-      "parser_status": "NOT_STARTED",
-      "runtime_status": "NOT_STARTED",
-      "terminal_status": "NOT_STARTED",
-      "browser_status": "NOT_STARTED",
+      "status": "PARTIAL",
+      "parser_status": "DONE",
+      "runtime_status": "PARTIAL",
+      "persistence_status": "NOT_STARTED",
+      "persistence_cases": 0,
+      "persistence_script": null,
+      "terminal_status": "PARTIAL",
+      "browser_status": "PARTIAL",
       "bn_files": [
         "alu.bn",
         "counter.bn",
@@ -577,7 +712,12 @@
       ],
       "blockers": [],
       "notes": [
-        "Directory mixes multiple HDL-oriented .bn/.sv programs and analysis docs."
+        "Directory mixes multiple HDL-oriented .bn/.sv programs and analysis docs.",
+        "Repo currently carries an explicit local correction in `examples/upstream_overrides/hw_examples/serialadder.bn` so parser/HIR/Flow verification can proceed despite the malformed imported upstream source.",
+        "Phase 10 carries an explicit local correction for the malformed imported `serialadder.bn` source via `examples/upstream_overrides/hw_examples/serialadder.bn` so the HDL corpus can continue through parser/HIR/Flow verification.",
+        "This example bucket is still `PARTIAL`, not `DONE`, because `hw_examples` is a directory of HDL-oriented programs rather than one runnable headless/terminal playground entrypoint.",
+        "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
       ]
     },
     {
@@ -587,11 +727,14 @@
       "imported_path": "examples/upstream/interval",
       "category": "playground",
       "hard_gate": true,
-      "status": "NOT_STARTED",
-      "parser_status": "NOT_STARTED",
-      "runtime_status": "NOT_STARTED",
-      "terminal_status": "NOT_STARTED",
-      "browser_status": "NOT_STARTED",
+      "status": "PARTIAL",
+      "parser_status": "DONE",
+      "runtime_status": "DONE",
+      "persistence_status": "PARTIAL",
+      "persistence_cases": 1,
+      "persistence_script": null,
+      "terminal_status": "DONE",
+      "browser_status": "DONE",
       "bn_files": [
         "interval.bn"
       ],
@@ -611,7 +754,12 @@
         "interval_state.md"
       ],
       "blockers": [],
-      "notes": []
+      "notes": [
+        "Phase 7 headless verification advances virtual time by 2s and expects exact render `2`.",
+        "Phase 8 terminal-grid verification advances virtual time by 2s and compares the snapshot in tests/terminal_grid/interval.expected.",
+        "Headless timer behavior and clear-state infrastructure are green, but there is no example-specific scripted persistence replay yet.",
+        "Phase 11 browser smoke runs the generated bundle through tools/browser_smoke.mjs and proves deterministic 2s virtual-time rendering."
+      ]
     },
     {
       "name": "interval_hold",
@@ -620,11 +768,14 @@
       "imported_path": "examples/upstream/interval_hold",
       "category": "playground",
       "hard_gate": false,
-      "status": "NOT_STARTED",
-      "parser_status": "NOT_STARTED",
-      "runtime_status": "NOT_STARTED",
-      "terminal_status": "NOT_STARTED",
-      "browser_status": "NOT_STARTED",
+      "status": "PARTIAL",
+      "parser_status": "DONE",
+      "runtime_status": "PARTIAL",
+      "persistence_status": "PARTIAL",
+      "persistence_cases": 1,
+      "persistence_script": null,
+      "terminal_status": "PARTIAL",
+      "browser_status": "PARTIAL",
       "bn_files": [
         "interval_hold.bn"
       ],
@@ -639,7 +790,12 @@
         "interval_hold.expected"
       ],
       "blockers": [],
-      "notes": []
+      "notes": [
+        "Phase 10 headless smoke boots the timer/HOLD example via plain `run-headless`.",
+        "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
+        "Headless HOLD/timer behavior and clear-state infrastructure are green, but there is no example-specific scripted persistence replay yet.",
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+      ]
     },
     {
       "name": "latest",
@@ -648,11 +804,14 @@
       "imported_path": "examples/upstream/latest",
       "category": "playground",
       "hard_gate": false,
-      "status": "NOT_STARTED",
-      "parser_status": "NOT_STARTED",
-      "runtime_status": "NOT_STARTED",
-      "terminal_status": "NOT_STARTED",
-      "browser_status": "NOT_STARTED",
+      "status": "PARTIAL",
+      "parser_status": "DONE",
+      "runtime_status": "PARTIAL",
+      "persistence_status": "NOT_STARTED",
+      "persistence_cases": 0,
+      "persistence_script": null,
+      "terminal_status": "PARTIAL",
+      "browser_status": "PARTIAL",
       "bn_files": [
         "latest.bn"
       ],
@@ -667,7 +826,11 @@
         "latest.expected"
       ],
       "blockers": [],
-      "notes": []
+      "notes": [
+        "Phase 10 headless smoke now boots the standalone latest example, and focused headless tests cover initial seeding plus both button-update paths.",
+        "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+      ]
     },
     {
       "name": "layers",
@@ -676,11 +839,14 @@
       "imported_path": "examples/upstream/layers",
       "category": "playground",
       "hard_gate": false,
-      "status": "NOT_STARTED",
-      "parser_status": "NOT_STARTED",
-      "runtime_status": "NOT_STARTED",
-      "terminal_status": "NOT_STARTED",
-      "browser_status": "NOT_STARTED",
+      "status": "PARTIAL",
+      "parser_status": "DONE",
+      "runtime_status": "PARTIAL",
+      "persistence_status": "NOT_STARTED",
+      "persistence_cases": 0,
+      "persistence_script": null,
+      "terminal_status": "PARTIAL",
+      "browser_status": "PARTIAL",
       "bn_files": [
         "layers.bn"
       ],
@@ -695,7 +861,11 @@
         "layers.expected"
       ],
       "blockers": [],
-      "notes": []
+      "notes": [
+        "Phase 10 headless smoke now boots the layered layout example and renders the stacked card labels in the headless host.",
+        "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+      ]
     },
     {
       "name": "list_map_block",
@@ -704,11 +874,14 @@
       "imported_path": "examples/upstream/list_map_block",
       "category": "playground",
       "hard_gate": false,
-      "status": "NOT_STARTED",
-      "parser_status": "NOT_STARTED",
-      "runtime_status": "NOT_STARTED",
-      "terminal_status": "NOT_STARTED",
-      "browser_status": "NOT_STARTED",
+      "status": "PARTIAL",
+      "parser_status": "DONE",
+      "runtime_status": "PARTIAL",
+      "persistence_status": "NOT_STARTED",
+      "persistence_cases": 0,
+      "persistence_script": null,
+      "terminal_status": "PARTIAL",
+      "browser_status": "PARTIAL",
       "bn_files": [
         "list_map_block.bn"
       ],
@@ -723,7 +896,11 @@
         "list_map_block.expected"
       ],
       "blockers": [],
-      "notes": []
+      "notes": [
+        "Phase 10 headless smoke boots the block-mapping list example via plain `run-headless`.",
+        "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+      ]
     },
     {
       "name": "list_map_external_dep",
@@ -732,11 +909,14 @@
       "imported_path": "examples/upstream/list_map_external_dep",
       "category": "playground",
       "hard_gate": false,
-      "status": "NOT_STARTED",
-      "parser_status": "NOT_STARTED",
-      "runtime_status": "NOT_STARTED",
-      "terminal_status": "NOT_STARTED",
-      "browser_status": "NOT_STARTED",
+      "status": "PARTIAL",
+      "parser_status": "DONE",
+      "runtime_status": "PARTIAL",
+      "persistence_status": "NOT_STARTED",
+      "persistence_cases": 0,
+      "persistence_script": null,
+      "terminal_status": "PARTIAL",
+      "browser_status": "PARTIAL",
       "bn_files": [
         "list_map_external_dep.bn"
       ],
@@ -751,7 +931,11 @@
         "list_map_external_dep.expected"
       ],
       "blockers": [],
-      "notes": []
+      "notes": [
+        "Phase 10 headless smoke boots the external-dependency list mapping example via plain `run-headless`.",
+        "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+      ]
     },
     {
       "name": "list_object_state",
@@ -760,11 +944,14 @@
       "imported_path": "examples/upstream/list_object_state",
       "category": "playground",
       "hard_gate": false,
-      "status": "NOT_STARTED",
-      "parser_status": "NOT_STARTED",
-      "runtime_status": "NOT_STARTED",
-      "terminal_status": "NOT_STARTED",
-      "browser_status": "NOT_STARTED",
+      "status": "PARTIAL",
+      "parser_status": "DONE",
+      "runtime_status": "PARTIAL",
+      "persistence_status": "NOT_STARTED",
+      "persistence_cases": 0,
+      "persistence_script": null,
+      "terminal_status": "PARTIAL",
+      "browser_status": "PARTIAL",
       "bn_files": [
         "list_object_state.bn"
       ],
@@ -779,7 +966,11 @@
         "list_object_state.expected"
       ],
       "blockers": [],
-      "notes": []
+      "notes": [
+        "Phase 10 headless smoke boots the per-item object state example via plain `run-headless`.",
+        "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+      ]
     },
     {
       "name": "list_retain_count",
@@ -788,11 +979,14 @@
       "imported_path": "examples/upstream/list_retain_count",
       "category": "playground",
       "hard_gate": false,
-      "status": "NOT_STARTED",
-      "parser_status": "NOT_STARTED",
-      "runtime_status": "NOT_STARTED",
-      "terminal_status": "NOT_STARTED",
-      "browser_status": "NOT_STARTED",
+      "status": "PARTIAL",
+      "parser_status": "DONE",
+      "runtime_status": "PARTIAL",
+      "persistence_status": "NOT_STARTED",
+      "persistence_cases": 0,
+      "persistence_script": null,
+      "terminal_status": "PARTIAL",
+      "browser_status": "PARTIAL",
       "bn_files": [
         "list_retain_count.bn"
       ],
@@ -807,7 +1001,11 @@
         "list_retain_count.expected"
       ],
       "blockers": [],
-      "notes": []
+      "notes": [
+        "Phase 10 headless smoke now boots the List/retain count example, and focused headless tests cover reactive count updates after enter.",
+        "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+      ]
     },
     {
       "name": "list_retain_reactive",
@@ -816,11 +1014,14 @@
       "imported_path": "examples/upstream/list_retain_reactive",
       "category": "playground",
       "hard_gate": false,
-      "status": "NOT_STARTED",
-      "parser_status": "NOT_STARTED",
-      "runtime_status": "NOT_STARTED",
-      "terminal_status": "NOT_STARTED",
-      "browser_status": "NOT_STARTED",
+      "status": "PARTIAL",
+      "parser_status": "DONE",
+      "runtime_status": "PARTIAL",
+      "persistence_status": "NOT_STARTED",
+      "persistence_cases": 0,
+      "persistence_script": null,
+      "terminal_status": "PARTIAL",
+      "browser_status": "PARTIAL",
       "bn_files": [
         "list_retain_reactive.bn"
       ],
@@ -835,7 +1036,11 @@
         "list_retain_reactive.expected"
       ],
       "blockers": [],
-      "notes": []
+      "notes": [
+        "Phase 10 headless smoke now boots the reactive List/retain example, and focused headless tests cover filter toggling semantics.",
+        "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+      ]
     },
     {
       "name": "list_retain_remove",
@@ -844,11 +1049,14 @@
       "imported_path": "examples/upstream/list_retain_remove",
       "category": "playground",
       "hard_gate": false,
-      "status": "NOT_STARTED",
-      "parser_status": "NOT_STARTED",
-      "runtime_status": "NOT_STARTED",
-      "terminal_status": "NOT_STARTED",
-      "browser_status": "NOT_STARTED",
+      "status": "PARTIAL",
+      "parser_status": "DONE",
+      "runtime_status": "PARTIAL",
+      "persistence_status": "NOT_STARTED",
+      "persistence_cases": 0,
+      "persistence_script": null,
+      "terminal_status": "PARTIAL",
+      "browser_status": "PARTIAL",
       "bn_files": [
         "list_retain_remove.bn"
       ],
@@ -863,7 +1071,11 @@
         "list_retain_remove.expected"
       ],
       "blockers": [],
-      "notes": []
+      "notes": [
+        "Phase 10 headless smoke boots the List/remove add/remove example via plain `run-headless`.",
+        "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+      ]
     },
     {
       "name": "minimal",
@@ -872,11 +1084,14 @@
       "imported_path": "examples/upstream/minimal",
       "category": "playground",
       "hard_gate": false,
-      "status": "NOT_STARTED",
-      "parser_status": "NOT_STARTED",
-      "runtime_status": "NOT_STARTED",
-      "terminal_status": "NOT_STARTED",
-      "browser_status": "NOT_STARTED",
+      "status": "PARTIAL",
+      "parser_status": "DONE",
+      "runtime_status": "PARTIAL",
+      "persistence_status": "NOT_STARTED",
+      "persistence_cases": 1,
+      "persistence_script": null,
+      "terminal_status": "PARTIAL",
+      "browser_status": "PARTIAL",
       "bn_files": [
         "minimal.bn"
       ],
@@ -891,7 +1106,12 @@
         "minimal.expected"
       ],
       "blockers": [],
-      "notes": []
+      "notes": [
+        "Phase 10 headless smoke boots the minimal example via plain `run-headless`.",
+        "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
+        "Imported .expected file(s) declare persistence behavior, but repo-side scripted/example-specific persistence verification is not recorded yet.",
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+      ]
     },
     {
       "name": "pages",
@@ -900,11 +1120,14 @@
       "imported_path": "examples/upstream/pages",
       "category": "playground",
       "hard_gate": false,
-      "status": "NOT_STARTED",
-      "parser_status": "NOT_STARTED",
-      "runtime_status": "NOT_STARTED",
-      "terminal_status": "NOT_STARTED",
-      "browser_status": "NOT_STARTED",
+      "status": "PARTIAL",
+      "parser_status": "DONE",
+      "runtime_status": "PARTIAL",
+      "persistence_status": "NOT_STARTED",
+      "persistence_cases": 2,
+      "persistence_script": null,
+      "terminal_status": "PARTIAL",
+      "browser_status": "PARTIAL",
       "bn_files": [
         "pages.bn"
       ],
@@ -919,7 +1142,12 @@
         "pages.expected"
       ],
       "blockers": [],
-      "notes": []
+      "notes": [
+        "Phase 10 headless smoke boots the routing/pages example via plain `run-headless`.",
+        "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
+        "Imported .expected file(s) declare persistence behavior, but repo-side scripted/example-specific persistence verification is not recorded yet.",
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+      ]
     },
     {
       "name": "shopping_list",
@@ -928,11 +1156,14 @@
       "imported_path": "examples/upstream/shopping_list",
       "category": "playground",
       "hard_gate": false,
-      "status": "NOT_STARTED",
-      "parser_status": "NOT_STARTED",
-      "runtime_status": "NOT_STARTED",
-      "terminal_status": "NOT_STARTED",
-      "browser_status": "NOT_STARTED",
+      "status": "PARTIAL",
+      "parser_status": "DONE",
+      "runtime_status": "PARTIAL",
+      "persistence_status": "NOT_STARTED",
+      "persistence_cases": 2,
+      "persistence_script": null,
+      "terminal_status": "PARTIAL",
+      "browser_status": "PARTIAL",
       "bn_files": [
         "shopping_list.bn"
       ],
@@ -947,7 +1178,12 @@
         "shopping_list.expected"
       ],
       "blockers": [],
-      "notes": []
+      "notes": [
+        "Phase 10 headless smoke boots the shopping list example via plain `run-headless`.",
+        "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
+        "Imported .expected file(s) declare persistence behavior, but repo-side scripted/example-specific persistence verification is not recorded yet.",
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+      ]
     },
     {
       "name": "switch_hold_test",
@@ -956,11 +1192,14 @@
       "imported_path": "examples/upstream/switch_hold_test",
       "category": "playground",
       "hard_gate": false,
-      "status": "NOT_STARTED",
-      "parser_status": "NOT_STARTED",
-      "runtime_status": "NOT_STARTED",
-      "terminal_status": "NOT_STARTED",
-      "browser_status": "NOT_STARTED",
+      "status": "PARTIAL",
+      "parser_status": "DONE",
+      "runtime_status": "PARTIAL",
+      "persistence_status": "NOT_STARTED",
+      "persistence_cases": 0,
+      "persistence_script": null,
+      "terminal_status": "PARTIAL",
+      "browser_status": "PARTIAL",
       "bn_files": [
         "switch_hold_test.bn"
       ],
@@ -975,7 +1214,11 @@
         "switch_hold_test.expected"
       ],
       "blockers": [],
-      "notes": []
+      "notes": [
+        "Phase 10 headless smoke boots the switch/HOLD regression example via plain `run-headless`.",
+        "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+      ]
     },
     {
       "name": "temperature_converter",
@@ -984,11 +1227,14 @@
       "imported_path": "examples/upstream/temperature_converter",
       "category": "playground",
       "hard_gate": false,
-      "status": "NOT_STARTED",
-      "parser_status": "NOT_STARTED",
-      "runtime_status": "NOT_STARTED",
-      "terminal_status": "NOT_STARTED",
-      "browser_status": "NOT_STARTED",
+      "status": "PARTIAL",
+      "parser_status": "DONE",
+      "runtime_status": "PARTIAL",
+      "persistence_status": "NOT_STARTED",
+      "persistence_cases": 0,
+      "persistence_script": null,
+      "terminal_status": "PARTIAL",
+      "browser_status": "PARTIAL",
       "bn_files": [
         "temperature_converter.bn"
       ],
@@ -1006,7 +1252,11 @@
         "temperature_converter.expected"
       ],
       "blockers": [],
-      "notes": []
+      "notes": [
+        "Phase 10 headless smoke boots the temperature converter example via plain `run-headless`.",
+        "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+      ]
     },
     {
       "name": "text_interpolation_update",
@@ -1015,11 +1265,14 @@
       "imported_path": "examples/upstream/text_interpolation_update",
       "category": "playground",
       "hard_gate": false,
-      "status": "NOT_STARTED",
-      "parser_status": "NOT_STARTED",
-      "runtime_status": "NOT_STARTED",
-      "terminal_status": "NOT_STARTED",
-      "browser_status": "NOT_STARTED",
+      "status": "PARTIAL",
+      "parser_status": "DONE",
+      "runtime_status": "PARTIAL",
+      "persistence_status": "NOT_STARTED",
+      "persistence_cases": 0,
+      "persistence_script": null,
+      "terminal_status": "PARTIAL",
+      "browser_status": "PARTIAL",
       "bn_files": [
         "text_interpolation_update.bn"
       ],
@@ -1034,7 +1287,11 @@
         "text_interpolation_update.expected"
       ],
       "blockers": [],
-      "notes": []
+      "notes": [
+        "Phase 10 headless smoke boots the text interpolation update example via plain `run-headless`.",
+        "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+      ]
     },
     {
       "name": "then",
@@ -1043,11 +1300,14 @@
       "imported_path": "examples/upstream/then",
       "category": "playground",
       "hard_gate": false,
-      "status": "NOT_STARTED",
-      "parser_status": "NOT_STARTED",
-      "runtime_status": "NOT_STARTED",
-      "terminal_status": "NOT_STARTED",
-      "browser_status": "NOT_STARTED",
+      "status": "PARTIAL",
+      "parser_status": "DONE",
+      "runtime_status": "PARTIAL",
+      "persistence_status": "NOT_STARTED",
+      "persistence_cases": 0,
+      "persistence_script": null,
+      "terminal_status": "PARTIAL",
+      "browser_status": "PARTIAL",
       "bn_files": [
         "then.bn"
       ],
@@ -1062,7 +1322,11 @@
         "then.expected"
       ],
       "blockers": [],
-      "notes": []
+      "notes": [
+        "Phase 10 headless smoke now boots the standalone THEN example with scoped timer initialization deferred during global startup.",
+        "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+      ]
     },
     {
       "name": "timer",
@@ -1071,11 +1335,14 @@
       "imported_path": "examples/upstream/timer",
       "category": "playground",
       "hard_gate": false,
-      "status": "NOT_STARTED",
-      "parser_status": "NOT_STARTED",
-      "runtime_status": "NOT_STARTED",
-      "terminal_status": "NOT_STARTED",
-      "browser_status": "NOT_STARTED",
+      "status": "PARTIAL",
+      "parser_status": "DONE",
+      "runtime_status": "PARTIAL",
+      "persistence_status": "NOT_STARTED",
+      "persistence_cases": 0,
+      "persistence_script": null,
+      "terminal_status": "PARTIAL",
+      "browser_status": "PARTIAL",
       "bn_files": [
         "timer.bn"
       ],
@@ -1093,7 +1360,11 @@
         "timer.expected"
       ],
       "blockers": [],
-      "notes": []
+      "notes": [
+        "Phase 10 headless smoke boots the timer example via plain `run-headless`.",
+        "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+      ]
     },
     {
       "name": "todo_mvc",
@@ -1102,11 +1373,14 @@
       "imported_path": "examples/upstream/todo_mvc",
       "category": "playground",
       "hard_gate": true,
-      "status": "NOT_STARTED",
-      "parser_status": "NOT_STARTED",
-      "runtime_status": "NOT_STARTED",
-      "terminal_status": "NOT_STARTED",
-      "browser_status": "NOT_STARTED",
+      "status": "PARTIAL",
+      "parser_status": "DONE",
+      "runtime_status": "DONE",
+      "persistence_status": "NOT_STARTED",
+      "persistence_cases": 2,
+      "persistence_script": null,
+      "terminal_status": "DONE",
+      "browser_status": "DONE",
       "bn_files": [
         "todo_mvc.bn"
       ],
@@ -1129,7 +1403,13 @@
         "verify_visual.sh"
       ],
       "blockers": [],
-      "notes": []
+      "notes": [
+        "Phase 7 headless verification asserts the deterministic initial TodoMVC render; CRUD/filter/edit/remove semantics stay covered by focused headless tests.",
+        "Phase 8 terminal-grid verification compares the deterministic TodoMVC snapshot in tests/terminal_grid/todo_mvc.expected.",
+        "Imported .expected file(s) declare persistence behavior, but repo-side scripted/example-specific persistence verification is not recorded yet.",
+        "Phase 11 browser smoke boots the browser TodoMVC host and covers add/toggle/filter/clear-completed persistence semantics.",
+        "Phase 12 visual verification compares the rendered browser TodoMVC screenshot against the imported reference image and records a passing similarity score plus diff artifact under tests/browser_visual/."
+      ]
     },
     {
       "name": "todo_mvc_physical",
@@ -1138,11 +1418,14 @@
       "imported_path": "examples/upstream/todo_mvc_physical",
       "category": "physical",
       "hard_gate": true,
-      "status": "NOT_STARTED",
-      "parser_status": "NOT_STARTED",
-      "runtime_status": "NOT_STARTED",
-      "terminal_status": "NOT_STARTED",
-      "browser_status": "NOT_STARTED",
+      "status": "PARTIAL",
+      "parser_status": "DONE",
+      "runtime_status": "PARTIAL",
+      "persistence_status": "NOT_STARTED",
+      "persistence_cases": 0,
+      "persistence_script": null,
+      "terminal_status": "PARTIAL",
+      "browser_status": "PARTIAL",
       "bn_files": [
         "BUILD.bn",
         "Generated/Assets.bn",
@@ -1211,7 +1494,10 @@
       "blockers": [],
       "notes": [
         "Physical renderer work is tracked separately; import includes docs, themes, assets, BUILD.bn, and RUN.bn.",
-        "Model/cut(from, remove) remains an internal renderer TODO in upstream docs."
+        "Model/cut(from, remove) remains an internal renderer TODO in upstream docs.",
+        "Phase 10 headless smoke now boots RUN.bn through the scene-root path with narrow `Scene/Element/*` and physical host shims.",
+        "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
       ]
     },
     {
@@ -1221,11 +1507,14 @@
       "imported_path": "examples/upstream/when",
       "category": "playground",
       "hard_gate": false,
-      "status": "NOT_STARTED",
-      "parser_status": "NOT_STARTED",
-      "runtime_status": "NOT_STARTED",
-      "terminal_status": "NOT_STARTED",
-      "browser_status": "NOT_STARTED",
+      "status": "PARTIAL",
+      "parser_status": "DONE",
+      "runtime_status": "PARTIAL",
+      "persistence_status": "NOT_STARTED",
+      "persistence_cases": 0,
+      "persistence_script": null,
+      "terminal_status": "PARTIAL",
+      "browser_status": "PARTIAL",
       "bn_files": [
         "when.bn"
       ],
@@ -1240,7 +1529,11 @@
         "when.expected"
       ],
       "blockers": [],
-      "notes": []
+      "notes": [
+        "Phase 10 headless smoke now boots the standalone WHEN example with scoped timer initialization deferred during global startup.",
+        "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+      ]
     },
     {
       "name": "while",
@@ -1249,11 +1542,14 @@
       "imported_path": "examples/upstream/while",
       "category": "playground",
       "hard_gate": false,
-      "status": "NOT_STARTED",
-      "parser_status": "NOT_STARTED",
-      "runtime_status": "NOT_STARTED",
-      "terminal_status": "NOT_STARTED",
-      "browser_status": "NOT_STARTED",
+      "status": "PARTIAL",
+      "parser_status": "DONE",
+      "runtime_status": "PARTIAL",
+      "persistence_status": "NOT_STARTED",
+      "persistence_cases": 0,
+      "persistence_script": null,
+      "terminal_status": "PARTIAL",
+      "browser_status": "PARTIAL",
       "bn_files": [
         "while.bn"
       ],
@@ -1268,7 +1564,11 @@
         "while.expected"
       ],
       "blockers": [],
-      "notes": []
+      "notes": [
+        "Phase 10 headless smoke now boots the standalone WHILE example with scoped timer initialization deferred during global startup.",
+        "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+      ]
     },
     {
       "name": "while_function_call",
@@ -1277,11 +1577,14 @@
       "imported_path": "examples/upstream/while_function_call",
       "category": "playground",
       "hard_gate": false,
-      "status": "NOT_STARTED",
-      "parser_status": "NOT_STARTED",
-      "runtime_status": "NOT_STARTED",
-      "terminal_status": "NOT_STARTED",
-      "browser_status": "NOT_STARTED",
+      "status": "PARTIAL",
+      "parser_status": "DONE",
+      "runtime_status": "PARTIAL",
+      "persistence_status": "NOT_STARTED",
+      "persistence_cases": 0,
+      "persistence_script": null,
+      "terminal_status": "PARTIAL",
+      "browser_status": "PARTIAL",
       "bn_files": [
         "while_function_call.bn"
       ],
@@ -1296,7 +1599,11 @@
         "while_function_call.expected"
       ],
       "blockers": [],
-      "notes": []
+      "notes": [
+        "Phase 10 headless smoke boots the WHILE plus function-call example via plain `run-headless`.",
+        "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+      ]
     }
   ]
 }

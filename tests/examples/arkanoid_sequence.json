@@ -1,0 +1,7 @@
+{
+  "actions": [
+    ["click_button", 1],
+    ["click_button", 2],
+    ["click_button", 3]
+  ]
+}

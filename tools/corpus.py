@@ -15,6 +15,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 UPSTREAM_ROOT = REPO_ROOT / "third_party" / "boon-upstream"
 UPSTREAM_EXAMPLES = UPSTREAM_ROOT / "playground" / "frontend" / "src" / "examples"
 IMPORTED_EXAMPLES = REPO_ROOT / "examples" / "upstream"
+UPSTREAM_OVERRIDES = REPO_ROOT / "examples" / "upstream_overrides"
 FIXTURES_DIR = REPO_ROOT / "fixtures"
 
 UPSTREAM_URL = "https://github.com/BoonLang/boon"
@@ -22,6 +23,354 @@ PINNED_COMMIT = "c924d9f7d7e1c156604c9377e0487db48c278353"
 P0_UPSTREAM = {"counter", "interval", "cells", "todo_mvc", "todo_mvc_physical"}
 PLANNED_TERMINAL_P0 = ("pong", "arkanoid")
 STATUS = "NOT_STARTED"
+
+HEADLESS_RUNTIME_EVIDENCE: dict[str, dict[str, object]] = {
+    "counter": {
+        "status": "DONE",
+        "notes": [
+            "Phase 7 headless verification replays deterministic counter clicks via tests/examples/counter_sequence.json and expects final render `5+`.",
+        ],
+    },
+    "interval": {
+        "status": "DONE",
+        "notes": [
+            "Phase 7 headless verification advances virtual time by 2s and expects exact render `2`.",
+        ],
+    },
+    "cells": {
+        "status": "DONE",
+        "notes": [
+            "Phase 7 headless verification asserts the deterministic initial spreadsheet render; deeper edit semantics stay covered by focused headless tests.",
+        ],
+    },
+    "todo_mvc": {
+        "status": "DONE",
+        "notes": [
+            "Phase 7 headless verification asserts the deterministic initial TodoMVC render; CRUD/filter/edit/remove semantics stay covered by focused headless tests.",
+        ],
+    },
+    "button_hover_test": {
+        "status": "PARTIAL",
+        "notes": [
+            "Phase 10 headless smoke boots the example via plain `run-headless` without a runtime crash.",
+        ],
+    },
+    "button_hover_to_click_test": {
+        "status": "PARTIAL",
+        "notes": [
+            "Phase 10 headless smoke boots the example via plain `run-headless` without a runtime crash.",
+        ],
+    },
+    "cells_dynamic": {
+        "status": "PARTIAL",
+        "notes": [
+            "Phase 10 headless smoke boots the dynamic spreadsheet variant via plain `run-headless`.",
+        ],
+    },
+    "chained_list_remove_bug": {
+        "status": "PARTIAL",
+        "notes": [
+            "Phase 10 headless smoke boots the dedicated chained List/remove regression example via plain `run-headless`.",
+        ],
+    },
+    "checkbox_test": {
+        "status": "PARTIAL",
+        "notes": [
+            "Phase 10 headless smoke boots the checkbox interaction example via plain `run-headless`.",
+        ],
+    },
+    "complex_counter": {
+        "status": "PARTIAL",
+        "notes": [
+            "Phase 10 headless smoke boots the PASS/PASSED user-function counter lane via plain `run-headless`.",
+        ],
+    },
+    "counter_hold": {
+        "status": "PARTIAL",
+        "notes": [
+            "Phase 10 headless smoke boots the HOLD-based counter example via plain `run-headless`.",
+        ],
+    },
+    "filter_checkbox_bug": {
+        "status": "PARTIAL",
+        "notes": [
+            "Phase 10 headless smoke boots the filter/checkbox regression example via plain `run-headless`.",
+        ],
+    },
+    "flight_booker": {
+        "status": "PARTIAL",
+        "notes": [
+            "Phase 10 headless smoke boots the booking form example via plain `run-headless`.",
+        ],
+    },
+    "hello_world": {
+        "status": "PARTIAL",
+        "notes": [
+            "Phase 10 headless smoke boots the hello world example via plain `run-headless`.",
+        ],
+    },
+    "interval_hold": {
+        "status": "PARTIAL",
+        "notes": [
+            "Phase 10 headless smoke boots the timer/HOLD example via plain `run-headless`.",
+        ],
+    },
+    "list_map_block": {
+        "status": "PARTIAL",
+        "notes": [
+            "Phase 10 headless smoke boots the block-mapping list example via plain `run-headless`.",
+        ],
+    },
+    "list_map_external_dep": {
+        "status": "PARTIAL",
+        "notes": [
+            "Phase 10 headless smoke boots the external-dependency list mapping example via plain `run-headless`.",
+        ],
+    },
+    "list_object_state": {
+        "status": "PARTIAL",
+        "notes": [
+            "Phase 10 headless smoke boots the per-item object state example via plain `run-headless`.",
+        ],
+    },
+    "list_retain_remove": {
+        "status": "PARTIAL",
+        "notes": [
+            "Phase 10 headless smoke boots the List/remove add/remove example via plain `run-headless`.",
+        ],
+    },
+    "minimal": {
+        "status": "PARTIAL",
+        "notes": [
+            "Phase 10 headless smoke boots the minimal example via plain `run-headless`.",
+        ],
+    },
+    "pages": {
+        "status": "PARTIAL",
+        "notes": [
+            "Phase 10 headless smoke boots the routing/pages example via plain `run-headless`.",
+        ],
+    },
+    "shopping_list": {
+        "status": "PARTIAL",
+        "notes": [
+            "Phase 10 headless smoke boots the shopping list example via plain `run-headless`.",
+        ],
+    },
+    "switch_hold_test": {
+        "status": "PARTIAL",
+        "notes": [
+            "Phase 10 headless smoke boots the switch/HOLD regression example via plain `run-headless`.",
+        ],
+    },
+    "temperature_converter": {
+        "status": "PARTIAL",
+        "notes": [
+            "Phase 10 headless smoke boots the temperature converter example via plain `run-headless`.",
+        ],
+    },
+    "text_interpolation_update": {
+        "status": "PARTIAL",
+        "notes": [
+            "Phase 10 headless smoke boots the text interpolation update example via plain `run-headless`.",
+        ],
+    },
+    "timer": {
+        "status": "PARTIAL",
+        "notes": [
+            "Phase 10 headless smoke boots the timer example via plain `run-headless`.",
+        ],
+    },
+    "while_function_call": {
+        "status": "PARTIAL",
+        "notes": [
+            "Phase 10 headless smoke boots the WHILE plus function-call example via plain `run-headless`.",
+        ],
+    },
+    "circle_drawer": {
+        "status": "PARTIAL",
+        "notes": [
+            "Phase 10 headless smoke now boots the circle drawer example and renders the initial count, with narrow headless support for `List/remove_last` and SVG host nodes.",
+        ],
+    },
+    "crud": {
+        "status": "PARTIAL",
+        "notes": [
+            "Phase 10 headless smoke now boots the CRUD example and renders the initial people list after adding inline `WHILE` arm commas, deterministic `Ulid/generate()`, and narrower scoped-subscriber filtering.",
+        ],
+    },
+    "fibonacci": {
+        "status": "PARTIAL",
+        "notes": [
+            "Phase 10 headless smoke now renders the expected Fibonacci value after adding scoped `Stream/pulses()` plus scoped `Stream/skip` runtime support.",
+        ],
+    },
+    "hw_examples": {
+        "status": "PARTIAL",
+        "notes": [
+            "Phase 10 carries an explicit local correction for the malformed imported `serialadder.bn` source via `examples/upstream_overrides/hw_examples/serialadder.bn` so the HDL corpus can continue through parser/HIR/Flow verification.",
+            "This example bucket is still `PARTIAL`, not `DONE`, because `hw_examples` is a directory of HDL-oriented programs rather than one runnable headless/terminal playground entrypoint.",
+        ],
+    },
+    "latest": {
+        "status": "PARTIAL",
+        "notes": [
+            "Phase 10 headless smoke now boots the standalone latest example, and focused headless tests cover initial seeding plus both button-update paths.",
+        ],
+    },
+    "layers": {
+        "status": "PARTIAL",
+        "notes": [
+            "Phase 10 headless smoke now boots the layered layout example and renders the stacked card labels in the headless host.",
+        ],
+    },
+    "list_retain_count": {
+        "status": "PARTIAL",
+        "notes": [
+            "Phase 10 headless smoke now boots the List/retain count example, and focused headless tests cover reactive count updates after enter.",
+        ],
+    },
+    "list_retain_reactive": {
+        "status": "PARTIAL",
+        "notes": [
+            "Phase 10 headless smoke now boots the reactive List/retain example, and focused headless tests cover filter toggling semantics.",
+        ],
+    },
+    "then": {
+        "status": "PARTIAL",
+        "notes": [
+            "Phase 10 headless smoke now boots the standalone THEN example with scoped timer initialization deferred during global startup.",
+        ],
+    },
+    "todo_mvc_physical": {
+        "status": "PARTIAL",
+        "notes": [
+            "Phase 10 headless smoke now boots RUN.bn through the scene-root path with narrow `Scene/Element/*` and physical host shims.",
+        ],
+    },
+    "when": {
+        "status": "PARTIAL",
+        "notes": [
+            "Phase 10 headless smoke now boots the standalone WHEN example with scoped timer initialization deferred during global startup.",
+        ],
+    },
+    "while": {
+        "status": "PARTIAL",
+        "notes": [
+            "Phase 10 headless smoke now boots the standalone WHILE example with scoped timer initialization deferred during global startup.",
+        ],
+    },
+}
+
+TERMINAL_GRID_EVIDENCE: dict[str, dict[str, object]] = {
+    "counter": {
+        "status": "DONE",
+        "notes": [
+            "Phase 8 terminal-grid verification replays the counter script and compares the snapshot in tests/terminal_grid/counter.expected.",
+        ],
+    },
+    "interval": {
+        "status": "DONE",
+        "notes": [
+            "Phase 8 terminal-grid verification advances virtual time by 2s and compares the snapshot in tests/terminal_grid/interval.expected.",
+        ],
+    },
+    "cells": {
+        "status": "DONE",
+        "notes": [
+            "Phase 8 terminal-grid verification compares the deterministic spreadsheet snapshot in tests/terminal_grid/cells.expected.",
+        ],
+    },
+    "todo_mvc": {
+        "status": "DONE",
+        "notes": [
+            "Phase 8 terminal-grid verification compares the deterministic TodoMVC snapshot in tests/terminal_grid/todo_mvc.expected.",
+        ],
+    },
+}
+
+REPO_P0_HEADLESS_EVIDENCE: dict[str, dict[str, object]] = {
+    "pong": {
+        "status": "DONE",
+        "notes": [
+            "Phase 7 headless verification replays the repo-authored Pong lane via tests/examples/pong_sequence.json and expects a scored rally.",
+        ],
+    },
+    "arkanoid": {
+        "status": "DONE",
+        "notes": [
+            "Phase 7 headless verification replays the repo-authored Arkanoid lane via tests/examples/arkanoid_sequence.json and expects one brick break.",
+        ],
+    },
+}
+
+REPO_P0_TERMINAL_GRID_EVIDENCE: dict[str, dict[str, object]] = {
+    "pong": {
+        "status": "DONE",
+        "notes": [
+            "Phase 8 terminal-grid verification replays the repo-authored Pong lane and compares the snapshot in tests/terminal_grid/pong.expected.",
+        ],
+    },
+    "arkanoid": {
+        "status": "DONE",
+        "notes": [
+            "Phase 8 terminal-grid verification replays the repo-authored Arkanoid lane and compares the snapshot in tests/terminal_grid/arkanoid.expected.",
+        ],
+    },
+}
+
+PERSISTENCE_EVIDENCE: dict[str, dict[str, object]] = {
+    "counter": {
+        "status": "DONE",
+        "script": "tests/examples/counter_sequence.json",
+        "notes": [
+            "Scripted Phase 6 CLI persistence verification is implemented with --script and --expect-text.",
+        ],
+    },
+    "counter_hold": {
+        "status": "DONE",
+        "script": "tests/examples/counter_hold_sequence.json",
+        "notes": [
+            "Scripted Phase 6 CLI persistence verification covers scalar HOLD restore/clear-state behavior.",
+        ],
+    },
+    "interval": {
+        "status": "PARTIAL",
+        "script": None,
+        "notes": [
+            "Headless timer behavior and clear-state infrastructure are green, but there is no example-specific scripted persistence replay yet.",
+        ],
+    },
+    "interval_hold": {
+        "status": "PARTIAL",
+        "script": None,
+        "notes": [
+            "Headless HOLD/timer behavior and clear-state infrastructure are green, but there is no example-specific scripted persistence replay yet.",
+        ],
+    },
+}
+
+BROWSER_SMOKE_EVIDENCE: dict[str, dict[str, object]] = {
+    "counter": {
+        "status": "DONE",
+        "notes": [
+            "Phase 11 browser smoke runs the generated bundle through tools/browser_smoke.mjs and proves click persistence plus clear-state semantics with IndexedDB-style storage.",
+        ],
+    },
+    "interval": {
+        "status": "DONE",
+        "notes": [
+            "Phase 11 browser smoke runs the generated bundle through tools/browser_smoke.mjs and proves deterministic 2s virtual-time rendering.",
+        ],
+    },
+    "todo_mvc": {
+        "status": "DONE",
+        "notes": [
+            "Phase 11 browser smoke boots the browser TodoMVC host and covers add/toggle/filter/clear-completed persistence semantics.",
+            "Phase 12 visual verification compares the rendered browser TodoMVC screenshot against the imported reference image and records a passing similarity score plus diff artifact under tests/browser_visual/.",
+        ],
+    },
+}
 
 FEATURE_PATTERNS: dict[str, re.Pattern[str]] = {
     "FUNCTION": re.compile(r"\bFUNCTION\b"),
@@ -58,18 +407,46 @@ FEATURE_PATTERNS: dict[str, re.Pattern[str]] = {
 
 
 def main() -> int:
-    if len(sys.argv) != 2 or sys.argv[1] not in {"sync", "verify"}:
-        print("usage: python3 tools/corpus.py [sync|verify]", file=sys.stderr)
+    if len(sys.argv) < 2 or sys.argv[1] not in {"sync", "verify"}:
+        print(
+            "usage: python3 tools/corpus.py [sync|verify] [--boon-zig-bin <path>] [--parse-only]",
+            file=sys.stderr,
+        )
         return 2
+
+    command = sys.argv[1]
+    boon_zig_bin, parse_only = parse_options(sys.argv[2:])
 
     ensure_upstream_ready()
 
-    if sys.argv[1] == "sync":
+    if command == "sync":
         sync_examples()
-        write_fixtures()
+        write_fixtures(collect_parse_results(boon_zig_bin))
         return 0
 
-    return verify()
+    return verify(boon_zig_bin, parse_only)
+
+
+def parse_options(args: list[str]) -> tuple[Path | None, bool]:
+    boon_zig_bin: Path | None = None
+    parse_only = False
+
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg == "--boon-zig-bin":
+            if index + 1 >= len(args):
+                raise SystemExit("--boon-zig-bin requires a path")
+            boon_zig_bin = Path(args[index + 1])
+            index += 2
+            continue
+        if arg == "--parse-only":
+            parse_only = True
+            index += 1
+            continue
+        raise SystemExit(f"unknown argument: {arg}")
+
+    return boon_zig_bin, parse_only
 
 
 def ensure_upstream_ready() -> None:
@@ -84,13 +461,21 @@ def ensure_upstream_ready() -> None:
     if not UPSTREAM_EXAMPLES.is_dir():
         raise SystemExit(f"missing upstream examples tree after clone: {UPSTREAM_EXAMPLES}")
 
-    subprocess.run(
-        ["git", "fetch", "--all", "--tags", "--prune"],
+    pinned_available = subprocess.run(
+        ["git", "cat-file", "-e", f"{PINNED_COMMIT}^{{commit}}"],
         cwd=UPSTREAM_ROOT,
-        check=True,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
-    )
+    ).returncode == 0
+    if not pinned_available:
+        subprocess.run(
+            ["git", "fetch", "--all", "--tags", "--prune"],
+            cwd=UPSTREAM_ROOT,
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
     subprocess.run(
         ["git", "checkout", PINNED_COMMIT],
         cwd=UPSTREAM_ROOT,
@@ -119,11 +504,25 @@ def sync_examples() -> None:
     if IMPORTED_EXAMPLES.exists():
         shutil.rmtree(IMPORTED_EXAMPLES)
     shutil.copytree(UPSTREAM_EXAMPLES, IMPORTED_EXAMPLES)
+    apply_overrides()
 
 
-def verify() -> int:
+def apply_overrides() -> None:
+    if not UPSTREAM_OVERRIDES.is_dir():
+        return
+    for override in sorted(UPSTREAM_OVERRIDES.rglob("*")):
+        if override.is_dir():
+            continue
+        relative = override.relative_to(UPSTREAM_OVERRIDES)
+        destination = IMPORTED_EXAMPLES / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(override, destination)
+
+
+def verify(boon_zig_bin: Path | None, parse_only: bool) -> int:
+    parse_results = collect_parse_results(boon_zig_bin)
     expected_manifest, expected_syntax_inventory, expected_feature_matrix, expected_spec_gaps = (
-        render_outputs()
+        render_outputs(parse_results)
     )
 
     failures: list[str] = []
@@ -132,16 +531,19 @@ def verify() -> int:
     else:
         source_files = relative_files(UPSTREAM_EXAMPLES)
         imported_files = relative_files(IMPORTED_EXAMPLES)
-        if source_files != imported_files:
-            missing = sorted(source_files - imported_files)
-            extra = sorted(imported_files - source_files)
+        override_files = relative_files(UPSTREAM_OVERRIDES) if UPSTREAM_OVERRIDES.is_dir() else set()
+        expected_imported_files = source_files | override_files
+        if expected_imported_files != imported_files:
+            missing = sorted(expected_imported_files - imported_files)
+            extra = sorted(imported_files - expected_imported_files)
             if missing:
                 failures.append("missing imported files:\n" + "\n".join(missing[:50]))
             if extra:
                 failures.append("unexpected imported files:\n" + "\n".join(extra[:50]))
         else:
-            for rel in sorted(source_files):
-                if file_digest(UPSTREAM_EXAMPLES / rel) != file_digest(IMPORTED_EXAMPLES / rel):
+            for rel in sorted(expected_imported_files):
+                expected_path = override_source_for(rel)
+                if file_digest(expected_path) != file_digest(IMPORTED_EXAMPLES / rel):
                     failures.append(f"content mismatch for {rel}")
                     break
 
@@ -159,6 +561,9 @@ def verify() -> int:
         if actual != expected_text:
             failures.append(f"out-of-date fixture: {path.relative_to(REPO_ROOT)}")
 
+    if parse_only and parse_results is None:
+        failures.append("parse-only verification requires --boon-zig-bin")
+
     if failures:
         print("verify-corpus failed", file=sys.stderr)
         for failure in failures:
@@ -166,12 +571,20 @@ def verify() -> int:
         print("run: zig build sync-corpus", file=sys.stderr)
         return 1
 
+    if parse_results is not None:
+        blocked = [
+            result for result in parse_results.values() if not result["ok"]
+        ]
+        if blocked:
+            print(f"verify-corpus ok ({len(blocked)} parser blockers recorded in fixtures)")
+            return 0
+
     print("verify-corpus ok")
     return 0
 
 
-def write_fixtures() -> None:
-    manifest, syntax_inventory, feature_matrix, spec_gaps = render_outputs()
+def write_fixtures(parse_results: dict[str, dict] | None) -> None:
+    manifest, syntax_inventory, feature_matrix, spec_gaps = render_outputs(parse_results)
     FIXTURES_DIR.mkdir(parents=True, exist_ok=True)
     (FIXTURES_DIR / "corpus_manifest.json").write_text(manifest)
     (FIXTURES_DIR / "syntax_inventory.json").write_text(syntax_inventory)
@@ -179,26 +592,38 @@ def write_fixtures() -> None:
     (FIXTURES_DIR / "spec_gaps.md").write_text(spec_gaps)
 
 
-def render_outputs() -> tuple[str, str, str, str]:
-    manifest_obj = build_manifest()
+def render_outputs(parse_results: dict[str, dict] | None) -> tuple[str, str, str, str]:
+    manifest_obj = build_manifest(parse_results)
     syntax_inventory_obj = build_syntax_inventory()
-    feature_matrix_text = build_feature_matrix(manifest_obj["examples"])
+    feature_matrix_text = build_feature_matrix(manifest_obj["examples"], parse_results is not None)
     spec_gaps_text = build_spec_gaps()
     manifest = json.dumps(manifest_obj, indent=2, sort_keys=False) + "\n"
     syntax_inventory = json.dumps(syntax_inventory_obj, indent=2, sort_keys=False) + "\n"
     return manifest, syntax_inventory, feature_matrix_text, spec_gaps_text
 
 
-def build_manifest() -> dict:
+def build_manifest(parse_results: dict[str, dict] | None) -> dict:
     example_dirs = sorted(
         p for p in UPSTREAM_EXAMPLES.iterdir() if p.is_dir()
     )
-    entries = [build_example_entry(path) for path in example_dirs]
-    root_files = sorted(
-        str(path.relative_to(UPSTREAM_EXAMPLES))
-        for path in UPSTREAM_EXAMPLES.iterdir()
-        if path.is_file()
-    )
+    entries = [build_example_entry(path, parse_results) for path in example_dirs]
+    root_files = []
+    for path in sorted(UPSTREAM_EXAMPLES.iterdir()):
+        if not path.is_file():
+            continue
+        rel = str(path.relative_to(UPSTREAM_EXAMPLES))
+        root_info = {"path": rel}
+        if parse_results is not None and path.suffix == ".bn":
+            parse_key = str((IMPORTED_EXAMPLES / rel).relative_to(REPO_ROOT))
+            parse_result = parse_results.get(parse_key)
+            if parse_result is None:
+                root_info["parser_status"] = STATUS
+                root_info["parse_message"] = f"missing parse result for {parse_key}"
+            else:
+                root_info["parser_status"] = "DONE" if parse_result["ok"] else "BLOCKED"
+                if not parse_result["ok"]:
+                    root_info["parse_message"] = parse_result["message"]
+        root_files.append(root_info)
     return {
         "generated_by": "tools/corpus.py",
         "source_repo": {
@@ -208,13 +633,7 @@ def build_manifest() -> dict:
             "imported_root": str(IMPORTED_EXAMPLES.relative_to(REPO_ROOT)),
         },
         "planned_p0_repo_examples": [
-            {
-                "name": name,
-                "category": "terminal_only",
-                "hard_gate": True,
-                "status": STATUS,
-                "notes": ["Repo-authored terminal example; not present in upstream corpus yet."],
-            }
+            build_repo_p0_entry(name, parse_results)
             for name in PLANNED_TERMINAL_P0
         ],
         "shared_root_files": root_files,
@@ -222,7 +641,7 @@ def build_manifest() -> dict:
     }
 
 
-def build_example_entry(example_dir: Path) -> dict:
+def build_example_entry(example_dir: Path, parse_results: dict[str, dict] | None) -> dict:
     rel = example_dir.relative_to(UPSTREAM_EXAMPLES)
     files = sorted(
         str(path.relative_to(example_dir))
@@ -231,6 +650,7 @@ def build_example_entry(example_dir: Path) -> dict:
     )
     bn_files = [path for path in files if path.endswith(".bn")]
     expected_files = [path for path in files if path.endswith(".expected")]
+    persistence_cases = count_persistence_cases(example_dir, expected_files)
     reference_assets = [
         path
         for path in files
@@ -263,7 +683,96 @@ def build_example_entry(example_dir: Path) -> dict:
             ]
         )
     if example_dir.name == "hw_examples":
-        notes.append("Directory mixes multiple HDL-oriented .bn/.sv programs and analysis docs.")
+        notes.extend(
+            [
+                "Directory mixes multiple HDL-oriented .bn/.sv programs and analysis docs.",
+                "Repo currently carries an explicit local correction in `examples/upstream_overrides/hw_examples/serialadder.bn` so parser/HIR/Flow verification can proceed despite the malformed imported upstream source.",
+            ]
+        )
+
+    parser_status = STATUS
+    overall_status = STATUS
+    runtime_status = STATUS
+    persistence_status = STATUS
+    persistence_script: str | None = None
+    if parse_results is not None and bn_files:
+        example_results = []
+        missing_parse_keys = []
+        for rel_path in bn_files:
+            parse_key = str((IMPORTED_EXAMPLES / rel / rel_path).relative_to(REPO_ROOT))
+            parse_result = parse_results.get(parse_key)
+            if parse_result is None:
+                missing_parse_keys.append(parse_key)
+                continue
+            example_results.append(parse_result)
+        if missing_parse_keys:
+            blockers.extend(
+                f"missing parse result for {parse_key}"
+                for parse_key in missing_parse_keys
+            )
+        failed = [result for result in example_results if not result["ok"]]
+        if failed:
+            parser_status = "BLOCKED"
+            overall_status = "BLOCKED"
+            blockers.extend(
+                f"parser: {result['path']} :: {result['message']}"
+                for result in failed
+            )
+        elif example_results:
+            parser_status = "DONE"
+            overall_status = "PARTIAL"
+
+    runtime_evidence = HEADLESS_RUNTIME_EVIDENCE.get(example_dir.name)
+    if runtime_evidence is not None:
+        runtime_status = str(runtime_evidence["status"])
+        notes.extend(runtime_evidence["notes"])
+        if runtime_status == "BLOCKED":
+            overall_status = "BLOCKED"
+
+    terminal_evidence = TERMINAL_GRID_EVIDENCE.get(example_dir.name)
+    terminal_status = STATUS
+    if terminal_evidence is not None:
+        terminal_status = str(terminal_evidence["status"])
+        notes.extend(terminal_evidence["notes"])
+    elif runtime_evidence is not None:
+        if str(runtime_evidence["status"]) == "PARTIAL":
+            terminal_status = "PARTIAL"
+            notes.append(
+                "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet."
+            )
+        elif str(runtime_evidence["status"]) == "BLOCKED":
+            terminal_status = "BLOCKED"
+            notes.append(
+                "Terminal projection is blocked behind the current headless/runtime blocker for this example."
+            )
+
+    persistence_evidence = PERSISTENCE_EVIDENCE.get(example_dir.name)
+    if persistence_cases != 0:
+        if persistence_evidence is not None:
+            persistence_status = str(persistence_evidence["status"])
+            persistence_script = persistence_evidence["script"]
+            notes.extend(persistence_evidence["notes"])
+        else:
+            notes.append(
+                "Imported .expected file(s) declare persistence behavior, but repo-side scripted/example-specific persistence verification is not recorded yet."
+            )
+
+    browser_evidence = BROWSER_SMOKE_EVIDENCE.get(example_dir.name)
+    browser_status = STATUS
+    if browser_evidence is not None:
+        browser_status = str(browser_evidence["status"])
+        notes.extend(browser_evidence["notes"])
+    elif runtime_evidence is not None:
+        if str(runtime_evidence["status"]) == "BLOCKED":
+            browser_status = "BLOCKED"
+            notes.append(
+                "Browser work is blocked behind the current runtime/headless blocker for this example."
+            )
+        else:
+            browser_status = "PARTIAL"
+            notes.append(
+                "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+            )
 
     return {
         "name": example_dir.name,
@@ -272,20 +781,73 @@ def build_example_entry(example_dir: Path) -> dict:
         "imported_path": str((IMPORTED_EXAMPLES / rel).relative_to(REPO_ROOT)),
         "category": category,
         "hard_gate": example_dir.name in P0_UPSTREAM,
-        "status": STATUS,
-        "parser_status": STATUS,
-        "runtime_status": STATUS,
-        "terminal_status": STATUS,
-        "browser_status": STATUS,
+        "status": overall_status,
+        "parser_status": parser_status,
+        "runtime_status": runtime_status,
+        "persistence_status": persistence_status,
+        "persistence_cases": persistence_cases,
+        "persistence_script": persistence_script,
+        "terminal_status": terminal_status,
+        "browser_status": browser_status,
         "bn_files": bn_files,
         "expected_files": expected_files,
         "reference_assets": reference_assets,
         "helper_files": helper_files,
         "docs": docs,
         "all_files": files,
-        "blockers": blockers,
+        "blockers": sorted(dict.fromkeys(blockers)),
         "notes": notes,
     }
+
+
+def build_repo_p0_entry(name: str, parse_results: dict[str, dict] | None) -> dict:
+    path = REPO_ROOT / "examples" / "terminal" / name / f"{name}.bn"
+    entry = {
+        "name": name,
+        "category": "terminal_only",
+        "hard_gate": True,
+        "status": STATUS,
+        "runtime_status": STATUS,
+        "persistence_status": STATUS,
+        "terminal_status": STATUS,
+        "browser_status": STATUS,
+        "notes": ["Repo-authored terminal example tracked outside the upstream corpus."],
+    }
+    if path.is_file():
+        entry["path"] = str(path.relative_to(REPO_ROOT))
+        if parse_results is not None:
+            result = parse_results.get(str(path.relative_to(REPO_ROOT)))
+            if result is not None:
+                entry["parser_status"] = "DONE" if result["ok"] else "BLOCKED"
+                entry["status"] = "PARTIAL" if result["ok"] else "BLOCKED"
+                if not result["ok"]:
+                    entry["notes"].append(result["message"])
+            else:
+                entry["parser_status"] = STATUS
+        else:
+            entry["parser_status"] = STATUS
+
+    runtime_evidence = REPO_P0_HEADLESS_EVIDENCE.get(name)
+    if runtime_evidence is not None:
+        entry["runtime_status"] = str(runtime_evidence["status"])
+        entry["notes"].extend(runtime_evidence["notes"])
+        if runtime_evidence["status"] == "BLOCKED":
+            entry["status"] = "BLOCKED"
+        if runtime_evidence["status"] == "DONE" and entry.get("parser_status") == "DONE":
+            entry["status"] = "PARTIAL"
+        blockers = runtime_evidence.get("blockers")
+        if blockers is not None:
+            entry["blockers"] = list(blockers)
+
+    terminal_evidence = REPO_P0_TERMINAL_GRID_EVIDENCE.get(name)
+    if terminal_evidence is not None:
+        entry["terminal_status"] = str(terminal_evidence["status"])
+        entry["notes"].extend(terminal_evidence["notes"])
+    entry["browser_status"] = "PARTIAL"
+    entry["notes"].append(
+        "Repo-authored terminal example tracked as browser PARTIAL-by-design; no browser host lane is implemented for it."
+    )
+    return entry
 
 
 def build_syntax_inventory() -> dict:
@@ -323,25 +885,32 @@ def build_syntax_inventory() -> dict:
     }
 
 
-def build_feature_matrix(entries: list[dict]) -> str:
+def build_feature_matrix(entries: list[dict], parser_statuses_present: bool) -> str:
     lines = [
         "# Feature Matrix",
         "",
         f"- Source commit: `{PINNED_COMMIT}`",
-        "- Status values remain `NOT_STARTED` until parser/runtime phases land.",
+        (
+            "- Parser status reflects the current `boon-zig parse` pass over imported `.bn` files."
+            if parser_statuses_present
+            else "- Status values remain `NOT_STARTED` until parser/runtime phases land."
+        ),
         "- `P0` marks the upstream hard-gate examples from `PLAN.md`.",
         "",
-        "| Example | Category | P0 | bn | expected | refs/docs | HOLD | LATEST | WHEN | WHILE | THEN | LINK | LIST | TEXT | FLUSH | PULSES |",
-        "| --- | --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| Example | Category | P0 | Parser | Persist | persist cases | bn | expected | refs/docs | HOLD | LATEST | WHEN | WHILE | THEN | LINK | LIST | TEXT | FLUSH | PULSES |",
+        "| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for entry in entries:
         features = scan_entry_features(entry)
         refs_docs = len(entry["reference_assets"]) + len(entry["docs"])
         lines.append(
-            "| {name} | {category} | {p0} | {bn} | {expected} | {refs_docs} | {HOLD} | {LATEST} | {WHEN} | {WHILE} | {THEN} | {LINK} | {LIST} | {TEXT} | {FLUSH} | {PULSES} |".format(
+            "| {name} | {category} | {p0} | {parser_status} | {persistence_status} | {persistence_cases} | {bn} | {expected} | {refs_docs} | {HOLD} | {LATEST} | {WHEN} | {WHILE} | {THEN} | {LINK} | {LIST} | {TEXT} | {FLUSH} | {PULSES} |".format(
                 name=entry["name"],
                 category=entry["category"],
                 p0="yes" if entry["hard_gate"] else "no",
+                parser_status=entry["parser_status"],
+                persistence_status=entry["persistence_status"],
+                persistence_cases=entry["persistence_cases"],
                 bn=len(entry["bn_files"]),
                 expected=len(entry["expected_files"]),
                 refs_docs=refs_docs,
@@ -446,12 +1015,57 @@ def exact_phrase_paths(phrase: str) -> list[str]:
     return paths
 
 
+def collect_parse_results(boon_zig_bin: Path | None) -> dict[str, dict] | None:
+    if boon_zig_bin is None:
+        return None
+    if not boon_zig_bin.is_file():
+        raise SystemExit(f"missing boon-zig binary: {boon_zig_bin}")
+
+    results: dict[str, dict] = {}
+    parse_targets = sorted(IMPORTED_EXAMPLES.rglob("*.bn"))
+    for name in PLANNED_TERMINAL_P0:
+        candidate = REPO_ROOT / "examples" / "terminal" / name / f"{name}.bn"
+        if candidate.is_file():
+            parse_targets.append(candidate)
+
+    for path in parse_targets:
+        rel = str(path.relative_to(REPO_ROOT))
+        completed = subprocess.run(
+            [str(boon_zig_bin), "parse", rel],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+        )
+        combined_output = (completed.stderr + completed.stdout).strip()
+        results[rel] = {
+            "path": rel,
+            "ok": completed.returncode == 0,
+            "message": combined_output or "parse failed without output",
+        }
+    return results
+
+
+def count_persistence_cases(example_dir: Path, expected_files: list[str]) -> int:
+    count = 0
+    for rel in expected_files:
+        text = (example_dir / rel).read_text(errors="replace")
+        count += len(re.findall(r"^\[\[persistence\]\]", text, flags=re.MULTILINE))
+    return count
+
+
 def relative_files(root: Path) -> set[str]:
     return {
         str(path.relative_to(root))
         for path in root.rglob("*")
         if path.is_file()
     }
+
+
+def override_source_for(relative_path: str) -> Path:
+    override = UPSTREAM_OVERRIDES / relative_path
+    if override.is_file():
+        return override
+    return UPSTREAM_EXAMPLES / relative_path
 
 
 def file_digest(path: Path) -> str:

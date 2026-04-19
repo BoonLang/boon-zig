@@ -94,7 +94,7 @@ The user wants to create a fresh GitHub repository and add this file as `PLAN.md
 
 ### 3.2 Zig version and async/runtime approach
 
-Target **Zig 0.16.x**.
+Target **Zig 0.17.0-dev.9+046002d1a**.
 
 Use `std.Io` at host boundaries: timers, terminal input, filesystem persistence, browser-dev tooling, sockets if any, and later browser/wasm glue.
 
@@ -109,7 +109,7 @@ Experimental backend:
 
 - Add `Io.Evented` only as an opt-in experimental smoke lane after native/headless/terminal correctness is stable.
 - It may be valuable for green-thread-style host tasks, timers, and future high-concurrency hosts.
-- Problems to expect: incomplete functions, weaker test coverage, changing APIs, stack-size issues, performance cliffs, and missing networking support in Zig 0.16.
+- Problems to expect: incomplete functions, weaker test coverage, changing APIs, stack-size issues, performance cliffs, and host/backend gaps on the current toolchain.
 - Do not block P0/P1 work on `Io.Evented`.
 
 ### 3.3 Storage choice
@@ -494,7 +494,7 @@ Implement two terminal backends:
 2. **Interactive TUI backend**
    - Real terminal for manual play/debug.
    - Prefer `libvaxis` because it is a mature Zig TUI library with TTY, Vaxis, and event loop primitives.
-   - If `libvaxis` has Zig 0.16 incompatibilities, fall back to a small internal ANSI/raw-mode backend or another clearly documented Zig TUI option.
+   - If `libvaxis` has current-toolchain incompatibilities, fall back to a small internal ANSI/raw-mode backend or another clearly documented Zig TUI option.
    - Keep the renderer interface independent from the chosen TUI library.
 
 ### 7.2 Required terminal components
@@ -1617,7 +1617,7 @@ Tasks:
 
 - Add build flag or command for Evented smoke tests.
 - Run timer/cancelation tests.
-- Do not include networking tests because Zig 0.16 Evented networking is not implemented.
+- Do not include networking tests; Evented networking is out of scope for this experimental lane on the current toolchain.
 - Compare behavior with `Io.Threaded`.
 
 Verification:
@@ -1722,4 +1722,3 @@ Inside interactive Codex:
 1. Select `gpt-5.4`.
 2. Select high reasoning effort.
 3. Paste the start/resume prompt from section 1.
-

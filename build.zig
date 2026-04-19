@@ -3,9 +3,21 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const io_backend = b.option([]const u8, "io_backend", "Select std.Io backend: threaded or evented") orelse "threaded";
+
+    const build_options = b.addOptions();
+    build_options.addOption([]const u8, "io_backend", io_backend);
 
     const boon_mod = b.addModule("boon", .{
         .root_source_file = b.path("src/root.zig"),
+        .target = target,
+        .imports = &.{
+            .{ .name = "boon_build_options", .module = build_options.createModule() },
+        },
+    });
+
+    const browser_assets_mod = b.addModule("browser_assets", .{
+        .root_source_file = b.path("browser/assets.zig"),
         .target = target,
     });
 
@@ -17,6 +29,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .imports = &.{
                 .{ .name = "boon", .module = boon_mod },
+                .{ .name = "browser_assets", .module = browser_assets_mod },
             },
         }),
     });
@@ -29,11 +42,63 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the Boon Zig CLI");
     run_step.dependOn(&run_cmd.step);
 
+    const parse_cmd = b.addRunArtifact(exe);
+    parse_cmd.step.dependOn(b.getInstallStep());
+    parse_cmd.addArg("parse");
+    if (b.args) |args| parse_cmd.addArgs(args);
+
+    const parse_step = b.step("parse", "Parse a Boon source file");
+    parse_step.dependOn(&parse_cmd.step);
+
+    const hir_cmd = b.addRunArtifact(exe);
+    hir_cmd.step.dependOn(b.getInstallStep());
+    hir_cmd.addArg("hir");
+    if (b.args) |args| hir_cmd.addArgs(args);
+
+    const hir_step = b.step("hir", "Lower a Boon source file into HIR");
+    hir_step.dependOn(&hir_cmd.step);
+
+    const flow_cmd = b.addRunArtifact(exe);
+    flow_cmd.step.dependOn(b.getInstallStep());
+    flow_cmd.addArg("flow");
+    if (b.args) |args| flow_cmd.addArgs(args);
+
+    const flow_step = b.step("flow", "Lower a Boon source file into Flow IR");
+    flow_step.dependOn(&flow_cmd.step);
+
+    const run_headless_cmd = b.addRunArtifact(exe);
+    run_headless_cmd.step.dependOn(b.getInstallStep());
+    run_headless_cmd.addArg("run-headless");
+    if (b.args) |args| run_headless_cmd.addArgs(args);
+
+    const run_headless_step = b.step("run-headless", "Run a Boon source file in the headless runtime");
+    run_headless_step.dependOn(&run_headless_cmd.step);
+
+    const snapshot_cmd = b.addRunArtifact(exe);
+    snapshot_cmd.step.dependOn(b.getInstallStep());
+    snapshot_cmd.addArg("snapshot");
+    if (b.args) |args| snapshot_cmd.addArgs(args);
+
+    const snapshot_step = b.step("snapshot", "Render a deterministic terminal-grid snapshot");
+    snapshot_step.dependOn(&snapshot_cmd.step);
+
+    const run_terminal_cmd = b.addRunArtifact(exe);
+    run_terminal_cmd.step.dependOn(b.getInstallStep());
+    run_terminal_cmd.addArg("run-terminal");
+    if (b.args) |args| run_terminal_cmd.addArgs(args);
+
+    const run_terminal_step = b.step("run-terminal", "Run the interactive terminal fallback backend");
+    run_terminal_step.dependOn(&run_terminal_cmd.step);
+
+    const boon_bin = b.getInstallPath(.bin, "boon-zig");
     const sync_corpus_cmd = b.addSystemCommand(&.{
         "python3",
         "tools/corpus.py",
         "sync",
+        "--boon-zig-bin",
+        boon_bin,
     });
+    sync_corpus_cmd.step.dependOn(b.getInstallStep());
     const sync_corpus_step = b.step("sync-corpus", "Import the pinned upstream corpus and regenerate fixtures");
     sync_corpus_step.dependOn(&sync_corpus_cmd.step);
 
@@ -41,9 +106,46 @@ pub fn build(b: *std.Build) void {
         "python3",
         "tools/corpus.py",
         "verify",
+        "--boon-zig-bin",
+        boon_bin,
     });
+    verify_corpus_cmd.step.dependOn(b.getInstallStep());
+    if (b.args) |args| verify_corpus_cmd.addArgs(args);
     const verify_corpus_step = b.step("verify-corpus", "Verify imported upstream corpus and generated fixtures");
     verify_corpus_step.dependOn(&verify_corpus_cmd.step);
+
+    const verify_examples_cmd = b.addSystemCommand(&.{
+        "python3",
+        "tools/verify_examples.py",
+        "--boon-zig-bin",
+        boon_bin,
+    });
+    verify_examples_cmd.step.dependOn(b.getInstallStep());
+    if (b.args) |args| verify_examples_cmd.addArgs(args);
+    const verify_examples_step = b.step("verify-examples", "Verify example execution lanes and recorded blockers");
+    verify_examples_step.dependOn(&verify_examples_cmd.step);
+
+    const browser_out = b.getInstallPath(.prefix, "browser");
+    const browser_cmd = b.addSystemCommand(&.{
+        "python3",
+        "tools/build_browser_bundle.py",
+        "--out-dir",
+        browser_out,
+        "--boon-zig-bin",
+        boon_bin,
+    });
+    browser_cmd.step.dependOn(b.getInstallStep());
+    const browser_step = b.step("browser", "Build the browser host bundle");
+    browser_step.dependOn(&browser_cmd.step);
+
+    const verify_visual_cmd = b.addSystemCommand(&.{
+        "python3",
+        "tools/verify_visual.py",
+    });
+    verify_visual_cmd.step.dependOn(&browser_cmd.step);
+    if (b.args) |args| verify_visual_cmd.addArgs(args);
+    const verify_visual_step = b.step("verify-visual", "Run browser visual comparison lanes");
+    verify_visual_step.dependOn(&verify_visual_cmd.step);
 
     const lib_tests = b.addTest(.{
         .root_module = boon_mod,

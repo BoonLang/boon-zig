@@ -14,6 +14,7 @@ pub fn main(init: std.process.Init) !void {
 
     const exit_code = cli.run(
         arena,
+        io,
         args,
         &stdout_writer.interface,
         &stderr_writer.interface,
@@ -21,6 +22,49 @@ pub fn main(init: std.process.Init) !void {
         error.UnknownCommand => blk: {
             try stderr_writer.interface.print("error: unknown command or flag\n\n", .{});
             try cli.writeHelp(&stderr_writer.interface);
+            break :blk 1;
+        },
+        error.MissingPath => blk: {
+            try stderr_writer.interface.print("error: command requires a path\n\n", .{});
+            try cli.writeHelp(&stderr_writer.interface);
+            break :blk 1;
+        },
+        error.MissingVirtualTime => blk: {
+            try stderr_writer.interface.print("error: --virtual-time requires a duration like 2s or 500ms\n\n", .{});
+            try cli.writeHelp(&stderr_writer.interface);
+            break :blk 1;
+        },
+        error.InvalidDuration => blk: {
+            try stderr_writer.interface.print("error: invalid duration, use forms like 2s or 500ms\n\n", .{});
+            try cli.writeHelp(&stderr_writer.interface);
+            break :blk 1;
+        },
+        error.MissingScriptPath => blk: {
+            try stderr_writer.interface.print("error: --script requires a path\n\n", .{});
+            try cli.writeHelp(&stderr_writer.interface);
+            break :blk 1;
+        },
+        error.MissingExpectedText => blk: {
+            try stderr_writer.interface.print("error: --expect-text requires a string\n\n", .{});
+            try cli.writeHelp(&stderr_writer.interface);
+            break :blk 1;
+        },
+        error.MissingFrames => blk: {
+            try stderr_writer.interface.print("error: --frames requires a count\n\n", .{});
+            try cli.writeHelp(&stderr_writer.interface);
+            break :blk 1;
+        },
+        error.MissingPort => blk: {
+            try stderr_writer.interface.print("error: --port requires a port number\n\n", .{});
+            try cli.writeHelp(&stderr_writer.interface);
+            break :blk 1;
+        },
+        error.InvalidHeadlessScript => blk: {
+            try stderr_writer.interface.print("error: invalid headless script format\n", .{});
+            break :blk 1;
+        },
+        error.InvalidTerminalCommand => blk: {
+            try stderr_writer.interface.print("error: invalid run-terminal command\n", .{});
             break :blk 1;
         },
         else => return err,
