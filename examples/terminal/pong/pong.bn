@@ -1,23 +1,56 @@
+top_row: 0
+bottom_row: 4
+min_paddle_center: 1
+max_paddle_center: 3
+left_goal_x: 0
+right_goal_x: 8
+left_paddle_x: 1
+right_paddle_x: 7
+serve_ball_x: 4
+serve_ball_y: 2
+serve_ball_dx: 1
+serve_ball_dy: 1
+
 FUNCTION clamp_up(value) {
     value |> WHEN {
-        1 => 1
+        min_paddle_center => min_paddle_center
         __ => value - 1
     }
 }
 
 FUNCTION clamp_down(value) {
     value |> WHEN {
-        3 => 3
+        max_paddle_center => max_paddle_center
         __ => value + 1
     }
 }
 
 FUNCTION clamp_paddle_center(value) {
     value |> WHEN {
-        0 => 1
-        4 => 3
+        top_row => min_paddle_center
+        bottom_row => max_paddle_center
         __ => value
     }
+}
+
+FUNCTION moving_left(ball_dx) {
+    ball_dx == -1
+}
+
+FUNCTION moving_right(ball_dx) {
+    ball_dx == 1
+}
+
+FUNCTION idle_ball(ball_x, ball_y) {
+    ball_x == -1 |> Bool/or(that: ball_y == -1)
+}
+
+FUNCTION left_paddle_zone(ball_x) {
+    ball_x == left_goal_x |> Bool/or(that: ball_x == left_paddle_x)
+}
+
+FUNCTION right_paddle_zone(ball_x) {
+    ball_x == right_paddle_x |> Bool/or(that: ball_x == right_goal_x)
 }
 
 FUNCTION paddle_hits(ball_y, paddle) {
@@ -25,78 +58,58 @@ FUNCTION paddle_hits(ball_y, paddle) {
 }
 
 FUNCTION cpu_paddle(ball_y, ball_x) {
-    ball_x == -1 |> Bool/or(that: ball_y == -1) |> WHEN {
-        True => 2
+    idle_ball(ball_x: ball_x, ball_y: ball_y) |> WHEN {
+        True => serve_ball_y
         False => clamp_paddle_center(value: ball_y)
     }
 }
 
 FUNCTION hits_ai_paddle(ball_x, ball_dx, ball_y, ai_paddle) {
-    ball_dx == -1 |> WHEN {
-        True => ball_x == 1 |> Bool/or(that: ball_x == 0) |> WHEN {
-            True => paddle_hits(ball_y: ball_y, paddle: ai_paddle)
-            False => False
-        }
-        False => False
-    }
+    moving_left(ball_dx: ball_dx)
+    |> Bool/and(that: left_paddle_zone(ball_x: ball_x))
+    |> Bool/and(that: paddle_hits(ball_y: ball_y, paddle: ai_paddle))
 }
 
 FUNCTION hits_player_paddle(ball_x, ball_dx, ball_y, player_paddle) {
-    ball_dx == 1 |> WHEN {
-        True => ball_x == 7 |> Bool/or(that: ball_x == 8) |> WHEN {
-            True => paddle_hits(ball_y: ball_y, paddle: player_paddle)
-            False => False
-        }
-        False => False
-    }
+    moving_right(ball_dx: ball_dx)
+    |> Bool/and(that: right_paddle_zone(ball_x: ball_x))
+    |> Bool/and(that: paddle_hits(ball_y: ball_y, paddle: player_paddle))
 }
 
-FUNCTION missed_ai_paddle(ball_x, ball_dx, ball_y, ai_paddle) {
-    ball_dx == -1 |> WHEN {
-        True => ball_x == 1 |> WHEN {
-            True => ball_y == ai_paddle |> WHEN {
-                True => False
-                False => True
-            }
-            False => False
-        }
-        False => False
-    }
+FUNCTION ai_scores(ball_x, ball_dx, ball_y, player_paddle) {
+    ball_x == right_goal_x
+    |> Bool/and(that: moving_right(ball_dx: ball_dx))
+    |> Bool/and(that: hits_player_paddle(ball_x: ball_x, ball_dx: ball_dx, ball_y: ball_y, player_paddle: player_paddle) |> Bool/not())
 }
 
-FUNCTION missed_player_paddle(ball_x, ball_dx, ball_y, player_paddle) {
-    ball_dx == 1 |> WHEN {
-        True => ball_x == 7 |> WHEN {
-            True => ball_y == player_paddle |> WHEN {
-                True => False
-                False => True
-            }
-            False => False
-        }
-        False => False
-    }
+FUNCTION player_scores(ball_x, ball_dx, ball_y, ai_paddle) {
+    ball_x == left_goal_x
+    |> Bool/and(that: moving_left(ball_dx: ball_dx))
+    |> Bool/and(that: hits_ai_paddle(ball_x: ball_x, ball_dx: ball_dx, ball_y: ball_y, ai_paddle: ai_paddle) |> Bool/not())
+}
+
+FUNCTION point_scored(ball_x, ball_dx, ball_y, ai_paddle, player_paddle) {
+    player_scores(ball_x: ball_x, ball_dx: ball_dx, ball_y: ball_y, ai_paddle: ai_paddle)
+    |> Bool/or(that: ai_scores(ball_x: ball_x, ball_dx: ball_dx, ball_y: ball_y, player_paddle: player_paddle))
 }
 
 FUNCTION next_ball_dx(ball_x, ball_dx, ball_y, ai_paddle, player_paddle) {
-    ball_dx |> WHEN {
-        -1 => hits_ai_paddle(ball_x: ball_x, ball_dx: ball_dx, ball_y: ball_y, ai_paddle: ai_paddle) |> WHEN {
-            True => 1
-            False => -1
-        }
-        __ => hits_player_paddle(ball_x: ball_x, ball_dx: ball_dx, ball_y: ball_y, player_paddle: player_paddle) |> WHEN {
+    hits_ai_paddle(ball_x: ball_x, ball_dx: ball_dx, ball_y: ball_y, ai_paddle: ai_paddle) |> WHEN {
+        True => 1
+        False => hits_player_paddle(ball_x: ball_x, ball_dx: ball_dx, ball_y: ball_y, player_paddle: player_paddle) |> WHEN {
             True => -1
-            False => 1
+            False => ball_dx
         }
     }
 }
 
 FUNCTION next_ball_dy(ball_y, ball_dy) {
     ball_dy |> WHEN {
-        -1 => ball_y == 0 |> WHEN {
+        -1 => ball_y == top_row |> WHEN {
             True => 1
             False => -1
         }
-        __ => ball_y == 4 |> WHEN {
+        __ => ball_y == bottom_row |> WHEN {
             True => -1
             False => 1
         }
@@ -104,77 +117,35 @@ FUNCTION next_ball_dy(ball_y, ball_dy) {
 }
 
 FUNCTION next_ball_x(ball_x, ball_dx, ball_y, ai_paddle, player_paddle) {
-    ball_x == -1 |> WHEN {
+    idle_ball(ball_x: ball_x, ball_y: ball_y) |> WHEN {
         True => -1
-        False => ball_x == 0 |> WHEN {
-            True => ball_dx == -1 |> WHEN {
-                True => hits_ai_paddle(ball_x: ball_x, ball_dx: ball_dx, ball_y: ball_y, ai_paddle: ai_paddle) |> WHEN {
-                    True => ball_x + next_ball_dx(ball_x: ball_x, ball_dx: ball_dx, ball_y: ball_y, ai_paddle: ai_paddle, player_paddle: player_paddle)
-                    False => -1
-                }
+        False => point_scored(ball_x: ball_x, ball_dx: ball_dx, ball_y: ball_y, ai_paddle: ai_paddle, player_paddle: player_paddle) |> WHEN {
+                True => -1
                 False => ball_x + next_ball_dx(ball_x: ball_x, ball_dx: ball_dx, ball_y: ball_y, ai_paddle: ai_paddle, player_paddle: player_paddle)
             }
-            False => ball_x == 8 |> WHEN {
-                True => ball_dx == 1 |> WHEN {
-                    True => hits_player_paddle(ball_x: ball_x, ball_dx: ball_dx, ball_y: ball_y, player_paddle: player_paddle) |> WHEN {
-                        True => ball_x + next_ball_dx(ball_x: ball_x, ball_dx: ball_dx, ball_y: ball_y, ai_paddle: ai_paddle, player_paddle: player_paddle)
-                        False => -1
-                    }
-                    False => ball_x + next_ball_dx(ball_x: ball_x, ball_dx: ball_dx, ball_y: ball_y, ai_paddle: ai_paddle, player_paddle: player_paddle)
-                }
-                False => ball_x + next_ball_dx(ball_x: ball_x, ball_dx: ball_dx, ball_y: ball_y, ai_paddle: ai_paddle, player_paddle: player_paddle)
-            }
-        }
     }
 }
 
-FUNCTION next_ball_y(ball_x, ball_dx, ball_y, ball_dy) {
-    ball_x == -1 |> WHEN {
+FUNCTION next_ball_y(ball_x, ball_dx, ball_y, ball_dy, ai_paddle, player_paddle) {
+    idle_ball(ball_x: ball_x, ball_y: ball_y) |> WHEN {
         True => -1
-        False => ball_x == 0 |> WHEN {
-            True => ball_dx == -1 |> WHEN {
-                True => hits_ai_paddle(ball_x: ball_x, ball_dx: ball_dx, ball_y: ball_y, ai_paddle: ai_paddle) |> WHEN {
-                    True => ball_y + next_ball_dy(ball_y: ball_y, ball_dy: ball_dy)
-                    False => -1
-                }
+        False => point_scored(ball_x: ball_x, ball_dx: ball_dx, ball_y: ball_y, ai_paddle: ai_paddle, player_paddle: player_paddle) |> WHEN {
+                True => -1
                 False => ball_y + next_ball_dy(ball_y: ball_y, ball_dy: ball_dy)
             }
-            False => ball_x == 8 |> WHEN {
-                True => ball_dx == 1 |> WHEN {
-                    True => hits_player_paddle(ball_x: ball_x, ball_dx: ball_dx, ball_y: ball_y, player_paddle: player_paddle) |> WHEN {
-                        True => ball_y + next_ball_dy(ball_y: ball_y, ball_dy: ball_dy)
-                        False => -1
-                    }
-                    False => ball_y + next_ball_dy(ball_y: ball_y, ball_dy: ball_dy)
-                }
-                False => ball_y + next_ball_dy(ball_y: ball_y, ball_dy: ball_dy)
-            }
-        }
     }
 }
 
-FUNCTION next_player_score(score, ball_x, ball_dx) {
-    ball_x == 0 |> WHEN {
-        True => ball_dx == -1 |> WHEN {
-            True => hits_ai_paddle(ball_x: ball_x, ball_dx: ball_dx, ball_y: ball_y, ai_paddle: ai_paddle) |> WHEN {
-                True => score
-                False => score + 1
-            }
-            False => score
-        }
+FUNCTION next_player_score(score, ball_x, ball_dx, ball_y, ai_paddle) {
+    player_scores(ball_x: ball_x, ball_dx: ball_dx, ball_y: ball_y, ai_paddle: ai_paddle) |> WHEN {
+        True => score + 1
         False => score
     }
 }
 
-FUNCTION next_ai_score(score, ball_x, ball_dx) {
-    ball_x == 8 |> WHEN {
-        True => ball_dx == 1 |> WHEN {
-            True => hits_player_paddle(ball_x: ball_x, ball_dx: ball_dx, ball_y: ball_y, player_paddle: player_paddle) |> WHEN {
-                True => score
-                False => score + 1
-            }
-            False => score
-        }
+FUNCTION next_ai_score(score, ball_x, ball_dx, ball_y, player_paddle) {
+    ai_scores(ball_x: ball_x, ball_dx: ball_dx, ball_y: ball_y, player_paddle: player_paddle) |> WHEN {
+        True => score + 1
         False => score
     }
 }
@@ -182,20 +153,20 @@ FUNCTION next_ai_score(score, ball_x, ball_dx) {
 FUNCTION center_track(ball_x) {
     ball_x |> WHEN {
         -1 => TEXT { .... .... }
-        0 => TEXT { o... .... }
-        1 => TEXT { .o.. .... }
+        left_goal_x => TEXT { o... .... }
+        left_paddle_x => TEXT { .o.. .... }
         2 => TEXT { ..o. .... }
         3 => TEXT { ...o .... }
-        4 => TEXT { ....o.... }
+        serve_ball_x => TEXT { ....o.... }
         5 => TEXT { .... o... }
         6 => TEXT { .... .o.. }
-        7 => TEXT { .... ..o. }
+        right_paddle_x => TEXT { .... ..o. }
         __ => TEXT { .... ...o }
     }
 }
 
 FUNCTION paddle_segment(row, paddle) {
-    row == paddle |> Bool/or(that: row + 1 == paddle) |> Bool/or(that: row == paddle + 1) |> WHEN {
+    paddle_hits(ball_y: row, paddle: paddle) |> WHEN {
         True => TEXT { [] }
         False => TEXT { .. }
     }
@@ -218,81 +189,87 @@ FUNCTION border_row() {
     TEXT { ############### }
 }
 
-up_button: Element/button(
-    element: [event: [press: LINK]]
-    style: []
-    label: TEXT { Up }
-)
-
-down_button: Element/button(
-    element: [event: [press: LINK]]
-    style: []
-    label: TEXT { Down }
-)
-
-serve_button: Element/button(
-    element: [event: [press: LINK]]
-    style: []
-    label: TEXT { Serve }
-)
-
-restart_button: Element/button(
-    element: [event: [press: LINK]]
-    style: []
-    label: TEXT { Restart }
-)
-
-tick_button: Element/button(
-    element: [event: [press: LINK]]
-    style: []
-    label: TEXT { Tick }
-)
+store: [
+    elements: [
+        up_button: Element/button(
+            element: [event: [press: LINK]]
+            style: []
+            label: TEXT { Up }
+        )
+        down_button: Element/button(
+            element: [event: [press: LINK]]
+            style: []
+            label: TEXT { Down }
+        )
+        serve_button: Element/button(
+            element: [event: [press: LINK]]
+            style: []
+            label: TEXT { Serve }
+        )
+        restart_button: Element/button(
+            element: [event: [press: LINK]]
+            style: []
+            label: TEXT { Restart }
+        )
+        tick_button: Element/button(
+            element: [event: [press: LINK]]
+            style: []
+            label: TEXT { Tick }
+        )
+    ]
+]
 
 player_paddle: 2 |> HOLD player_paddle {
-    up_button.event.press |> THEN { clamp_up(value: player_paddle) }
-    down_button.event.press |> THEN { clamp_down(value: player_paddle) }
-    restart_button.event.press |> THEN { 2 }
+    store.elements.up_button.event.press |> THEN { clamp_up(value: player_paddle) }
+    store.elements.down_button.event.press |> THEN { clamp_down(value: player_paddle) }
+    store.elements.restart_button.event.press |> THEN { 2 }
 }
 
 ai_paddle: cpu_paddle(ball_y: ball_y, ball_x: ball_x)
 
 ball_x: -1 |> HOLD ball_x {
-    serve_button.event.press |> THEN { 4 }
-    restart_button.event.press |> THEN { -1 }
-    tick_button.event.press |> THEN {
+    store.elements.serve_button.event.press |> THEN { serve_ball_x }
+    store.elements.restart_button.event.press |> THEN { -1 }
+    store.elements.tick_button.event.press |> THEN {
         next_ball_x(ball_x: ball_x, ball_dx: ball_dx, ball_y: ball_y, ai_paddle: ai_paddle, player_paddle: player_paddle)
     }
 }
 
 ball_y: -1 |> HOLD ball_y {
-    serve_button.event.press |> THEN { 2 }
-    restart_button.event.press |> THEN { -1 }
-    tick_button.event.press |> THEN { next_ball_y(ball_x: ball_x, ball_dx: ball_dx, ball_y: ball_y, ball_dy: ball_dy) }
+    store.elements.serve_button.event.press |> THEN { serve_ball_y }
+    store.elements.restart_button.event.press |> THEN { -1 }
+    store.elements.tick_button.event.press |> THEN {
+        next_ball_y(ball_x: ball_x, ball_dx: ball_dx, ball_y: ball_y, ball_dy: ball_dy, ai_paddle: ai_paddle, player_paddle: player_paddle)
+    }
 }
 
 ball_dx: 1 |> HOLD ball_dx {
-    serve_button.event.press |> THEN { 1 }
-    restart_button.event.press |> THEN { 1 }
-    tick_button.event.press |> THEN { next_ball_dx(ball_x: ball_x, ball_dx: ball_dx, ball_y: ball_y, ai_paddle: ai_paddle, player_paddle: player_paddle) }
+    store.elements.serve_button.event.press |> THEN { serve_ball_dx }
+    store.elements.restart_button.event.press |> THEN { serve_ball_dx }
+    store.elements.tick_button.event.press |> THEN { next_ball_dx(ball_x: ball_x, ball_dx: ball_dx, ball_y: ball_y, ai_paddle: ai_paddle, player_paddle: player_paddle) }
 }
 
 ball_dy: 1 |> HOLD ball_dy {
-    serve_button.event.press |> THEN { 1 }
-    restart_button.event.press |> THEN { 1 }
-    tick_button.event.press |> THEN { next_ball_dy(ball_y: ball_y, ball_dy: ball_dy) }
+    store.elements.serve_button.event.press |> THEN { serve_ball_dy }
+    store.elements.restart_button.event.press |> THEN { serve_ball_dy }
+    store.elements.tick_button.event.press |> THEN { next_ball_dy(ball_y: ball_y, ball_dy: ball_dy) }
 }
 
 player_score: 0 |> HOLD player_score {
-    restart_button.event.press |> THEN { 0 }
-    tick_button.event.press |> THEN { next_player_score(score: player_score, ball_x: ball_x, ball_dx: ball_dx) }
+    store.elements.restart_button.event.press |> THEN { 0 }
+    store.elements.tick_button.event.press |> THEN {
+        next_player_score(score: player_score, ball_x: ball_x, ball_dx: ball_dx, ball_y: ball_y, ai_paddle: ai_paddle)
+    }
 }
 
 ai_score: 0 |> HOLD ai_score {
-    restart_button.event.press |> THEN { 0 }
-    tick_button.event.press |> THEN { next_ai_score(score: ai_score, ball_x: ball_x, ball_dx: ball_dx) }
+    store.elements.restart_button.event.press |> THEN { 0 }
+    store.elements.tick_button.event.press |> THEN {
+        next_ai_score(score: ai_score, ball_x: ball_x, ball_dx: ball_dx, ball_y: ball_y, player_paddle: player_paddle)
+    }
 }
 
-status: ball_x == -1 |> Bool/or(that: ball_y == -1) |> WHEN {
+status: idle_ball(ball_x: ball_x, ball_y: ball_y) |> WHEN {
     True => TEXT { Press Enter }
     False => TEXT { Rally }
 }
@@ -323,11 +300,11 @@ FUNCTION controls_row() {
         style: []
 
         items: LIST {
-            up_button
-            down_button
-            serve_button
-            tick_button
-            restart_button
+            store.elements.up_button
+            store.elements.down_button
+            store.elements.serve_button
+            store.elements.tick_button
+            store.elements.restart_button
         }
     )
 }

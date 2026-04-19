@@ -1380,8 +1380,43 @@ pub const Session = struct {
         if (std.mem.eql(u8, access.field, "press")) {
             const target = self.flow.nodes[access.target];
             if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "event")) {
-                if (try self.resolveStaticLinkNode(target.kind.access.target)) |link| return link;
-                return try self.buttonPressLink(target.kind.access.target);
+                if (try self.resolveElementEventLink(target.kind.access.target, "press", null)) |link| return link;
+            }
+        }
+        if (std.mem.eql(u8, access.field, "change")) {
+            const target = self.flow.nodes[access.target];
+            if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "event")) {
+                if (try self.resolveElementEventLink(target.kind.access.target, "change", null)) |link| return link;
+            }
+        }
+        if (std.mem.eql(u8, access.field, "click")) {
+            const target = self.flow.nodes[access.target];
+            if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "event")) {
+                if (try self.resolveElementEventLink(target.kind.access.target, "click", null)) |link| return link;
+            }
+        }
+        if (std.mem.eql(u8, access.field, "double_click")) {
+            const target = self.flow.nodes[access.target];
+            if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "event")) {
+                if (try self.resolveElementEventLink(target.kind.access.target, "double_click", null)) |link| return link;
+            }
+        }
+        if (std.mem.eql(u8, access.field, "key_down")) {
+            const target = self.flow.nodes[access.target];
+            if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "event")) {
+                if (try self.resolveElementEventLink(target.kind.access.target, "key_down", null)) |link| return link;
+            }
+        }
+        if (std.mem.eql(u8, access.field, "blur")) {
+            const target = self.flow.nodes[access.target];
+            if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "event")) {
+                if (try self.resolveElementEventLink(target.kind.access.target, "blur", null)) |link| return link;
+            }
+        }
+        if (std.mem.eql(u8, access.field, "focus")) {
+            const target = self.flow.nodes[access.target];
+            if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "event")) {
+                if (try self.resolveElementEventLink(target.kind.access.target, "focus", null)) |link| return link;
             }
         }
         if (try self.resolveStaticLinkNode(node_id)) |link| return link;
@@ -1391,7 +1426,7 @@ pub const Session = struct {
             if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "change")) {
                 const event_target = self.flow.nodes[target.kind.access.target];
                 if (event_target.kind == .access and std.mem.eql(u8, event_target.kind.access.field, "event")) {
-                    if (try self.resolveStaticLinkNode(event_target.kind.access.target)) |link| return link;
+                    if (try self.resolveElementEventLink(event_target.kind.access.target, "change", null)) |link| return link;
                 }
             }
         }
@@ -1400,7 +1435,7 @@ pub const Session = struct {
             if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "change")) {
                 const event_target = self.flow.nodes[target.kind.access.target];
                 if (event_target.kind == .access and std.mem.eql(u8, event_target.kind.access.field, "event")) {
-                    if (try self.resolveStaticLinkNode(event_target.kind.access.target)) |link| return link;
+                    if (try self.resolveElementEventLink(event_target.kind.access.target, "change", null)) |link| return link;
                 }
             }
         }
@@ -1409,7 +1444,7 @@ pub const Session = struct {
             if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "key_down")) {
                 const event_target = self.flow.nodes[target.kind.access.target];
                 if (event_target.kind == .access and std.mem.eql(u8, event_target.kind.access.field, "event")) {
-                    if (try self.resolveStaticLinkNode(event_target.kind.access.target)) |link| return link;
+                    if (try self.resolveElementEventLink(event_target.kind.access.target, "key_down", null)) |link| return link;
                 }
             }
         }
@@ -1432,7 +1467,43 @@ pub const Session = struct {
         if (std.mem.eql(u8, access.field, "press")) {
             const target = self.flow.nodes[access.target];
             if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "event")) {
-                if (try self.resolveScopedLinkNode(target.kind.access.target, scope)) |link| return link;
+                if (try self.resolveElementEventLink(target.kind.access.target, "press", scope)) |link| return link;
+            }
+        }
+        if (std.mem.eql(u8, access.field, "change")) {
+            const target = self.flow.nodes[access.target];
+            if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "event")) {
+                if (try self.resolveElementEventLink(target.kind.access.target, "change", scope)) |link| return link;
+            }
+        }
+        if (std.mem.eql(u8, access.field, "click")) {
+            const target = self.flow.nodes[access.target];
+            if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "event")) {
+                if (try self.resolveElementEventLink(target.kind.access.target, "click", scope)) |link| return link;
+            }
+        }
+        if (std.mem.eql(u8, access.field, "double_click")) {
+            const target = self.flow.nodes[access.target];
+            if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "event")) {
+                if (try self.resolveElementEventLink(target.kind.access.target, "double_click", scope)) |link| return link;
+            }
+        }
+        if (std.mem.eql(u8, access.field, "key_down")) {
+            const target = self.flow.nodes[access.target];
+            if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "event")) {
+                if (try self.resolveElementEventLink(target.kind.access.target, "key_down", scope)) |link| return link;
+            }
+        }
+        if (std.mem.eql(u8, access.field, "blur")) {
+            const target = self.flow.nodes[access.target];
+            if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "event")) {
+                if (try self.resolveElementEventLink(target.kind.access.target, "blur", scope)) |link| return link;
+            }
+        }
+        if (std.mem.eql(u8, access.field, "focus")) {
+            const target = self.flow.nodes[access.target];
+            if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "event")) {
+                if (try self.resolveElementEventLink(target.kind.access.target, "focus", scope)) |link| return link;
             }
         }
         if (try self.resolveScopedLinkNode(node_id, scope)) |link| return link;
@@ -1442,7 +1513,7 @@ pub const Session = struct {
             if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "change")) {
                 const event_target = self.flow.nodes[target.kind.access.target];
                 if (event_target.kind == .access and std.mem.eql(u8, event_target.kind.access.field, "event")) {
-                    if (try self.resolveScopedLinkNode(event_target.kind.access.target, scope)) |link| return link;
+                    if (try self.resolveElementEventLink(event_target.kind.access.target, "change", scope)) |link| return link;
                 }
             }
         }
@@ -1451,7 +1522,7 @@ pub const Session = struct {
             if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "change")) {
                 const event_target = self.flow.nodes[target.kind.access.target];
                 if (event_target.kind == .access and std.mem.eql(u8, event_target.kind.access.field, "event")) {
-                    if (try self.resolveScopedLinkNode(event_target.kind.access.target, scope)) |link| return link;
+                    if (try self.resolveElementEventLink(event_target.kind.access.target, "change", scope)) |link| return link;
                 }
             }
         }
@@ -1460,11 +1531,16 @@ pub const Session = struct {
             if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "key_down")) {
                 const event_target = self.flow.nodes[target.kind.access.target];
                 if (event_target.kind == .access and std.mem.eql(u8, event_target.kind.access.field, "event")) {
-                    if (try self.resolveScopedLinkNode(event_target.kind.access.target, scope)) |link| return link;
+                    if (try self.resolveElementEventLink(event_target.kind.access.target, "key_down", scope)) |link| return link;
                 }
             }
         }
         return node_id;
+    }
+
+    fn resolveElementEventLink(self: *Session, node_id: flow_ir.NodeId, event_name: []const u8, scope: ?*const EvalScope) anyerror!?flow_ir.NodeId {
+        const value = try self.evalNode(self.arena.allocator(), node_id, scope);
+        return eventLinkFromValue(value, event_name);
     }
 
     fn listSourceDependency(self: *Session, node_id: flow_ir.NodeId) !flow_ir.NodeId {
@@ -1603,29 +1679,7 @@ pub const Session = struct {
     }
 
     fn buttonPressLink(self: *Session, node_id: flow_ir.NodeId) !flow_ir.NodeId {
-        if (try self.resolveStaticLinkNode(node_id)) |link| return link;
-        const node = self.flow.nodes[node_id];
-        return switch (node.kind) {
-            .link_port => node_id,
-            .binding_ref => |binding_id| try self.buttonPressLink(self.flow.bindings[binding_id].node),
-            .linked_value => |linked| linked.target,
-            .user_call => blk: {
-                var scratch = std.heap.ArenaAllocator.init(self.arena.allocator());
-                defer scratch.deinit();
-                const value = try self.evalNode(scratch.allocator(), node_id, null);
-                const button = switch (value) {
-                    .button => |button| button,
-                    else => return error.UnsupportedEventSource,
-                };
-                break :blk button.press_link orelse return error.UnsupportedEventSource;
-            },
-            .builtin_call => |call| blk: {
-                if (!std.mem.eql(u8, call.path, "Element/button")) return error.UnsupportedEventSource;
-                const element_node = findNamed(call.named, "element") orelse return error.MissingElementArg;
-                break :blk try self.recordLinkField(element_node, "event", "press");
-            },
-            else => error.UnsupportedEventSource,
-        };
+        return try self.resolveElementEventLink(node_id, "press", null) orelse error.UnsupportedEventSource;
     }
 
     fn resolveStaticLinkNode(self: *Session, node_id: flow_ir.NodeId) !?flow_ir.NodeId {
@@ -2417,14 +2471,27 @@ pub const Session = struct {
                 const field_node = try self.resolveStaticFieldNode(self.flow.bindings[binding_id].node, access.field) orelse return error.MissingRecordField;
                 break :blk try self.evalNode(allocator, field_node, scope);
             },
-            .button => |button| blk: {
+            .stripe => |stripe| blk: {
+                if (std.mem.eql(u8, access.field, "hovered")) {
+                    break :blk if (stripe.hovered_link) |link|
+                        self.getLinkValue(link, stripe.event_scope orelse scope) orelse .{ .link = link }
+                    else
+                        .none;
+                }
+                break :blk error.UnsupportedFieldAccess;
+            },
+            .label, .checkbox, .button, .text_input, .select, .slider => blk: {
                 if (std.mem.eql(u8, access.field, "event")) {
-                    const fields = try allocator.alloc(RecordField, 1);
-                    fields[0] = .{
-                        .name = "press",
-                        .value = if (button.press_link) |link| .{ .link = link } else .none,
+                    break :blk try controlEventValue(allocator, target);
+                }
+                if (std.mem.eql(u8, access.field, "hovered")) {
+                    break :blk switch (target) {
+                        .button => |button| if (button.hovered_link) |link|
+                            self.getLinkValue(link, button.event_scope orelse scope) orelse .{ .link = link }
+                        else
+                            .none,
+                        else => error.UnsupportedFieldAccess,
                     };
-                    break :blk .{ .record = fields };
                 }
                 break :blk error.UnsupportedFieldAccess;
             },
@@ -4215,6 +4282,69 @@ pub fn runAlloc(allocator: std.mem.Allocator, source: []const u8, options: Optio
     return .{ .ok = session };
 }
 
+fn controlEventValue(allocator: std.mem.Allocator, value: Value) anyerror!Value {
+    return switch (value) {
+        .button => |button| blk: {
+            var fields = [_]RecordField{
+                .{ .name = "press", .value = optionalLinkValue(button.press_link) },
+            };
+            break :blk try allocRecordValue(allocator, &fields);
+        },
+        .checkbox => |checkbox| blk: {
+            var fields = [_]RecordField{
+                .{ .name = "click", .value = optionalLinkValue(checkbox.click_link) },
+            };
+            break :blk try allocRecordValue(allocator, &fields);
+        },
+        .label => |label| blk: {
+            var fields = [_]RecordField{
+                .{ .name = "double_click", .value = optionalLinkValue(label.double_click_link) },
+            };
+            break :blk try allocRecordValue(allocator, &fields);
+        },
+        .text_input => |input| blk: {
+            const change_link = input.change_link;
+            const key_link = input.key_link orelse input.change_link;
+            const blur_link = input.blur_link orelse input.change_link;
+            const focus_link = input.focus_link orelse input.change_link;
+            var change_fields = [_]RecordField{
+                .{ .name = "value", .value = optionalLinkValue(change_link) },
+                .{ .name = "text", .value = optionalLinkValue(change_link) },
+            };
+            var key_fields = [_]RecordField{
+                .{ .name = "key", .value = optionalLinkValue(key_link) },
+                .{ .name = "text", .value = optionalLinkValue(key_link) },
+            };
+            var fields = [_]RecordField{
+                .{ .name = "change", .value = try allocRecordValue(allocator, &change_fields) },
+                .{ .name = "key_down", .value = try allocRecordValue(allocator, &key_fields) },
+                .{ .name = "blur", .value = optionalLinkValue(blur_link) },
+                .{ .name = "focus", .value = optionalLinkValue(focus_link) },
+            };
+            break :blk try allocRecordValue(allocator, &fields);
+        },
+        .select => |select| blk: {
+            var change_fields = [_]RecordField{
+                .{ .name = "value", .value = optionalLinkValue(select.change_link) },
+            };
+            var fields = [_]RecordField{
+                .{ .name = "change", .value = try allocRecordValue(allocator, &change_fields) },
+            };
+            break :blk try allocRecordValue(allocator, &fields);
+        },
+        .slider => |slider| blk: {
+            var change_fields = [_]RecordField{
+                .{ .name = "value", .value = optionalLinkValue(slider.change_link) },
+            };
+            var fields = [_]RecordField{
+                .{ .name = "change", .value = try allocRecordValue(allocator, &change_fields) },
+            };
+            break :blk try allocRecordValue(allocator, &fields);
+        },
+        else => error.UnsupportedFieldAccess,
+    };
+}
+
 fn findNamed(named: []const flow_ir.NamedArg, name: []const u8) ?flow_ir.NodeId {
     for (named) |arg| {
         if (std.mem.eql(u8, arg.name, name)) return arg.value;
@@ -5009,6 +5139,56 @@ fn extractHoverLink(value: Value) ?flow_ir.NodeId {
     };
 }
 
+fn eventLinkFromValue(value: Value, event_name: []const u8) ?flow_ir.NodeId {
+    return switch (value) {
+        .record => |fields| blk: {
+            if (std.mem.eql(u8, event_name, "hovered")) {
+                break :blk extractHoverLink(value);
+            }
+            if (findRecordValue(fields, "event")) |event_value| {
+                if (eventLinkFromValue(event_value, event_name)) |link| break :blk link;
+            }
+            const field_value = findRecordValue(fields, event_name) orelse break :blk null;
+            break :blk nestedRepresentativeLink(field_value);
+        },
+        .button => |button| if (std.mem.eql(u8, event_name, "press"))
+            button.press_link
+        else if (std.mem.eql(u8, event_name, "hovered"))
+            button.hovered_link
+        else
+            null,
+        .checkbox => |checkbox| if (std.mem.eql(u8, event_name, "click")) checkbox.click_link else null,
+        .label => |label| if (std.mem.eql(u8, event_name, "double_click")) label.double_click_link else null,
+        .stripe => |stripe| if (std.mem.eql(u8, event_name, "hovered")) stripe.hovered_link else null,
+        .text_input => |input| if (std.mem.eql(u8, event_name, "change"))
+            input.change_link
+        else if (std.mem.eql(u8, event_name, "key_down"))
+            input.key_link orelse input.change_link
+        else if (std.mem.eql(u8, event_name, "blur"))
+            input.blur_link orelse input.change_link
+        else if (std.mem.eql(u8, event_name, "focus"))
+            input.focus_link orelse input.change_link
+        else
+            null,
+        .select => |select| if (std.mem.eql(u8, event_name, "change")) select.change_link else null,
+        .slider => |slider| if (std.mem.eql(u8, event_name, "change")) slider.change_link else null,
+        else => null,
+    };
+}
+
+fn nestedRepresentativeLink(value: Value) ?flow_ir.NodeId {
+    return switch (value) {
+        .link => |link| link,
+        .record => |fields| {
+            for (fields) |field| {
+                if (nestedRepresentativeLink(field.value)) |link| return link;
+            }
+            return null;
+        },
+        else => null,
+    };
+}
+
 fn extractEventLink(value: Value, event_name: []const u8) ?flow_ir.NodeId {
     return switch (value) {
         .record => |fields| blk: {
@@ -5025,6 +5205,16 @@ fn extractEventLink(value: Value, event_name: []const u8) ?flow_ir.NodeId {
         },
         else => null,
     };
+}
+
+fn optionalLinkValue(link: ?flow_ir.NodeId) Value {
+    return if (link) |resolved| .{ .link = resolved } else .none;
+}
+
+fn allocRecordValue(allocator: std.mem.Allocator, fields: []const RecordField) !Value {
+    const copy = try allocator.alloc(RecordField, fields.len);
+    @memcpy(copy, fields);
+    return .{ .record = copy };
 }
 
 fn collectButtonLinks(self: *Session, list: *std.ArrayList(ControlEventRef), allocator: std.mem.Allocator, value: Value) !void {
@@ -5941,6 +6131,110 @@ test "counter_hold persistence survives node id shifts via stable ids" {
         try std.testing.expect(std.mem.indexOf(u8, trace, "persist read hold") != null);
         try std.testing.expect(std.mem.indexOf(u8, trace, "restore hold") != null);
     }
+}
+
+test "stored button element in record exposes press events through headless runtime" {
+    const source =
+        \\store: [
+        \\    elements: [
+        \\        increment: Element/button(
+        \\            element: [event: [press: LINK]]
+        \\            style: []
+        \\            label: TEXT { + }
+        \\        )
+        \\    ]
+        \\]
+        \\
+        \\counter: 0 |> HOLD counter {
+        \\    store.elements.increment.event.press |> THEN { counter + 1 }
+        \\}
+        \\
+        \\document: Document/new(root: Element/stripe(
+        \\    element: []
+        \\    direction: Column
+        \\    gap: 0
+        \\    style: []
+        \\    items: LIST { counter, store.elements.increment }
+        \\))
+    ;
+
+    const outcome = try runAlloc(std.testing.allocator, source, .{ .trace = true });
+    const session_value = switch (outcome) {
+        .ok => |session| session,
+        .err => |failure| {
+            std.debug.print("unexpected stored button failure: {s}\n", .{failure.message});
+            return error.UnexpectedHeadlessFailure;
+        },
+    };
+    var session = session_value;
+    defer session.deinit();
+
+    const initial = try session.renderAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(initial);
+    try std.testing.expectEqualStrings("0+", initial);
+
+    try session.clickButton(0);
+
+    const updated = try session.renderAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(updated);
+    try std.testing.expectEqualStrings("1+", updated);
+}
+
+test "stored text input element in record exposes change and key events through headless runtime" {
+    const source =
+        \\store: [
+        \\    elements: [
+        \\        input: Element/text_input(
+        \\            element: [event: [change: LINK, key_down: LINK]]
+        \\            style: []
+        \\            label: Hidden[text: TEXT { Input }]
+        \\            text: draft
+        \\            placeholder: []
+        \\            focus: False
+        \\        )
+        \\    ]
+        \\]
+        \\
+        \\draft: TEXT {} |> HOLD draft {
+        \\    store.elements.input.event.change |> THEN { store.elements.input.event.change.text }
+        \\}
+        \\
+        \\committed: TEXT { idle } |> HOLD committed {
+        \\    store.elements.input.event.key_down.key |> WHEN {
+        \\        Enter => store.elements.input.event.key_down.text
+        \\        __ => SKIP
+        \\    }
+        \\}
+        \\
+        \\document: Document/new(root: Element/stripe(
+        \\    element: []
+        \\    direction: Column
+        \\    gap: 0
+        \\    style: []
+        \\    items: LIST { store.elements.input, committed }
+        \\))
+    ;
+
+    const outcome = try runAlloc(std.testing.allocator, source, .{ .trace = true });
+    const session_value = switch (outcome) {
+        .ok => |session| session,
+        .err => |failure| {
+            std.debug.print("unexpected stored text input failure: {s}\n", .{failure.message});
+            return error.UnexpectedHeadlessFailure;
+        },
+    };
+    var session = session_value;
+    defer session.deinit();
+
+    try session.setTextInputValue(0, "Milk");
+    const after_change = try session.renderAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(after_change);
+    try std.testing.expectEqualStrings("Milkidle", after_change);
+
+    try session.pressTextInputKey(0, "Enter");
+    const after_key = try session.renderAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(after_key);
+    try std.testing.expectEqualStrings("MilkMilk", after_key);
 }
 
 test "interval_hold headless session skips the initial hold value" {
