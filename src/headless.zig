@@ -3165,6 +3165,18 @@ pub const Session = struct {
             }
             return .{ .text = try output.toOwnedSlice(allocator) };
         }
+        if (std.mem.eql(u8, call.path, "Text/join")) {
+            const value_node = if (call.positional.len != 0) call.positional[0] else return error.MissingArgument;
+            const items = try listItemsFromValue(try self.evalNode(allocator, value_node, scope));
+
+            var output: std.ArrayList(u8) = .empty;
+            defer output.deinit(allocator);
+
+            for (items) |item| {
+                try output.appendSlice(allocator, try valueAsText(item));
+            }
+            return .{ .text = try output.toOwnedSlice(allocator) };
+        }
         if (std.mem.eql(u8, call.path, "Text/starts_with")) {
             const value_node = if (call.positional.len != 0) call.positional[0] else return error.MissingArgument;
             const prefix_node = findNamed(call.named, "prefix") orelse return error.MissingArgument;
@@ -5822,6 +5834,41 @@ test "scene root renders through headless runtime" {
     const rendered = try session.renderAlloc(std.testing.allocator);
     defer std.testing.allocator.free(rendered);
     try std.testing.expectEqualStrings("Hello", rendered);
+}
+
+test "Text/join concatenates mapped text ranges through headless runtime" {
+    const source =
+        \\joined:
+        \\    List/range(from: 0, to: 4)
+        \\    |> List/map(column, new:
+        \\        column == 2 |> WHEN {
+        \\            True => TEXT { o }
+        \\            False => TEXT { . }
+        \\        }
+        \\    )
+        \\    |> Text/join()
+        \\
+        \\document: Document/new(root: Element/label(
+        \\    element: []
+        \\    style: []
+        \\    label: joined
+        \\))
+    ;
+
+    const outcome = try runAlloc(std.testing.allocator, source, .{ .trace = true });
+    const session_value = switch (outcome) {
+        .ok => |session| session,
+        .err => |failure| {
+            std.debug.print("unexpected Text/join failure: {s}\n", .{failure.message});
+            return error.UnexpectedHeadlessFailure;
+        },
+    };
+    var session = session_value;
+    defer session.deinit();
+
+    const rendered = try session.renderAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(rendered);
+    try std.testing.expectEqualStrings("..o..", rendered);
 }
 
 test "scene root records physical scene inputs in trace" {

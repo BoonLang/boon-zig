@@ -26,184 +26,203 @@ store: [
 
     ------ states ------
 
-    player_paddle: store.paddle.start_center |> HOLD player_paddle {
-        store.elements.up_button.event.press |> THEN {
-            player_paddle |> WHEN {
-                store.paddle.min_center => store.paddle.min_center
-                __ => player_paddle - 1
+    paddle_center: [
+        --- states ---
+
+        player: store.paddle.start_center |> HOLD player_center {
+            store.elements.up_button.event.press |> THEN {
+                player_center |> WHEN {
+                    store.paddle.min_center => store.paddle.min_center
+                    __ => player_center - 1
+                }
             }
+
+            store.elements.down_button.event.press |> THEN {
+                player_center |> WHEN {
+                    store.paddle.max_center => store.paddle.max_center
+                    __ => player_center + 1
+                }
+            }
+
+            store.elements.restart_button.event.press |> THEN { store.paddle.start_center }
         }
 
-        store.elements.down_button.event.press |> THEN {
-            player_paddle |> WHEN {
-                store.paddle.max_center => store.paddle.max_center
-                __ => player_paddle + 1
+        --- derived ---
+
+        cpu:
+            store.ball.is_idle |> WHEN {
+                True => store.paddle.start_center
+
+                False => store.ball.y |> WHEN {
+                    store.board.top_row => store.paddle.min_center
+                    store.board.bottom_row => store.paddle.max_center
+                    __ => store.ball.y
+                }
             }
+    ]
+
+    ball: [
+        --- states ---
+
+        horizontal: Right |> HOLD horizontal {
+            store.elements.serve_button.event.press |> THEN { store.serve.horizontal }
+            store.elements.restart_button.event.press |> THEN { store.serve.horizontal }
+            store.elements.tick_button.event.press |> THEN { store.ball.next.horizontal }
         }
 
-        store.elements.restart_button.event.press |> THEN { store.paddle.start_center }
-    }
+        vertical: Down |> HOLD vertical {
+            store.elements.serve_button.event.press |> THEN { store.serve.vertical }
+            store.elements.restart_button.event.press |> THEN { store.serve.vertical }
+            store.elements.tick_button.event.press |> THEN { store.ball.next.vertical }
+        }
 
-    ball_x: -1 |> HOLD ball_x {
-        store.elements.serve_button.event.press |> THEN { store.serve.x }
-        store.elements.restart_button.event.press |> THEN { -1 }
+        x: -1 |> HOLD x {
+            store.elements.serve_button.event.press |> THEN { store.serve.x }
+            store.elements.restart_button.event.press |> THEN { -1 }
 
-        store.elements.tick_button.event.press |> THEN {
-            ball_x == -1
-            |> Bool/or(that: store.ball_y == -1)
-            |> WHEN {
-                True => -1
+            store.elements.tick_button.event.press |> THEN {
+                BLOCK {
+                    horizontal_step: store.ball.next.horizontal |> WHEN {
+                        Left => -1
+                        Right => 1
+                    }
 
-                False => store.is_point_scored_now |> WHEN {
-                    True => -1
-                    False => ball_x + store.horizontal_step
+                    store.ball.is_idle |> WHEN {
+                        True => -1
+
+                        False => store.is_scoring_now.point |> WHEN {
+                            True => -1
+                            False => x + horizontal_step
+                        }
+                    }
                 }
             }
         }
-    }
 
-    ball_y: -1 |> HOLD ball_y {
-        store.elements.serve_button.event.press |> THEN { store.serve.y }
-        store.elements.restart_button.event.press |> THEN { -1 }
+        y: -1 |> HOLD y {
+            store.elements.serve_button.event.press |> THEN { store.serve.y }
+            store.elements.restart_button.event.press |> THEN { -1 }
 
-        store.elements.tick_button.event.press |> THEN {
-            store.ball_x == -1
-            |> Bool/or(that: ball_y == -1)
-            |> WHEN {
-                True => -1
+            store.elements.tick_button.event.press |> THEN {
+                BLOCK {
+                    vertical_step: store.ball.next.vertical |> WHEN {
+                        Up => -1
+                        Down => 1
+                    }
 
-                False => store.is_point_scored_now |> WHEN {
-                    True => -1
-                    False => ball_y + store.vertical_step
+                    store.ball.is_idle |> WHEN {
+                        True => -1
+
+                        False => store.is_scoring_now.point |> WHEN {
+                            True => -1
+                            False => y + vertical_step
+                        }
+                    }
                 }
             }
         }
-    }
 
-    ball_horizontal: Right |> HOLD ball_horizontal {
-        store.elements.serve_button.event.press |> THEN { store.serve.horizontal }
-        store.elements.restart_button.event.press |> THEN { store.serve.horizontal }
-        store.elements.tick_button.event.press |> THEN { store.next_ball_horizontal }
-    }
+        --- derived ---
 
-    ball_vertical: Down |> HOLD ball_vertical {
-        store.elements.serve_button.event.press |> THEN { store.serve.vertical }
-        store.elements.restart_button.event.press |> THEN { store.serve.vertical }
-        store.elements.tick_button.event.press |> THEN { store.next_ball_vertical }
-    }
+        is_idle:
+            store.ball.x == -1
+            |> Bool/or(that: store.ball.y == -1)
 
-    player_score: 0 |> HOLD player_score {
-        store.elements.restart_button.event.press |> THEN { 0 }
+        next: [
+            horizontal: store.is_hitting_paddle.cpu |> WHEN {
+                True => Right
 
-        store.elements.tick_button.event.press |> THEN {
-            store.is_player_scoring_now |> WHEN {
-                True => player_score + 1
-                False => player_score
+                False => store.is_hitting_paddle.player |> WHEN {
+                    True => Left
+                    False => store.ball.horizontal
+                }
+            }
+
+            vertical: store.ball.vertical |> WHEN {
+                Up => store.ball.y == store.board.top_row |> WHEN {
+                    True => Down
+                    False => Up
+                }
+
+                __ => store.ball.y == store.board.bottom_row |> WHEN {
+                    True => Up
+                    False => Down
+                }
+            }
+        ]
+    ]
+
+    score: [
+        player: 0 |> HOLD player_score {
+            store.elements.restart_button.event.press |> THEN { 0 }
+
+            store.elements.tick_button.event.press |> THEN {
+                store.is_scoring_now.player |> WHEN {
+                    True => player_score + 1
+                    False => player_score
+                }
             }
         }
-    }
 
-    ai_score: 0 |> HOLD ai_score {
-        store.elements.restart_button.event.press |> THEN { 0 }
+        cpu: 0 |> HOLD cpu_score {
+            store.elements.restart_button.event.press |> THEN { 0 }
 
-        store.elements.tick_button.event.press |> THEN {
-            store.is_ai_scoring_now |> WHEN {
-                True => ai_score + 1
-                False => ai_score
+            store.elements.tick_button.event.press |> THEN {
+                store.is_scoring_now.cpu |> WHEN {
+                    True => cpu_score + 1
+                    False => cpu_score
+                }
             }
         }
-    }
+    ]
 
     ------ derived ------
 
-    --- shared facts ---
-
-    ai_paddle:
-        store.ball_x == -1
-        |> Bool/or(that: store.ball_y == -1)
-        |> WHEN {
-            True => store.paddle.start_center
-
-            False => store.ball_y |> WHEN {
-                store.board.top_row => store.paddle.min_center
-                store.board.bottom_row => store.paddle.max_center
-                __ => store.ball_y
-            }
-        }
-
     --- collisions ---
 
-    is_hitting_ai_paddle:
-        store.ball_horizontal == Left
-        |> Bool/and(that: store.ball_x == store.board.left_goal_x
-        |> Bool/or(that: store.ball_x == store.board.left_paddle_x))
-        |> Bool/and(that: store.ball_y == store.ai_paddle
-        |> Bool/or(that: store.ball_y + 1 == store.ai_paddle)
-        |> Bool/or(that: store.ball_y == store.ai_paddle + 1))
+    is_hitting_paddle: [
+        cpu:
+            store.ball.horizontal == Left
+            |> Bool/and(that: store.ball.x == store.board.left_goal_x
+            |> Bool/or(that: store.ball.x == store.board.left_paddle_x))
+            |> Bool/and(that: store.ball.y == store.paddle_center.cpu
+            |> Bool/or(that: store.ball.y + 1 == store.paddle_center.cpu)
+            |> Bool/or(that: store.ball.y == store.paddle_center.cpu + 1))
 
-    is_hitting_player_paddle:
-        store.ball_horizontal == Right
-        |> Bool/and(that: store.ball_x == store.board.right_paddle_x
-        |> Bool/or(that: store.ball_x == store.board.right_goal_x))
-        |> Bool/and(that: store.ball_y == store.player_paddle
-        |> Bool/or(that: store.ball_y + 1 == store.player_paddle)
-        |> Bool/or(that: store.ball_y == store.player_paddle + 1))
+        player:
+            store.ball.horizontal == Right
+            |> Bool/and(that: store.ball.x == store.board.right_paddle_x
+            |> Bool/or(that: store.ball.x == store.board.right_goal_x))
+            |> Bool/and(that: store.ball.y == store.paddle_center.player
+            |> Bool/or(that: store.ball.y + 1 == store.paddle_center.player)
+            |> Bool/or(that: store.ball.y == store.paddle_center.player + 1))
+    ]
 
     --- scoring ---
 
-    is_player_scoring_now:
-        store.ball_x == store.board.left_goal_x
-        |> Bool/and(that: store.ball_horizontal == Left)
-        |> Bool/and(that: store.is_hitting_ai_paddle |> Bool/not())
+    is_scoring_now: [
+        player:
+            store.ball.x == store.board.left_goal_x
+            |> Bool/and(that: store.ball.horizontal == Left)
+            |> Bool/and(that: store.is_hitting_paddle.cpu |> Bool/not())
 
-    is_ai_scoring_now:
-        store.ball_x == store.board.right_goal_x
-        |> Bool/and(that: store.ball_horizontal == Right)
-        |> Bool/and(that: store.is_hitting_player_paddle |> Bool/not())
+        cpu:
+            store.ball.x == store.board.right_goal_x
+            |> Bool/and(that: store.ball.horizontal == Right)
+            |> Bool/and(that: store.is_hitting_paddle.player |> Bool/not())
 
-    is_point_scored_now:
-        store.is_player_scoring_now |> Bool/or(that: store.is_ai_scoring_now)
-
-    --- movement ---
-
-    next_ball_horizontal: store.is_hitting_ai_paddle |> WHEN {
-        True => Right
-
-        False => store.is_hitting_player_paddle |> WHEN {
-            True => Left
-            False => store.ball_horizontal
-        }
-    }
-
-    next_ball_vertical: store.ball_vertical |> WHEN {
-        Up => store.ball_y == store.board.top_row |> WHEN {
-            True => Down
-            False => Up
-        }
-
-        __ => store.ball_y == store.board.bottom_row |> WHEN {
-            True => Up
-            False => Down
-        }
-    }
-
-    horizontal_step: store.next_ball_horizontal |> WHEN {
-        Left => -1
-        Right => 1
-    }
-
-    vertical_step: store.next_ball_vertical |> WHEN {
-        Up => -1
-        Down => 1
-    }
+        point: player |> Bool/or(that: cpu)
+    ]
 
     --- status ---
 
-    is_rally_active: store.ball_x == -1 |> Bool/or(that: store.ball_y == -1) |> Bool/not()
+    status: BLOCK {
+        is_rally_active: store.ball.is_idle |> Bool/not()
 
-    status: store.is_rally_active |> WHEN {
-        True => TEXT { Rally }
-        False => TEXT { Press Enter }
+        is_rally_active |> WHEN {
+            True => TEXT { Rally }
+            False => TEXT { Press Enter }
+        }
     }
 ]
 
@@ -227,40 +246,11 @@ document: Document/new(root: Element/stripe(
             style: []
 
             items: LIST {
-                Element/button(
-                    element: [event: [press: LINK]]
-                    style: []
-                    label: TEXT { Up }
-                )
-                |> LINK { store.elements.up_button }
-
-                Element/button(
-                    element: [event: [press: LINK]]
-                    style: []
-                    label: TEXT { Down }
-                )
-                |> LINK { store.elements.down_button }
-
-                Element/button(
-                    element: [event: [press: LINK]]
-                    style: []
-                    label: TEXT { Serve }
-                )
-                |> LINK { store.elements.serve_button }
-
-                Element/button(
-                    element: [event: [press: LINK]]
-                    style: []
-                    label: TEXT { Tick }
-                )
-                |> LINK { store.elements.tick_button }
-
-                Element/button(
-                    element: [event: [press: LINK]]
-                    style: []
-                    label: TEXT { Restart }
-                )
-                |> LINK { store.elements.restart_button }
+                game_button(label: TEXT { Up }) |> LINK { store.elements.up_button }
+                game_button(label: TEXT { Down }) |> LINK { store.elements.down_button }
+                game_button(label: TEXT { Serve }) |> LINK { store.elements.serve_button }
+                game_button(label: TEXT { Tick }) |> LINK { store.elements.tick_button }
+                game_button(label: TEXT { Restart }) |> LINK { store.elements.restart_button }
             }
         )
     }
@@ -277,9 +267,9 @@ FUNCTION hud() {
 
         items: LIST {
             Element/label(element: [], style: [], label: TEXT { YOU })
-            Element/label(element: [], style: [], label: store.player_score)
+            Element/label(element: [], style: [], label: store.score.player)
             Element/label(element: [], style: [], label: TEXT { CPU })
-            Element/label(element: [], style: [], label: store.ai_score)
+            Element/label(element: [], style: [], label: store.score.cpu)
             Element/label(element: [], style: [], label: TEXT { STATUS })
             Element/label(element: [], style: [], label: store.status)
         }
@@ -312,10 +302,10 @@ FUNCTION board_view() {
                     List/range(from: store.board.top_row, to: store.board.bottom_row)
                     |> List/map(row, new: Element/label(element: [], style: [], label: court_row(
                         row: row
-                        ai_paddle: store.ai_paddle
-                        player_paddle: store.player_paddle
-                        ball_x: store.ball_x
-                        ball_y: store.ball_y
+                        cpu_paddle_center: store.paddle_center.cpu
+                        player_paddle_center: store.paddle_center.player
+                        ball_x: store.ball.x
+                        ball_y: store.ball.y
                     )))
             )
 
@@ -330,10 +320,10 @@ FUNCTION board_view() {
 
 ------ board row ------
 
-FUNCTION court_row(row, ai_paddle, player_paddle, ball_x, ball_y) {
+FUNCTION court_row(row, cpu_paddle_center, player_paddle_center, ball_x, ball_y) {
     BLOCK {
-        left_paddle: paddle_segment(row: row, paddle: ai_paddle)
-        right_paddle: paddle_segment(row: row, paddle: player_paddle)
+        left_paddle: paddle_segment(row: row, paddle_center: cpu_paddle_center)
+        right_paddle: paddle_segment(row: row, paddle_center: player_paddle_center)
 
         center: ball_y == row |> WHEN {
             True => center_track(ball_x: ball_x)
@@ -346,10 +336,18 @@ FUNCTION court_row(row, ai_paddle, player_paddle, ball_x, ball_y) {
 
 ------ board helpers ------
 
-FUNCTION paddle_segment(row, paddle) {
-    row == paddle
-    |> Bool/or(that: row + 1 == paddle)
-    |> Bool/or(that: row == paddle + 1)
+FUNCTION game_button(label) {
+    Element/button(
+        element: [event: [press: LINK]]
+        style: []
+        label: label
+    )
+}
+
+FUNCTION paddle_segment(row, paddle_center) {
+    row == paddle_center
+    |> Bool/or(that: row + 1 == paddle_center)
+    |> Bool/or(that: row == paddle_center + 1)
     |> WHEN {
         True => TEXT { [] }
         False => TEXT { .. }
@@ -357,56 +355,12 @@ FUNCTION paddle_segment(row, paddle) {
 }
 
 FUNCTION center_track(ball_x) {
-    ball_x == store.serve.x |> WHEN {
-        True => BLOCK {
-            left: track_range(
-                ball_x: ball_x
-                from: store.board.left_goal_x
-                to: store.serve.x - 1
-            )
-
-            right: track_range(
-                ball_x: ball_x
-                from: store.serve.x + 1
-                to: store.board.right_goal_x
-            )
-
-            TEXT { {left}o{right} }
-        }
-
-        False => BLOCK {
-            left: track_range(
-                ball_x: ball_x
-                from: store.board.left_goal_x
-                to: store.serve.x - 1
-            )
-
-            right: track_range(
-                ball_x: ball_x
-                from: store.serve.x + 1
-                to: store.board.right_goal_x
-            )
-
-            TEXT { {left}.{right} }
-        }
-    }
-}
-
-FUNCTION track_range(ball_x, from, to) {
-    from == to |> WHEN {
-        True => ball_x == from |> WHEN {
+    List/range(from: store.board.left_goal_x, to: store.board.right_goal_x)
+    |> List/map(column, new:
+        ball_x == column |> WHEN {
             True => TEXT { o }
             False => TEXT { . }
         }
-
-        False => BLOCK {
-            head: ball_x == from |> WHEN {
-                True => TEXT { o }
-                False => TEXT { . }
-            }
-
-            tail: track_range(ball_x: ball_x, from: from + 1, to: to)
-            TEXT { {head}{tail} }
-        }
-    }
+    )
+    |> Text/join()
 }
