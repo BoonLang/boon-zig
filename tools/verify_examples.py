@@ -73,7 +73,7 @@ HEADLESS_P0_CASES: tuple[HeadlessCase, ...] = (
             "--script",
             "tests/examples/pong_sequence.json",
             "--expect-text",
-            "PONGYOU0CPU0STATUSRally################...... ......##...... ....[]##[].... ....[]##[].... o...[]##[].... ......################UpDownServeTickRestart",
+            "PONGYOU0CPU0STATUSRally################...... ......##...... ....[]##[].... ....[]##[].....o...[]##[].... ......################UpDownServeTickRestart",
         ),
     ),
     HeadlessCase(
