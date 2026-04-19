@@ -1,24 +1,26 @@
 board: [
     top_row: 0
-    bottom_row: 4
+    bottom_row: 6
     left_goal_x: 0
-    right_goal_x: 8
+    right_goal_x: 16
     left_paddle_x: 1
-    right_paddle_x: 7
+    right_paddle_x: 15
 ]
 
 paddle: [
     min_center: 1
-    max_center: 3
-    start_center: 2
+    max_center: 5
+    start_center: 3
 ]
 
 serve: [
-    x: 4
-    y: 2
+    x: 8
+    y: 3
     dx: 1
     dy: 1
 ]
+
+border_width: board.right_goal_x + 7
 
 FUNCTION clamp_up(value) {
     value |> WHEN {
@@ -177,28 +179,28 @@ FUNCTION track_mark(ball_x, column) {
     }
 }
 
-FUNCTION left_track(ball_x) {
-    TEXT {
-        {track_mark(ball_x: ball_x, column: board.left_goal_x)}
-        {track_mark(ball_x: ball_x, column: board.left_paddle_x)}
-        {track_mark(ball_x: ball_x, column: 2)}
-        {track_mark(ball_x: ball_x, column: 3)}
-    }
-}
-
-FUNCTION right_track(ball_x) {
-    TEXT {
-        {track_mark(ball_x: ball_x, column: 5)}
-        {track_mark(ball_x: ball_x, column: 6)}
-        {track_mark(ball_x: ball_x, column: board.right_paddle_x)}
-        {track_mark(ball_x: ball_x, column: board.right_goal_x)}
+FUNCTION track_range(ball_x, from, to) {
+    from == to |> WHEN {
+        True => track_mark(ball_x: ball_x, column: from)
+        False => TEXT {
+            {track_mark(ball_x: ball_x, column: from)}
+            {track_range(ball_x: ball_x, from: from + 1, to: to)}
+        }
     }
 }
 
 FUNCTION center_track(ball_x) {
     ball_x == serve.x |> WHEN {
-        True => TEXT { {left_track(ball_x: ball_x)}o{right_track(ball_x: ball_x)} }
-        False => TEXT { {left_track(ball_x: ball_x)}.{right_track(ball_x: ball_x)} }
+        True => TEXT {
+            {track_range(ball_x: ball_x, from: board.left_goal_x, to: serve.x - 1)}
+            o
+            {track_range(ball_x: ball_x, from: serve.x + 1, to: board.right_goal_x)}
+        }
+        False => TEXT {
+            {track_range(ball_x: ball_x, from: board.left_goal_x, to: serve.x - 1)}
+            .
+            {track_range(ball_x: ball_x, from: serve.x + 1, to: board.right_goal_x)}
+        }
     }
 }
 
@@ -215,15 +217,22 @@ FUNCTION court_row(row, ai_paddle, player_paddle, ball_x, ball_y) {
         right_paddle: paddle_segment(row: row, paddle: player_paddle)
         center: ball_y == row |> WHEN {
             True => center_track(ball_x: ball_x)
-            False => TEXT { .... .... }
+            False => center_track(ball_x: -1)
         }
 
         TEXT { #{left_paddle}{center}{right_paddle}# }
     }
 }
 
+FUNCTION repeat_text(text, times) {
+    times == 1 |> WHEN {
+        True => text
+        False => TEXT { {text}{repeat_text(text: text, times: times - 1)} }
+    }
+}
+
 FUNCTION border_row() {
-    TEXT { ############### }
+    repeat_text(text: TEXT { # }, times: border_width)
 }
 
 FUNCTION text_row(text) {
@@ -270,82 +279,90 @@ FUNCTION court_element(ai_paddle, player_paddle, ball_x, ball_y) {
 
 store: [
     elements: [
-        up_button: Element/button(
-            element: [event: [press: LINK]]
-            style: []
-            label: TEXT { Up }
-        )
-        down_button: Element/button(
-            element: [event: [press: LINK]]
-            style: []
-            label: TEXT { Down }
-        )
-        serve_button: Element/button(
-            element: [event: [press: LINK]]
-            style: []
-            label: TEXT { Serve }
-        )
-        restart_button: Element/button(
-            element: [event: [press: LINK]]
-            style: []
-            label: TEXT { Restart }
-        )
-        tick_button: Element/button(
-            element: [event: [press: LINK]]
-            style: []
-            label: TEXT { Tick }
-        )
+        up_button: LINK
+        down_button: LINK
+        serve_button: LINK
+        restart_button: LINK
+        tick_button: LINK
     ]
 ]
 
-controls: store.elements
+up_button: Element/button(
+    element: [event: [press: store.elements.up_button]]
+    style: []
+    label: TEXT { Up }
+)
+
+down_button: Element/button(
+    element: [event: [press: store.elements.down_button]]
+    style: []
+    label: TEXT { Down }
+)
+
+serve_button: Element/button(
+    element: [event: [press: store.elements.serve_button]]
+    style: []
+    label: TEXT { Serve }
+)
+
+restart_button: Element/button(
+    element: [event: [press: store.elements.restart_button]]
+    style: []
+    label: TEXT { Restart }
+)
+
+tick_button: Element/button(
+    element: [event: [press: store.elements.tick_button]]
+    style: []
+    label: TEXT { Tick }
+)
 
 player_paddle: paddle.start_center |> HOLD player_paddle {
-    controls.up_button.event.press |> THEN { clamp_up(value: player_paddle) }
-    controls.down_button.event.press |> THEN { clamp_down(value: player_paddle) }
-    controls.restart_button.event.press |> THEN { paddle.start_center }
+    store.elements.up_button.event.press |> THEN { clamp_up(value: player_paddle) }
+    store.elements.down_button.event.press |> THEN { clamp_down(value: player_paddle) }
+    store.elements.restart_button.event.press |> THEN { paddle.start_center }
 }
 
 ai_paddle: cpu_paddle(ball_y: ball_y, ball_x: ball_x)
 
 ball_x: -1 |> HOLD ball_x {
-    controls.serve_button.event.press |> THEN { serve.x }
-    controls.restart_button.event.press |> THEN { -1 }
-    controls.tick_button.event.press |> THEN {
+    store.elements.serve_button.event.press |> THEN { serve.x }
+    store.elements.restart_button.event.press |> THEN { -1 }
+    store.elements.tick_button.event.press |> THEN {
         next_ball_x(ball_x: ball_x, ball_dx: ball_dx, ball_y: ball_y, ai_paddle: ai_paddle, player_paddle: player_paddle)
     }
 }
 
 ball_y: -1 |> HOLD ball_y {
-    controls.serve_button.event.press |> THEN { serve.y }
-    controls.restart_button.event.press |> THEN { -1 }
-    controls.tick_button.event.press |> THEN {
+    store.elements.serve_button.event.press |> THEN { serve.y }
+    store.elements.restart_button.event.press |> THEN { -1 }
+    store.elements.tick_button.event.press |> THEN {
         next_ball_y(ball_x: ball_x, ball_dx: ball_dx, ball_y: ball_y, ball_dy: ball_dy, ai_paddle: ai_paddle, player_paddle: player_paddle)
     }
 }
 
 ball_dx: 1 |> HOLD ball_dx {
-    controls.serve_button.event.press |> THEN { serve.dx }
-    controls.restart_button.event.press |> THEN { serve.dx }
-    controls.tick_button.event.press |> THEN { next_ball_dx(ball_x: ball_x, ball_dx: ball_dx, ball_y: ball_y, ai_paddle: ai_paddle, player_paddle: player_paddle) }
+    store.elements.serve_button.event.press |> THEN { serve.dx }
+    store.elements.restart_button.event.press |> THEN { serve.dx }
+    store.elements.tick_button.event.press |> THEN { next_ball_dx(ball_x: ball_x, ball_dx: ball_dx, ball_y: ball_y, ai_paddle: ai_paddle, player_paddle: player_paddle) }
 }
 
 ball_dy: 1 |> HOLD ball_dy {
-    controls.serve_button.event.press |> THEN { serve.dy }
-    controls.restart_button.event.press |> THEN { serve.dy }
-    controls.tick_button.event.press |> THEN { next_ball_dy(ball_y: ball_y, ball_dy: ball_dy) }
+    store.elements.serve_button.event.press |> THEN { serve.dy }
+    store.elements.restart_button.event.press |> THEN { serve.dy }
+    store.elements.tick_button.event.press |> THEN { next_ball_dy(ball_y: ball_y, ball_dy: ball_dy) }
 }
 
 player_score: 0 |> HOLD player_score {
-    controls.restart_button.event.press |> THEN { 0 }
-    controls.tick_button.event.press |> THEN {
+    store.elements.restart_button.event.press |> THEN { 0 }
+    store.elements.tick_button.event.press |> THEN {
         next_player_score(score: player_score, ball_x: ball_x, ball_dx: ball_dx, ball_y: ball_y, ai_paddle: ai_paddle)
     }
 }
 
 ai_score: 0 |> HOLD ai_score {
-    controls.restart_button.event.press |> THEN { 0 }
-    controls.tick_button.event.press |> THEN {
+    store.elements.restart_button.event.press |> THEN { 0 }
+    store.elements.tick_button.event.press |> THEN {
         next_ai_score(score: ai_score, ball_x: ball_x, ball_dx: ball_dx, ball_y: ball_y, player_paddle: player_paddle)
     }
 }
@@ -381,11 +398,11 @@ FUNCTION controls_row() {
         style: []
 
         items: LIST {
-            controls.up_button
-            controls.down_button
-            controls.serve_button
-            controls.tick_button
-            controls.restart_button
+            up_button
+            down_button
+            serve_button
+            tick_button
+            restart_button
         }
     )
 }
