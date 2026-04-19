@@ -14,6 +14,34 @@ const Comment = struct {
     is_standalone: bool,
 };
 
+const InlineEstimate = union(enum) {
+    multiline,
+    single_line: []u8,
+};
+
+const EstimateCache = struct {
+    allocator: std.mem.Allocator,
+    map: std.AutoHashMap(u64, InlineEstimate),
+
+    fn init(allocator: std.mem.Allocator) EstimateCache {
+        return .{
+            .allocator = allocator,
+            .map = .init(allocator),
+        };
+    }
+
+    fn deinit(self: *EstimateCache) void {
+        var iterator = self.map.valueIterator();
+        while (iterator.next()) |value| {
+            switch (value.*) {
+                .single_line => |text| self.allocator.free(text),
+                .multiline => {},
+            }
+        }
+        self.map.deinit();
+    }
+};
+
 const indent_unit = "    ";
 const max_line_width: usize = 90;
 const max_inline_pipe_parts: usize = 3;
@@ -27,7 +55,7 @@ pub fn formatAlloc(allocator: std.mem.Allocator, source: []const u8) !Outcome {
             defer parsed_document.deinit();
 
             const comments = try collectCommentsAlloc(allocator, source);
-            var formatter = Formatter.init(allocator, source, comments);
+            var formatter = try Formatter.init(allocator, source, comments);
             try formatter.formatProgram(parsed_document.root.items);
             return .{ .ok = try formatter.finish() };
         },
@@ -46,22 +74,44 @@ const Formatter = struct {
     source: []const u8,
     comments: []Comment,
     comment_cursor: usize = 0,
+    owns_comments: bool = true,
+    cache: *EstimateCache,
+    owns_cache: bool = true,
     buf: std.ArrayList(u8),
     indent: usize = 0,
     force_vertical_pipe: bool = false,
 
-    fn init(allocator: std.mem.Allocator, source: []const u8, comments: []Comment) Formatter {
+    fn init(allocator: std.mem.Allocator, source: []const u8, comments: []Comment) !Formatter {
+        const cache = try allocator.create(EstimateCache);
+        cache.* = EstimateCache.init(allocator);
         return .{
             .allocator = allocator,
             .source = source,
             .comments = comments,
+            .cache = cache,
+            .buf = .empty,
+        };
+    }
+
+    fn initShared(allocator: std.mem.Allocator, source: []const u8, comments: []Comment, cache: *EstimateCache) Formatter {
+        return .{
+            .allocator = allocator,
+            .source = source,
+            .comments = comments,
+            .owns_comments = false,
+            .cache = cache,
+            .owns_cache = false,
             .buf = .empty,
         };
     }
 
     fn deinit(self: *Formatter) void {
         self.buf.deinit(self.allocator);
-        self.allocator.free(self.comments);
+        if (self.owns_comments) self.allocator.free(self.comments);
+        if (self.owns_cache) {
+            self.cache.deinit();
+            self.allocator.destroy(self.cache);
+        }
     }
 
     fn finish(self: *Formatter) ![]u8 {
@@ -806,13 +856,28 @@ const Formatter = struct {
     }
 
     fn estimateInline(self: *Formatter, expr: ast.Expr) !?[]u8 {
-        const empty_comments = try self.allocator.alloc(Comment, 0);
-        var temp = Formatter.init(self.allocator, self.source, empty_comments);
+        const key = estimateKey(expr);
+        if (self.cache.map.get(key)) |cached| {
+            return switch (cached) {
+                .multiline => null,
+                .single_line => |text| try self.allocator.dupe(u8, text),
+            };
+        }
+
+        const empty_comments = &[_]Comment{};
+        var temp = Formatter.initShared(self.allocator, self.source, empty_comments, self.cache);
         defer temp.deinit();
         temp.comment_cursor = temp.comments.len;
         try temp.formatExpression(expr);
-        if (std.mem.indexOfScalar(u8, temp.buf.items, '\n') != null) return null;
-        return try self.allocator.dupe(u8, temp.buf.items);
+        if (std.mem.indexOfScalar(u8, temp.buf.items, '\n') != null) {
+            try self.cache.map.put(key, .multiline);
+            return null;
+        }
+
+        const owned = try self.allocator.dupe(u8, temp.buf.items);
+        errdefer self.allocator.free(owned);
+        try self.cache.map.put(key, .{ .single_line = owned });
+        return try self.allocator.dupe(u8, owned);
     }
 
     fn estimateOpeningWidth(self: *Formatter, expr: ast.Expr) !usize {
@@ -1072,6 +1137,11 @@ fn nextNonCommaStart(items: []const ast.Expr, current: ast.Expr, default: usize)
     return default;
 }
 
+fn estimateKey(expr: ast.Expr) u64 {
+    const span = ast.exprSpan(expr);
+    return (@as(u64, @intCast(span.start)) << 32) | @as(u64, @intCast(span.end));
+}
+
 fn tokenIsText(expr: ast.Expr, source: []const u8, text: []const u8) bool {
     return expr == .token and std.mem.eql(u8, source[expr.token.span.start..expr.token.span.end], text);
 }
@@ -1170,6 +1240,57 @@ fn expectFormatsTo(comptime input: []const u8, comptime expected: []const u8) !v
     try std.testing.expectEqualStrings(expected, formatted);
 }
 
+fn expectCorpusFormatsIdempotently() !void {
+    const allocator = std.testing.allocator;
+    var dir = try std.Io.Dir.cwd().openDir(std.testing.io, "examples", .{ .iterate = true });
+    defer dir.close(std.testing.io);
+
+    var walker = try dir.walk(allocator);
+    defer walker.deinit();
+
+    var count: usize = 0;
+    while (try walker.next()) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.path, ".bn")) continue;
+
+        const relative_path = try std.fmt.allocPrint(allocator, "examples/{s}", .{entry.path});
+        defer allocator.free(relative_path);
+
+        const source = try std.Io.Dir.cwd().readFileAlloc(
+            std.testing.io,
+            relative_path,
+            allocator,
+            .limited(std.math.maxInt(usize)),
+        );
+        defer allocator.free(source);
+
+        const first = try formatAlloc(allocator, source);
+        const first_text = switch (first) {
+            .ok => |formatted| formatted,
+            .err => |failure| {
+                std.debug.print("unexpected format failure for {s}: {s}\n", .{ relative_path, failure.message });
+                return error.UnexpectedFormatFailure;
+            },
+        };
+        defer allocator.free(first_text);
+
+        const second = try formatAlloc(allocator, first_text);
+        const second_text = switch (second) {
+            .ok => |formatted| formatted,
+            .err => |failure| {
+                std.debug.print("unexpected reformat failure for {s}: {s}\n", .{ relative_path, failure.message });
+                return error.UnexpectedFormatFailure;
+            },
+        };
+        defer allocator.free(second_text);
+
+        try std.testing.expectEqualStrings(first_text, second_text);
+        count += 1;
+    }
+
+    try std.testing.expect(count > 0);
+}
+
 test "format simple variable" {
     try expectFormatsTo("x: 5", "x: 5\n");
 }
@@ -1225,4 +1346,15 @@ test "format link stays on same line" {
         "x: LINK { foo.bar }",
         "x: LINK { foo.bar }\n",
     );
+}
+
+test "format tagged object with spaced bracket is idempotent" {
+    try expectFormatsTo(
+        "x: Oklch [lightness: 0.35, chroma: 0.1, hue: 250]",
+        "x: Oklch [lightness: 0.35, chroma: 0.1, hue: 250]\n",
+    );
+}
+
+test "format imported corpus idempotently" {
+    try expectCorpusFormatsIdempotently();
 }

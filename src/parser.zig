@@ -447,7 +447,8 @@ const Parser = struct {
     fn canApplyGroup(self: *Parser, expr: ast.Expr, opening: ast.Token) bool {
         if (self.isTight(ast.exprSpan(expr).start, ast.exprSpan(expr).end, opening.span.start, opening.span.end)) return true;
         const tail = ast.exprTailToken(expr) orelse return false;
-        return tail.kind == .keyword;
+        return tail.kind == .keyword or
+            (tail.kind == .pascal_identifier and opening.kind == .l_bracket);
     }
 
     fn keywordAcceptsBareArgs(self: *Parser, token: ast.Token) bool {
@@ -736,4 +737,29 @@ test "parses phase 2 priority examples" {
 
 test "parses imported corpus except explicit blockers" {
     try expectCorpusParses();
+}
+
+test "parses spaced tagged value object" {
+    const source = "x: Oklch [lightness: 0.35]";
+    const outcome = try parseAlloc(std.testing.allocator, source);
+    const document = switch (outcome) {
+        .ok => |document| document,
+        .err => |failure| {
+            std.debug.print("unexpected parse failure: {s}\n", .{failure.message});
+            return error.UnexpectedParseFailure;
+        },
+    };
+    var parsed = document;
+    defer parsed.deinit();
+
+    try std.testing.expectEqual(@as(usize, 1), parsed.root.items.len);
+    const binding = switch (parsed.root.items[0]) {
+        .binary => |binding| binding,
+        else => return error.ExpectedBinding,
+    };
+    try std.testing.expectEqual(ast.BinaryOp.bind, binding.operator);
+    switch (binding.rhs) {
+        .apply => |apply| try std.testing.expectEqual(ast.ApplyKind.tagged_value, apply.kind),
+        else => return error.ExpectedTaggedValue,
+    }
 }

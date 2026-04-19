@@ -35,7 +35,7 @@ document: Document/new(root: Element/stripe(
             Element/checkbox(
                 element: [event: [click: LINK]]
                 style: []
-                label: Hidden[text: item.name]
+                label: Hidden [text: item.name]
                 checked: item.checked
 
                 icon: item.checked |> WHEN {

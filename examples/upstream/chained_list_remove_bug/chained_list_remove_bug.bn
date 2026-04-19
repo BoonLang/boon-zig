@@ -29,8 +29,9 @@ store: [
         elements.add_button.event.press |> THEN { state + 1 }
     }
 
-    item_to_add: elements.add_button.event.press
-    |> THEN { create_item(id: next_id, name: TEXT { New Item }) }
+    item_to_add:
+        elements.add_button.event.press
+        |> THEN { create_item(id: next_id, name: TEXT { New Item }) }
 
     -- Chained List/remove operations (this is where the bug manifests)
     items:
@@ -78,7 +79,7 @@ FUNCTION render_item(item) {
             Element/checkbox(
                 element: [event: [click: LINK]]
                 style: []
-                label: Hidden[text: TEXT { toggle }]
+                label: Hidden [text: TEXT { toggle }]
                 settings: [checked: item.completed]
 
                 icon: item.completed |> WHEN {
@@ -100,7 +101,7 @@ FUNCTION render_item(item) {
                         element: [event: [press: LINK]]
 
                         style: [
-                            font: [color: Oklch[lightness: 0.5, chroma: 0.15, hue: 25]]
+                            font: [color: Oklch [lightness: 0.5, chroma: 0.15, hue: 25]]
                         ]
 
                         label: TEXT { X }
@@ -138,7 +139,7 @@ document: Document/new(root: Element/stripe(
 
                     style: [
                         padding: 10
-                        background: [color: Oklch[lightness: 0.3]]
+                        background: [color: Oklch [lightness: 0.3]]
                         font: [color: White]
                     ]
 
@@ -159,7 +160,7 @@ document: Document/new(root: Element/stripe(
                                 padding: 10
 
                                 background: [
-                                    color: Oklch[lightness: 0.35, chroma: 0.1, hue: 25]
+                                    color: Oklch [lightness: 0.35, chroma: 0.1, hue: 25]
                                 ]
 
                                 font: [color: White]
@@ -182,7 +183,7 @@ document: Document/new(root: Element/stripe(
 
         Element/label(
             element: []
-            style: [font: [color: Oklch[lightness: 0.5]]]
+            style: [font: [color: Oklch [lightness: 0.5]]]
 
             label: TEXT {
                 Active: {store.active_items |> List/count()}, Completed: {store.completed_items |> List/count()}
@@ -193,7 +194,7 @@ document: Document/new(root: Element/stripe(
             element: []
             direction: Column
             gap: 5
-            style: [font: [size: 12, color: Oklch[lightness: 0.6]]]
+            style: [font: [size: 12, color: Oklch [lightness: 0.6]]]
 
             items: LIST {
                 Element/label(
