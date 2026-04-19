@@ -657,7 +657,18 @@ const Lowerer = struct {
             .expr => |expr| expr,
             .binding => return self.fail(original_span, "TEXT interpolation requires an expression"),
         };
+        if (!isAllowedTextInterpolationExpr(expr)) {
+            return self.fail(original_span, "TEXT interpolation only allows names and field access; use BLOCK for expressions");
+        }
         return rebaseExpr(expr, offset);
+    }
+
+    fn isAllowedTextInterpolationExpr(expr: Expr) bool {
+        return switch (expr) {
+            .symbol => true,
+            .access => |access| isAllowedTextInterpolationExpr(access.target),
+            else => false,
+        };
     }
 
     fn formBareArg(self: *Lowerer, token: ast.Token) LowerError!Symbol {
@@ -1163,6 +1174,20 @@ test "lowers text bodies with literal parentheses and brackets" {
     defer std.testing.allocator.free(rendered);
     try std.testing.expect(std.mem.indexOf(u8, rendered, "Toggle filter (show_even:") != null);
     try std.testing.expect(std.mem.indexOf(u8, rendered, "[X]") != null);
+}
+
+test "rejects call expressions in TEXT interpolation" {
+    const source =
+        \\document: TEXT { Count: {store.items |> List/count()} }
+        \\
+    ;
+    const outcome = try lowerAlloc(std.testing.allocator, source);
+    switch (outcome) {
+        .ok => return error.ExpectedHirFailure,
+        .err => |failure| {
+            try std.testing.expect(std.mem.indexOf(u8, failure.message, "TEXT interpolation only allows names and field access") != null);
+        },
+    }
 }
 
 test "lowers call-like text bodies as raw text" {

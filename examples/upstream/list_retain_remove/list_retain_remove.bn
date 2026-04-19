@@ -60,7 +60,10 @@ document: Document/new(root: Element/stripe(
         Element/label(
             element: []
             style: []
-            label: TEXT { Count: {store.items |> List/count()} }
+            label: BLOCK {
+                count: store.items |> List/count()
+                TEXT { Count: {count} }
+            }
         )
 
         Element/stripe(
