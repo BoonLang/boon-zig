@@ -73,7 +73,7 @@ HEADLESS_P0_CASES: tuple[HeadlessCase, ...] = (
             "--script",
             "tests/examples/pong_sequence.json",
             "--expect-text",
-            "PONGYOU0CPU0STATUSRally########################.....................##.....................##...................[]##[].................[]##[].........o.......[]##[]...................##.....................########################UpDownServeTickRestart",
+            "PONGYOU0CPU0STATUSRally########################.....................##.....................##[].................[]##[]..............o..[]##[].................[]##.....................##.....................########################",
         ),
     ),
     HeadlessCase(
@@ -83,7 +83,7 @@ HEADLESS_P0_CASES: tuple[HeadlessCase, ...] = (
             "--script",
             "tests/examples/arkanoid_sequence.json",
             "--expect-text",
-            "LeftRightLaunchTickArkanoid########.....o.....p....######Bricks:2Paddle:1Ball:1Flight",
+            "Arkanoid########.....o.....p....######Bricks:2Paddle:1Ball:1Flight",
         ),
     ),
 )

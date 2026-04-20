@@ -64,7 +64,11 @@ pub fn main(init: std.process.Init) !void {
             break :blk 1;
         },
         error.InvalidTerminalCommand => blk: {
-            try stderr_writer.interface.print("error: invalid run-terminal command\n", .{});
+            try stderr_writer.interface.print("error: invalid terminal command\n", .{});
+            break :blk 1;
+        },
+        error.ExpectedTerminalRoot => blk: {
+            try stderr_writer.interface.print("error: `run` requires a Terminal/new root\n", .{});
             break :blk 1;
         },
         else => return err,

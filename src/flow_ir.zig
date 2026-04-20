@@ -189,7 +189,7 @@ pub fn lowerAlloc(allocator: std.mem.Allocator, source: []const u8) !Outcome {
         .bindings = try lowerer.bindings.toOwnedSlice(lowerer.arena),
         .functions = try lowerer.functions.toOwnedSlice(lowerer.arena),
         .nodes = try lowerer.nodes.toOwnedSlice(lowerer.arena),
-        .root_binding = lowerer.binding_lookup.get("document") orelse lowerer.binding_lookup.get("scene"),
+        .root_binding = lowerer.binding_lookup.get("terminal") orelse lowerer.binding_lookup.get("document") orelse lowerer.binding_lookup.get("scene"),
         .source_len = source.len,
         .link_port_count = lowerer.link_port_count,
         .stateful_count = lowerer.stateful_count,

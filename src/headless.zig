@@ -46,6 +46,13 @@ const DocumentValue = struct {
     root: Value,
 };
 
+const TerminalValue = struct {
+    root: Value,
+    keyboard: Value = .none,
+    loop: Value = .none,
+    presentation: Value = .none,
+};
+
 const StripeDirection = enum {
     row,
     column,
@@ -120,6 +127,7 @@ const Value = union(enum) {
     record: []RecordField,
     binding_ref: flow_ir.BindingId,
     document: *DocumentValue,
+    terminal: *TerminalValue,
     stripe: *StripeValue,
     label: *LabelValue,
     container: *ContainerValue,
@@ -155,6 +163,42 @@ pub const PhysicalRenderTarget = union(enum) {
             .shaded_panel => "shaded_panel",
             .lit_panel => "lit_panel",
         };
+    }
+};
+
+pub const TerminalFooterMode = enum {
+    summary,
+    hidden,
+};
+
+pub const TerminalKeyBinding = struct {
+    keys: [][]const u8,
+    press_link: flow_ir.NodeId,
+    scope: ?*const EvalScope = null,
+    when: bool,
+    label: ?[]const u8,
+};
+
+pub const TerminalLoopSpec = struct {
+    pulse_link: flow_ir.NodeId,
+    scope: ?*const EvalScope = null,
+    while_active: bool,
+    every_ms: u64,
+};
+
+pub const TerminalContract = struct {
+    keyboard_bindings: []TerminalKeyBinding,
+    loop: ?TerminalLoopSpec,
+    footer: TerminalFooterMode,
+
+    pub fn deinit(self: *TerminalContract, allocator: std.mem.Allocator) void {
+        for (self.keyboard_bindings) |binding| {
+            allocator.free(binding.keys);
+            if (binding.label) |label| allocator.free(label);
+            destroyCapturedScope(allocator, binding.scope);
+        }
+        allocator.free(self.keyboard_bindings);
+        if (self.loop) |loop| destroyCapturedScope(allocator, loop.scope);
     }
 };
 
@@ -454,6 +498,38 @@ pub const Session = struct {
             try output.appendSlice(allocator, line);
         }
         return try output.toOwnedSlice(allocator);
+    }
+
+    pub fn rootKind(self: *Session) enum { document, scene, terminal, unknown } {
+        const root_binding = self.flow.root_binding orelse return .unknown;
+        const name = self.flow.bindings[root_binding].name;
+        if (std.mem.eql(u8, name, "terminal")) return .terminal;
+        if (std.mem.eql(u8, name, "scene")) return .scene;
+        if (std.mem.eql(u8, name, "document")) return .document;
+        return .unknown;
+    }
+
+    pub fn triggerLink(self: *Session, link: flow_ir.NodeId) !void {
+        return self.triggerLinkWithScope(link, null);
+    }
+
+    pub fn triggerLinkWithScope(self: *Session, link: flow_ir.NodeId, scope: ?*const EvalScope) !void {
+        try self.logf("external link n{d}", .{link});
+        try self.enqueueExternalNodePulse(link, scope);
+    }
+
+    pub fn terminalContractAlloc(self: *Session, allocator: std.mem.Allocator) !?TerminalContract {
+        if (self.rootKind() != .terminal) return null;
+        const root_binding = self.flow.root_binding orelse return error.MissingDocumentRoot;
+        var scratch = std.heap.ArenaAllocator.init(allocator);
+        defer scratch.deinit();
+
+        const value = try self.evalNode(scratch.allocator(), self.flow.bindings[root_binding].node, null);
+        const terminal = switch (value) {
+            .terminal => |terminal| terminal,
+            else => return error.ExpectedTerminalRoot,
+        };
+        return try terminalContractFromValue(self, allocator, terminal);
     }
 
     pub fn clickButtonByLabel(self: *Session, allocator: std.mem.Allocator, label: []const u8) !void {
@@ -2922,6 +2998,17 @@ pub const Session = struct {
             document.* = .{ .root = try self.evalNode(allocator, root_node, scope) };
             return .{ .document = document };
         }
+        if (std.mem.eql(u8, call.path, "Terminal/new")) {
+            const root_node = findNamed(call.named, "root") orelse if (call.positional.len != 0) call.positional[0] else return error.MissingRootArg;
+            const terminal = try allocator.create(TerminalValue);
+            terminal.* = .{
+                .root = try self.evalNode(allocator, root_node, scope),
+                .keyboard = if (findNamed(call.named, "keyboard")) |node| try self.evalNode(allocator, node, scope) else .none,
+                .loop = if (findNamed(call.named, "loop")) |node| try self.evalNode(allocator, node, scope) else .none,
+                .presentation = if (findNamed(call.named, "presentation")) |node| try self.evalNode(allocator, node, scope) else .none,
+            };
+            return .{ .terminal = terminal };
+        }
         if (std.mem.eql(u8, call.path, "Element/svg")) {
             const element_node = findNamed(call.named, "element") orelse return error.MissingElementArg;
             const children_node = findNamed(call.named, "children") orelse return error.MissingItemsArg;
@@ -3542,6 +3629,7 @@ pub const Session = struct {
             .record => {},
             .binding_ref => {},
             .document => |document| try self.renderValue(writer, document.root),
+            .terminal => |terminal| try self.renderValue(writer, terminal.root),
             .stripe => |stripe| for (stripe.items) |item| try self.renderValue(writer, item),
             .label => |label| try self.renderValue(writer, label.label),
             .container => |container| try self.renderValue(writer, container.child),
@@ -3575,6 +3663,7 @@ pub const Session = struct {
             .record => {},
             .binding_ref => {},
             .document => |document| try self.appendRenderedValue(output, allocator, document.root),
+            .terminal => |terminal| try self.appendRenderedValue(output, allocator, terminal.root),
             .stripe => |stripe| for (stripe.items) |item| try self.appendRenderedValue(output, allocator, item),
             .label => |label| try self.appendRenderedValue(output, allocator, label.label),
             .container => |container| try self.appendRenderedValue(output, allocator, container.child),
@@ -3590,6 +3679,7 @@ pub const Session = struct {
     fn snapshotBlock(self: *Session, allocator: std.mem.Allocator, value: Value) anyerror!GridBlock {
         return switch (value) {
             .document => |document| try self.snapshotBlock(allocator, document.root),
+            .terminal => |terminal| try self.snapshotBlock(allocator, terminal.root),
             .stripe => |stripe| switch (stripe.direction) {
                 .row => try self.snapshotRowBlock(allocator, stripe.items),
                 .column => try self.snapshotColumnBlock(allocator, stripe.items),
@@ -3694,6 +3784,7 @@ pub const Session = struct {
         switch (value) {
             .list => |items| for (items) |item| try self.collectControlSummary(allocator, summary, item),
             .document => |document| try self.collectControlSummary(allocator, summary, document.root),
+            .terminal => |terminal| try self.collectControlSummary(allocator, summary, terminal.root),
             .stripe => |stripe| {
                 if (stripe.hovered_link != null) try summary.hovers.append(allocator, try self.hoverDisplayAlloc(allocator, .{ .stripe = stripe }));
                 for (stripe.items) |item| try self.collectControlSummary(allocator, summary, item);
@@ -4671,6 +4762,13 @@ fn captureScope(allocator: std.mem.Allocator, scope: ?*const EvalScope) !?*const
     return copy;
 }
 
+fn destroyCapturedScope(allocator: std.mem.Allocator, scope: ?*const EvalScope) void {
+    const frame = scope orelse return;
+    destroyCapturedScope(allocator, frame.parent);
+    allocator.free(frame.bindings);
+    allocator.destroy(frame);
+}
+
 fn normalizedStateScope(scope: ?*const EvalScope) ?*const EvalScope {
     var current = scope;
     while (current) |frame| {
@@ -4749,6 +4847,10 @@ fn hashValueIdentity(hasher: *std.hash.Wyhash, value: Value) void {
             }
         },
         .binding_ref => |binding_id| hasher.update(std.mem.asBytes(&binding_id)),
+        .terminal => |terminal| {
+            const ptr_value: usize = @intFromPtr(terminal);
+            hasher.update(std.mem.asBytes(&ptr_value));
+        },
         .document => |document| {
             const ptr_value: usize = @intFromPtr(document);
             hasher.update(std.mem.asBytes(&ptr_value));
@@ -4827,6 +4929,10 @@ fn hashRecordScopeValueIdentity(hasher: *std.hash.Wyhash, value: Value) void {
             }
         },
         .binding_ref => |binding_id| hasher.update(std.mem.asBytes(&binding_id)),
+        .terminal => |terminal| {
+            const ptr_value: usize = @intFromPtr(terminal);
+            hasher.update(std.mem.asBytes(&ptr_value));
+        },
         .document => |document| {
             const ptr_value: usize = @intFromPtr(document);
             hasher.update(std.mem.asBytes(&ptr_value));
@@ -4898,6 +5004,7 @@ fn briefValueAlloc(allocator: std.mem.Allocator, value: Value) ![]const u8 {
         .list => allocator.dupe(u8, "<list>"),
         .record => allocator.dupe(u8, "<record>"),
         .binding_ref => |binding_id| std.fmt.allocPrint(allocator, "binding({d})", .{binding_id}),
+        .terminal => allocator.dupe(u8, "<terminal>"),
         .document => allocator.dupe(u8, "<document>"),
         .stripe => allocator.dupe(u8, "<stripe>"),
         .label => allocator.dupe(u8, "<label>"),
@@ -5516,10 +5623,152 @@ fn allocRecordValue(allocator: std.mem.Allocator, fields: []const RecordField) !
     return .{ .record = copy };
 }
 
+fn terminalContractFromValue(self: *Session, allocator: std.mem.Allocator, terminal: *TerminalValue) !TerminalContract {
+    const keyboard_bindings = try terminalBindingsAlloc(self, allocator, terminal.keyboard);
+    errdefer {
+        for (keyboard_bindings) |binding| allocator.free(binding.keys);
+        allocator.free(keyboard_bindings);
+    }
+
+    return .{
+        .keyboard_bindings = keyboard_bindings,
+        .loop = try terminalLoopSpecFromValue(self, allocator, terminal.loop),
+        .footer = try terminalFooterModeFromValue(self, allocator, terminal.presentation),
+    };
+}
+
+fn materializeTerminalContractValue(self: *Session, allocator: std.mem.Allocator, value: Value) !Value {
+    const materialized = try self.materializeValue(allocator, value);
+    return switch (materialized) {
+        .binding_ref => |binding_id| try materializeTerminalContractValue(
+            self,
+            allocator,
+            try self.evalNode(allocator, self.flow.bindings[binding_id].node, null),
+        ),
+        .list => |items| blk: {
+            const resolved = try allocator.alloc(Value, items.len);
+            for (items, 0..) |item, index| {
+                resolved[index] = try materializeTerminalContractValue(self, allocator, item);
+            }
+            break :blk .{ .list = resolved };
+        },
+        .record => |fields| blk: {
+            const resolved = try allocator.alloc(RecordField, fields.len);
+            for (fields, 0..) |field, index| {
+                resolved[index] = .{
+                    .name = field.name,
+                    .value = try materializeTerminalContractValue(self, allocator, field.value),
+                };
+            }
+            break :blk .{ .record = resolved };
+        },
+        else => materialized,
+    };
+}
+
+fn terminalPreferredScopeAlloc(self: *Session, allocator: std.mem.Allocator, value: Value) !?*const EvalScope {
+    return switch (value) {
+        .scoped_node => |deferred| try captureScope(allocator, Session.canonicalControlScope(deferred.scope) orelse deferred.scope),
+        .binding_ref => |binding_id| try terminalPreferredScopeAlloc(
+            self,
+            allocator,
+            try self.evalNode(allocator, self.flow.bindings[binding_id].node, null),
+        ),
+        .record => |fields| blk: {
+            for (fields) |field| {
+                if (try terminalPreferredScopeAlloc(self, allocator, field.value)) |scope| break :blk scope;
+            }
+            break :blk null;
+        },
+        .list => |items| blk: {
+            for (items) |item| {
+                if (try terminalPreferredScopeAlloc(self, allocator, item)) |scope| break :blk scope;
+            }
+            break :blk null;
+        },
+        else => null,
+    };
+}
+
+fn terminalBindingsAlloc(self: *Session, allocator: std.mem.Allocator, keyboard_value: Value) ![]TerminalKeyBinding {
+    if (keyboard_value == .none) return allocator.alloc(TerminalKeyBinding, 0);
+    const binding_scope = try terminalPreferredScopeAlloc(self, allocator, keyboard_value);
+    errdefer destroyCapturedScope(allocator, binding_scope);
+    defer destroyCapturedScope(allocator, binding_scope);
+    const resolved_keyboard = try materializeTerminalContractValue(self, allocator, keyboard_value);
+    const bindings_value = recordFieldFromValue(resolved_keyboard, "bindings") orelse return error.MissingRecordField;
+    const items = try listItemsFromValue(bindings_value);
+    const bindings = try allocator.alloc(TerminalKeyBinding, items.len);
+    for (items, 0..) |item, index| {
+        const fields = switch (item) {
+            .record => |fields| fields,
+            else => return error.ExpectedRecordValue,
+        };
+        const keys_value = findRecordValue(fields, "keys") orelse return error.MissingRecordField;
+        const keys_list = try listItemsFromValue(keys_value);
+        const keys = try allocator.alloc([]const u8, keys_list.len);
+        for (keys_list, 0..) |key_value, key_index| {
+            keys[key_index] = try allocator.dupe(u8, try valueAsText(key_value));
+        }
+        errdefer allocator.free(keys);
+
+        const press_value = findRecordValue(fields, "press") orelse return error.MissingRecordField;
+        const press_link = switch (press_value) {
+            .link => |link| link,
+            else => return error.ExpectedLinkValue,
+        };
+        const when = if (findRecordValue(fields, "when")) |when_value| try valueAsBool(when_value) else true;
+        const label = if (findRecordValue(fields, "label")) |label_value| try allocator.dupe(u8, try valueAsText(label_value)) else null;
+        bindings[index] = .{
+            .keys = keys,
+            .press_link = press_link,
+            .scope = if (binding_scope) |scope| try captureScope(allocator, scope) else null,
+            .when = when,
+            .label = label,
+        };
+    }
+    return bindings;
+}
+
+fn terminalLoopSpecFromValue(self: *Session, allocator: std.mem.Allocator, loop_value: Value) !?TerminalLoopSpec {
+    if (loop_value == .none) return null;
+    const loop_scope = try terminalPreferredScopeAlloc(self, allocator, loop_value);
+    errdefer destroyCapturedScope(allocator, loop_scope);
+    const resolved_loop = try materializeTerminalContractValue(self, allocator, loop_value);
+    const pulse_value = recordFieldFromValue(resolved_loop, "pulse") orelse return error.MissingRecordField;
+    const pulse_link = switch (pulse_value) {
+        .link => |link| link,
+        else => return error.ExpectedLinkValue,
+    };
+    const while_value = recordFieldFromValue(resolved_loop, "while") orelse return error.MissingRecordField;
+    const every_value = recordFieldFromValue(resolved_loop, "every") orelse return error.MissingRecordField;
+    return .{
+        .pulse_link = pulse_link,
+        .scope = loop_scope,
+        .while_active = try valueAsBool(while_value),
+        .every_ms = switch (every_value) {
+            .duration_ms => |ms| ms,
+            else => return error.ExpectedDurationValue,
+        },
+    };
+}
+
+fn terminalFooterModeFromValue(self: *Session, allocator: std.mem.Allocator, presentation_value: Value) !TerminalFooterMode {
+    if (presentation_value == .none) return .summary;
+    const resolved_presentation = try materializeTerminalContractValue(self, allocator, presentation_value);
+    const footer_value = recordFieldFromValue(resolved_presentation, "footer") orelse return .summary;
+    return switch (footer_value) {
+        .symbol => |text| if (std.mem.eql(u8, text, "Hidden")) .hidden else .summary,
+        .text => |text| if (std.mem.eql(u8, text, "Hidden")) .hidden else .summary,
+        else => .summary,
+    };
+}
+
 fn collectButtonLinks(self: *Session, list: *std.ArrayList(ControlEventRef), allocator: std.mem.Allocator, value: Value) !void {
     switch (value) {
         .list => |items| for (items) |item| try collectButtonLinks(self, list, allocator, item),
         .document => |document| try collectButtonLinks(self, list, allocator, document.root),
+        .terminal => |terminal| try collectButtonLinks(self, list, allocator, terminal.root),
         .stripe => |stripe| for (stripe.items) |item| try collectButtonLinks(self, list, allocator, item),
         .container => |container| try collectButtonLinks(self, list, allocator, container.child),
         .checkbox => |checkbox| if (checkbox.click_link) |link| try list.append(allocator, .{ .link = link, .scope = checkbox.event_scope }),
@@ -5533,6 +5782,7 @@ fn collectLabelDoubleClickLinks(self: *Session, list: *std.ArrayList(ControlEven
     switch (value) {
         .list => |items| for (items) |item| try collectLabelDoubleClickLinks(self, list, allocator, item),
         .document => |document| try collectLabelDoubleClickLinks(self, list, allocator, document.root),
+        .terminal => |terminal| try collectLabelDoubleClickLinks(self, list, allocator, terminal.root),
         .stripe => |stripe| for (stripe.items) |item| try collectLabelDoubleClickLinks(self, list, allocator, item),
         .container => |container| try collectLabelDoubleClickLinks(self, list, allocator, container.child),
         .label => |label| if (label.double_click_link) |link| try list.append(allocator, .{ .link = link, .scope = label.event_scope }),
@@ -5545,6 +5795,7 @@ fn collectHoverLinks(self: *Session, list: *std.ArrayList(ControlEventRef), allo
     switch (value) {
         .list => |items| for (items) |item| try collectHoverLinks(self, list, allocator, item),
         .document => |document| try collectHoverLinks(self, list, allocator, document.root),
+        .terminal => |terminal| try collectHoverLinks(self, list, allocator, terminal.root),
         .stripe => |stripe| {
             if (stripe.hovered_link) |link| try list.append(allocator, .{ .link = link, .scope = stripe.event_scope });
             for (stripe.items) |item| try collectHoverLinks(self, list, allocator, item);
@@ -5560,6 +5811,7 @@ fn collectSliderLinks(self: *Session, list: *std.ArrayList(ControlEventRef), all
     switch (value) {
         .list => |items| for (items) |item| try collectSliderLinks(self, list, allocator, item),
         .document => |document| try collectSliderLinks(self, list, allocator, document.root),
+        .terminal => |terminal| try collectSliderLinks(self, list, allocator, terminal.root),
         .stripe => |stripe| for (stripe.items) |item| try collectSliderLinks(self, list, allocator, item),
         .container => |container| try collectSliderLinks(self, list, allocator, container.child),
         .slider => |slider| if (slider.change_link) |link| try list.append(allocator, .{ .link = link, .scope = slider.event_scope }),
@@ -5572,6 +5824,7 @@ fn collectTextInputLinks(self: *Session, list: *std.ArrayList(ControlEventRef), 
     switch (value) {
         .list => |items| for (items) |item| try collectTextInputLinks(self, list, allocator, item),
         .document => |document| try collectTextInputLinks(self, list, allocator, document.root),
+        .terminal => |terminal| try collectTextInputLinks(self, list, allocator, terminal.root),
         .stripe => |stripe| for (stripe.items) |item| try collectTextInputLinks(self, list, allocator, item),
         .container => |container| try collectTextInputLinks(self, list, allocator, container.child),
         .text_input => |input| if (input.change_link) |link| try list.append(allocator, .{ .link = link, .scope = input.event_scope }),
@@ -5584,6 +5837,7 @@ fn collectTextInputValues(self: *Session, list: *std.ArrayList(*TextInputValue),
     switch (value) {
         .list => |items| for (items) |item| try collectTextInputValues(self, list, allocator, item),
         .document => |document| try collectTextInputValues(self, list, allocator, document.root),
+        .terminal => |terminal| try collectTextInputValues(self, list, allocator, terminal.root),
         .stripe => |stripe| for (stripe.items) |item| try collectTextInputValues(self, list, allocator, item),
         .container => |container| try collectTextInputValues(self, list, allocator, container.child),
         .text_input => |input| try list.append(allocator, input),
@@ -5596,6 +5850,7 @@ fn collectTextInputKeyLinks(self: *Session, list: *std.ArrayList(ControlEventRef
     switch (value) {
         .list => |items| for (items) |item| try collectTextInputKeyLinks(self, list, allocator, item),
         .document => |document| try collectTextInputKeyLinks(self, list, allocator, document.root),
+        .terminal => |terminal| try collectTextInputKeyLinks(self, list, allocator, terminal.root),
         .stripe => |stripe| for (stripe.items) |item| try collectTextInputKeyLinks(self, list, allocator, item),
         .container => |container| try collectTextInputKeyLinks(self, list, allocator, container.child),
         .text_input => |input| if (input.key_link orelse input.change_link) |link| try list.append(allocator, .{ .link = link, .scope = input.event_scope }),
@@ -5608,6 +5863,7 @@ fn collectTextInputBlurLinks(self: *Session, list: *std.ArrayList(ControlEventRe
     switch (value) {
         .list => |items| for (items) |item| try collectTextInputBlurLinks(self, list, allocator, item),
         .document => |document| try collectTextInputBlurLinks(self, list, allocator, document.root),
+        .terminal => |terminal| try collectTextInputBlurLinks(self, list, allocator, terminal.root),
         .stripe => |stripe| for (stripe.items) |item| try collectTextInputBlurLinks(self, list, allocator, item),
         .container => |container| try collectTextInputBlurLinks(self, list, allocator, container.child),
         .text_input => |input| if (input.blur_link orelse input.change_link) |link| try list.append(allocator, .{ .link = link, .scope = input.event_scope }),
@@ -5620,6 +5876,7 @@ fn collectTextInputFocusLinks(self: *Session, list: *std.ArrayList(ControlEventR
     switch (value) {
         .list => |items| for (items) |item| try collectTextInputFocusLinks(self, list, allocator, item),
         .document => |document| try collectTextInputFocusLinks(self, list, allocator, document.root),
+        .terminal => |terminal| try collectTextInputFocusLinks(self, list, allocator, terminal.root),
         .stripe => |stripe| for (stripe.items) |item| try collectTextInputFocusLinks(self, list, allocator, item),
         .container => |container| try collectTextInputFocusLinks(self, list, allocator, container.child),
         .text_input => |input| if (input.focus_link orelse input.change_link) |link| try list.append(allocator, .{ .link = link, .scope = input.event_scope }),
@@ -5632,6 +5889,7 @@ fn collectSelectLinks(self: *Session, list: *std.ArrayList(ControlEventRef), all
     switch (value) {
         .list => |items| for (items) |item| try collectSelectLinks(self, list, allocator, item),
         .document => |document| try collectSelectLinks(self, list, allocator, document.root),
+        .terminal => |terminal| try collectSelectLinks(self, list, allocator, terminal.root),
         .stripe => |stripe| for (stripe.items) |item| try collectSelectLinks(self, list, allocator, item),
         .container => |container| try collectSelectLinks(self, list, allocator, container.child),
         .select => |select| if (select.change_link) |link| try list.append(allocator, .{ .link = link, .scope = select.event_scope }),
@@ -6569,6 +6827,51 @@ test "stored text input element in record exposes change and key events through 
     const after_key = try session.renderAlloc(std.testing.allocator);
     defer std.testing.allocator.free(after_key);
     try std.testing.expectEqualStrings("MilkMilk", after_key);
+}
+
+test "terminal root exposes declared keyboard binding and scoped link pulses" {
+    const source =
+        \\store: [
+        \\    elements: [launch: LINK]
+        \\    count: 0 |> HOLD count {
+        \\        store.elements.launch.event.press |> THEN { count + 1 }
+        \\    }
+        \\]
+        \\
+        \\terminal: Terminal/new(
+        \\    root: Element/label(element: [], style: [], label: store.count)
+        \\    keyboard: [
+        \\        bindings: LIST {
+        \\            [keys: LIST { TEXT { Enter } } press: store.elements.launch label: TEXT { launch }]
+        \\        }
+        \\    ]
+        \\    presentation: [footer: Summary]
+        \\)
+        ;
+    const outcome = try runAlloc(std.testing.allocator, source, .{});
+    const session_value = switch (outcome) {
+        .ok => |session| session,
+        .err => |failure| {
+            std.debug.print("unexpected terminal root failure: {s}\n", .{failure.message});
+            return error.UnexpectedHeadlessFailure;
+        },
+    };
+    var session = session_value;
+    defer session.deinit();
+
+    try std.testing.expect(session.rootKind() == .terminal);
+
+    var contract = (try session.terminalContractAlloc(std.testing.allocator)).?;
+    defer contract.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(usize, 1), contract.keyboard_bindings.len);
+    try std.testing.expectEqualStrings("Enter", contract.keyboard_bindings[0].keys[0]);
+    try std.testing.expect(contract.keyboard_bindings[0].scope != null);
+
+    try session.triggerLinkWithScope(contract.keyboard_bindings[0].press_link, contract.keyboard_bindings[0].scope);
+
+    const rendered = try session.renderAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(rendered);
+    try std.testing.expectEqualStrings("1", rendered);
 }
 
 test "nested store hold field exposes sibling derived value through headless runtime" {

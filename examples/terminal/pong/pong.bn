@@ -226,35 +226,40 @@ store: [
     }
 ]
 
------- document ------
+------ terminal ------
 
-document: Document/new(root: Element/stripe(
-    element: []
-    direction: Column
-    gap: 0
-    style: []
+terminal: Terminal/new(
+    root: Element/stripe(
+        element: []
+        direction: Column
+        gap: 0
+        style: []
 
-    items: LIST {
-        Element/label(element: [], style: [], label: TEXT { PONG })
-        hud()
-        board_view()
+        items: LIST {
+            Element/label(element: [], style: [], label: TEXT { PONG })
+            hud()
+            board_view()
+        }
+    )
 
-        Element/stripe(
-            element: []
-            direction: Row
-            gap: 2
-            style: []
+    keyboard: [
+        bindings: LIST {
+            [keys: LIST { TEXT { Up } TEXT { w } }, press: store.elements.up_button, label: TEXT { up }]
+            [keys: LIST { TEXT { Down } TEXT { s } }, press: store.elements.down_button, label: TEXT { down }]
+            [keys: LIST { TEXT { Enter } }, press: store.elements.serve_button, when: store.ball.is_idle, label: TEXT { serve }]
+            [keys: LIST { TEXT { Space } }, press: store.elements.tick_button, label: TEXT { tick }]
+            [keys: LIST { TEXT { r } }, press: store.elements.restart_button, label: TEXT { restart }]
+        }
+    ]
 
-            items: LIST {
-                game_button(label: TEXT { Up }) |> LINK { store.elements.up_button }
-                game_button(label: TEXT { Down }) |> LINK { store.elements.down_button }
-                game_button(label: TEXT { Serve }) |> LINK { store.elements.serve_button }
-                game_button(label: TEXT { Tick }) |> LINK { store.elements.tick_button }
-                game_button(label: TEXT { Restart }) |> LINK { store.elements.restart_button }
-            }
-        )
-    }
-))
+    loop: [
+        pulse: store.elements.tick_button
+        while: store.ball.is_idle |> Bool/not()
+        every: Duration[milliseconds: 180]
+    ]
+
+    presentation: [footer: Summary]
+)
 
 ------ hud ------
 
@@ -335,14 +340,6 @@ FUNCTION court_row(row, cpu_paddle_center, player_paddle_center, ball_x, ball_y)
 }
 
 ------ board helpers ------
-
-FUNCTION game_button(label) {
-    Element/button(
-        element: [event: [press: LINK]]
-        style: []
-        label: label
-    )
-}
 
 FUNCTION paddle_segment(row, paddle_center) {
     row == paddle_center

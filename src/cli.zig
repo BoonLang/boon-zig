@@ -9,11 +9,11 @@ pub const Command = union(enum) {
     parse: []const u8,
     hir: []const u8,
     flow: []const u8,
+    run: TerminalArgs,
     run_headless: HeadlessArgs,
     snapshot: SnapshotArgs,
     physical_state: SnapshotArgs,
     serve_browser: BrowserServeArgs,
-    run_terminal: TerminalArgs,
 };
 
 pub const HeadlessArgs = struct {
@@ -67,11 +67,11 @@ pub fn run(
         .parse => |path| return try runParse(allocator, io, path, stdout, stderr),
         .hir => |path| return try runHir(allocator, io, path, stdout, stderr),
         .flow => |path| return try runFlow(allocator, io, path, stdout, stderr),
+        .run => |terminal_args| return try runTerminal(allocator, io, terminal_args, stdout, stderr),
         .run_headless => |headless_args| return try runHeadless(allocator, io, headless_args, stdout, stderr),
         .snapshot => |snapshot_args| return try runSnapshot(allocator, io, snapshot_args, stdout, stderr),
         .physical_state => |snapshot_args| return try runPhysicalState(allocator, io, snapshot_args, stdout, stderr),
         .serve_browser => |browser_args| return try runServeBrowser(allocator, io, browser_args, stdout, stderr),
-        .run_terminal => |terminal_args| return try runTerminal(allocator, io, terminal_args, stdout, stderr),
     }
 }
 
@@ -101,6 +101,35 @@ fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) !Command {
     if (std.mem.eql(u8, arg, "flow")) {
         if (args.len <= 2) return error.MissingPath;
         return .{ .flow = args[2] };
+    }
+    if (std.mem.eql(u8, arg, "run") or std.mem.eql(u8, arg, "run-terminal")) {
+        if (args.len <= 2) return error.MissingPath;
+        var trace = false;
+        var virtual_time_ms: u64 = 0;
+        var script_path: ?[]const u8 = null;
+        var index: usize = 3;
+        while (index < args.len) : (index += 1) {
+            const flag = args[index];
+            if (std.mem.eql(u8, flag, "--trace")) {
+                trace = true;
+            } else if (std.mem.eql(u8, flag, "--virtual-time")) {
+                index += 1;
+                if (index >= args.len) return error.MissingVirtualTime;
+                virtual_time_ms = try parseDurationArg(args[index]);
+            } else if (std.mem.eql(u8, flag, "--script")) {
+                index += 1;
+                if (index >= args.len) return error.MissingScriptPath;
+                script_path = args[index];
+            } else {
+                return error.UnknownCommand;
+            }
+        }
+        return .{ .run = .{
+            .path = args[2],
+            .trace = trace,
+            .virtual_time_ms = virtual_time_ms,
+            .script_path = script_path,
+        } };
     }
     if (std.mem.eql(u8, arg, "run-headless")) {
         if (args.len <= 2) return error.MissingPath;
@@ -240,36 +269,6 @@ fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) !Command {
             .port = port,
         } };
     }
-    if (std.mem.eql(u8, arg, "run-terminal")) {
-        if (args.len <= 2) return error.MissingPath;
-        var trace = false;
-        var virtual_time_ms: u64 = 0;
-        var script_path: ?[]const u8 = null;
-        var index: usize = 3;
-        while (index < args.len) : (index += 1) {
-            const flag = args[index];
-            if (std.mem.eql(u8, flag, "--trace")) {
-                trace = true;
-            } else if (std.mem.eql(u8, flag, "--virtual-time")) {
-                index += 1;
-                if (index >= args.len) return error.MissingVirtualTime;
-                virtual_time_ms = try parseDurationArg(args[index]);
-            } else if (std.mem.eql(u8, flag, "--script")) {
-                index += 1;
-                if (index >= args.len) return error.MissingScriptPath;
-                script_path = args[index];
-            } else {
-                return error.UnknownCommand;
-            }
-        }
-        return .{ .run_terminal = .{
-            .path = args[2],
-            .trace = trace,
-            .virtual_time_ms = virtual_time_ms,
-            .script_path = script_path,
-        } };
-    }
-
     return error.UnknownCommand;
 }
 
@@ -295,22 +294,22 @@ pub fn writeHelp(writer: *std.Io.Writer) !void {
         \\  boon-zig parse <path>
         \\  boon-zig hir <path>
         \\  boon-zig flow <path>
+        \\  boon-zig run <path> [--trace] [--virtual-time <duration>] [--script <path>]
         \\  boon-zig run-headless <path> [--trace] [--virtual-time <duration>] [--state-dir <path>] [--clear-state] [--script <path>] [--expect-text <text>]
         \\  boon-zig snapshot <path> [--virtual-time <duration>] [--script <path>] [--frames <count>] [--expect-text <text>]
         \\  boon-zig physical-state <path> [--virtual-time <duration>] [--script <path>] [--frames <count>] [--expect-text <text>]
         \\  boon-zig serve-browser <path> [--port <port>]
-        \\  boon-zig run-terminal <path> [--trace] [--virtual-time <duration>] [--script <path>]
         \\
         \\Current phase support:
         \\  format   Format a Boon source file in place.
         \\  parse    Lex and parse a Boon source file and print structural stats.
         \\  hir      Lower a Boon source file into HIR and print lowering stats.
         \\  flow     Lower a Boon source file into Flow IR and print graph stats.
+        \\  run     Run a Terminal/new Boon source file in the interactive terminal host.
         \\  run-headless  Run a Boon source file in the headless runtime.
         \\  snapshot  Render a deterministic terminal-grid snapshot from the headless document tree.
         \\  physical-state  Emit the current structured physical render target when one exists.
         \\  serve-browser  Serve the browser shell and /__boon/physical-state from the shared runtime host.
-        \\  run-terminal  Run the documented interactive terminal fallback REPL on top of the snapshot/headless engine.
         \\
     );
 }
@@ -675,6 +674,8 @@ fn runTerminal(
             var runtime = session;
             defer runtime.deinit();
 
+            if (runtime.rootKind() != .terminal) return error.ExpectedTerminalRoot;
+
             if (args.script_path) |script_path| {
                 try executeHeadlessScript(allocator, io, script_path, &runtime);
             }
@@ -685,16 +686,11 @@ fn runTerminal(
             };
             if (raw_terminal) |*mode| {
                 defer mode.restore() catch {};
-                const keyboard_mode = try detectKeyboardUiMode(allocator, &runtime);
-                try stdout.writeAll("run-terminal keyboard mode\n");
-                try writeTerminalKeyboardSummary(allocator, &runtime, stdout, keyboard_mode);
-                try stdout.writeByte('\n');
-                try stdout.flush();
-
                 while (true) {
-                    const loop_mode = try detectKeyboardUiMode(allocator, &runtime);
-                    try renderTerminalKeyboardScreen(allocator, &runtime, stdout, loop_mode);
-                    const should_continue = handleTerminalKeyboardInput(allocator, args, &runtime, stdout, stderr, loop_mode) catch |err| blk: {
+                    var contract = (try runtime.terminalContractAlloc(allocator)).?;
+                    defer contract.deinit(allocator);
+                    try renderTerminalDeclaredScreen(allocator, &runtime, stdout, &contract);
+                    const should_continue = handleTerminalDeclaredInput(allocator, args, &runtime, stdout, stderr, &contract) catch |err| blk: {
                         try stderr.print("error: {s}\n", .{@errorName(err)});
                         try stderr.flush();
                         break :blk true;
@@ -708,14 +704,16 @@ fn runTerminal(
             var stdin_reader = std.Io.File.stdin().reader(io, &stdin_buffer);
 
             try stdout.writeAll(
-                \\run-terminal fallback
+                \\run terminal fallback
                 \\Type `help` for commands, `quit` to exit.
                 \\
             );
             try stdout.flush();
 
             while (true) {
-                try renderTerminalScreen(allocator, &runtime, stdout);
+                var contract = (try runtime.terminalContractAlloc(allocator)).?;
+                defer contract.deinit(allocator);
+                try renderTerminalDeclaredScreen(allocator, &runtime, stdout, &contract);
                 try stdout.writeAll("> ");
                 try stdout.flush();
 
@@ -737,9 +735,14 @@ fn runTerminal(
                     continue;
                 }
                 if (std.mem.eql(u8, line, "render") or std.mem.eql(u8, line, "controls")) continue;
+                if (std.mem.startsWith(u8, line, "press ")) {
+                    const key = std.mem.trim(u8, line["press ".len..], " \t");
+                    if (key.len != 0) _ = try dispatchTerminalKey(&runtime, &contract, key);
+                    continue;
+                }
                 if (std.mem.eql(u8, line, "trace")) {
                     if (!args.trace) {
-                        try stderr.writeAll("error: run-terminal was not started with --trace\n");
+                        try stderr.writeAll("error: run was not started with --trace\n");
                         try stderr.flush();
                         continue;
                     }
@@ -765,78 +768,60 @@ fn runTerminal(
     }
 }
 
-const RawTerminal = struct {
-    original: std.posix.termios,
-
-    fn restore(self: *const RawTerminal) !void {
-        try std.posix.tcsetattr(std.posix.STDIN_FILENO, .FLUSH, self.original);
-    }
-};
-
-const KeyboardUiMode = enum {
-    generic,
-    vertical_game,
-    horizontal_game,
-};
-
-fn enableRawTerminal() !?RawTerminal {
-    const original = std.posix.tcgetattr(std.posix.STDIN_FILENO) catch |err| switch (err) {
-        error.NotATerminal => return null,
-        else => return err,
-    };
-
-    var raw = original;
-    raw.iflag.ICRNL = false;
-    raw.iflag.IXON = false;
-    raw.lflag.ICANON = false;
-    raw.lflag.ECHO = false;
-    raw.cc[@intFromEnum(std.posix.V.MIN)] = 1;
-    raw.cc[@intFromEnum(std.posix.V.TIME)] = 0;
-    try std.posix.tcsetattr(std.posix.STDIN_FILENO, .FLUSH, raw);
-    return .{ .original = original };
-}
-
-fn renderTerminalKeyboardScreen(
+fn renderTerminalDeclaredScreen(
     allocator: std.mem.Allocator,
     runtime: *boon.headless.Session,
     stdout: *std.Io.Writer,
-    mode: KeyboardUiMode,
+    contract: *const boon.headless.TerminalContract,
 ) !void {
     try stdout.writeAll("\x1b[2J\x1b[H");
-    switch (mode) {
-        .generic => try renderTerminalScreen(allocator, runtime, stdout),
-        .vertical_game, .horizontal_game => try renderTerminalGameScreen(allocator, runtime, stdout),
+    const snapshot = try runtime.snapshotAlloc(allocator);
+    defer allocator.free(snapshot);
+    try stdout.print("{s}\n", .{snapshot});
+    if (contract.footer == .hidden) {
+        try stdout.flush();
+        return;
     }
-    try writeTerminalKeyboardSummary(allocator, runtime, stdout, mode);
+    try writeTerminalDeclaredFooter(stdout, contract);
     try stdout.writeByte('\n');
     try stdout.flush();
 }
 
-fn handleTerminalKeyboardInput(
+fn writeTerminalDeclaredFooter(stdout: *std.Io.Writer, contract: *const boon.headless.TerminalContract) !void {
+    if (contract.keyboard_bindings.len == 0) return;
+    try stdout.writeAll("\nkeyboard: ");
+    for (contract.keyboard_bindings, 0..) |binding, index| {
+        if (!binding.when) continue;
+        if (index != 0) try stdout.writeAll("  ");
+        for (binding.keys, 0..) |key, key_index| {
+            if (key_index != 0) try stdout.writeAll("/");
+            try stdout.writeAll(key);
+        }
+        if (binding.label) |label| {
+            try stdout.writeByte(' ');
+            try stdout.writeAll(label);
+        }
+    }
+}
+
+fn handleTerminalDeclaredInput(
     allocator: std.mem.Allocator,
     args: TerminalArgs,
     runtime: *boon.headless.Session,
     stdout: *std.Io.Writer,
     stderr: *std.Io.Writer,
-    mode: KeyboardUiMode,
+    contract: *const boon.headless.TerminalContract,
 ) !bool {
-    if (mode != .generic) {
-        const snapshot = try runtime.snapshotAlloc(allocator);
-        defer allocator.free(snapshot);
-        const game_active = !isIdleGameSnapshot(snapshot);
-
-        var fds = [_]std.posix.pollfd{
-            .{
-                .fd = std.posix.STDIN_FILENO,
-                .events = std.posix.POLL.IN,
-                .revents = 0,
-            },
-        };
-        const ready = try std.posix.poll(&fds, 180);
+    if (contract.loop) |loop| {
+        var fds = [_]std.posix.pollfd{.{
+            .fd = std.posix.STDIN_FILENO,
+            .events = std.posix.POLL.IN,
+            .revents = 0,
+        }};
+        const timeout_ms: i32 = if (loop.while_active) @intCast(@min(loop.every_ms, @as(u64, std.math.maxInt(i32)))) else -1;
+        const ready = try std.posix.poll(&fds, timeout_ms);
         if (ready == 0) {
-            if (game_active) {
-                _ = try clickFirstKnownButton(runtime, allocator, &.{ "Tick" });
-            }
+            if (loop.while_active) try runtime.triggerLinkWithScope(loop.pulse_link, loop.scope);
             return true;
         }
     }
@@ -847,12 +832,8 @@ fn handleTerminalKeyboardInput(
 
     switch (byte[0]) {
         'q', 'Q' => return false,
-        'r', 'R' => {
-            _ = try clickFirstKnownButton(runtime, allocator, &.{ "Restart" });
-            return true;
-        },
         'h', 'H', '?' => {
-            try writeTerminalKeyboardHelp(stdout);
+            try writeDeclaredTerminalHelp(stdout);
             try stdout.flush();
             return true;
         },
@@ -868,9 +849,14 @@ fn handleTerminalKeyboardInput(
                 return true;
             }
             if (std.mem.eql(u8, command, "render") or std.mem.eql(u8, command, "controls")) return true;
+            if (std.mem.startsWith(u8, command, "press ")) {
+                const key = std.mem.trim(u8, command["press ".len..], " \t");
+                if (key.len != 0) _ = try dispatchTerminalKey(runtime, contract, key);
+                return true;
+            }
             if (std.mem.eql(u8, command, "trace")) {
                 if (!args.trace) {
-                    try stderr.writeAll("error: run-terminal was not started with --trace\n");
+                    try stderr.writeAll("error: run was not started with --trace\n");
                     try stderr.flush();
                     return true;
                 }
@@ -888,7 +874,7 @@ fn handleTerminalKeyboardInput(
         },
         't', 'T' => {
             if (!args.trace) {
-                try stderr.writeAll("error: run-terminal was not started with --trace\n");
+                try stderr.writeAll("error: run was not started with --trace\n");
                 try stderr.flush();
                 return true;
             }
@@ -898,76 +884,107 @@ fn handleTerminalKeyboardInput(
             try stdout.flush();
             return true;
         },
-        'a', 'A' => {
-            _ = try clickFirstKnownButton(runtime, allocator, &.{ "Left" });
-            return true;
-        },
-        'd', 'D' => {
-            _ = try clickFirstKnownButton(runtime, allocator, &.{ "Right" });
-            return true;
-        },
-        'w', 'W' => {
-            if (!try clickFirstKnownButton(runtime, allocator, &.{ "Up" })) {
-                _ = try clickFirstKnownButton(runtime, allocator, &.{ "Serve", "Launch" });
-            }
-            return true;
-        },
         '\r', '\n' => {
-            if (mode != .generic) {
-                const snapshot = try runtime.snapshotAlloc(allocator);
-                defer allocator.free(snapshot);
-                if (isIdleGameSnapshot(snapshot)) {
-                    _ = try clickFirstKnownButton(runtime, allocator, &.{ "Serve", "Launch" });
-                }
-                return true;
-            }
-            _ = try clickFirstKnownButton(runtime, allocator, &.{ "Serve", "Launch" });
-            return true;
-        },
-        's', 'S' => {
-            if (!try clickFirstKnownButton(runtime, allocator, &.{ "Down" })) {
-                _ = try clickFirstKnownButton(runtime, allocator, &.{ "Tick" });
-            }
+            _ = try dispatchTerminalKey(runtime, contract, "Enter");
             return true;
         },
         ' ' => {
-            if (mode != .generic) {
-                _ = try clickFirstKnownButton(runtime, allocator, &.{ "Tick" });
-                return true;
-            }
-            _ = try clickPrimaryKeyboardAction(runtime, allocator);
+            _ = try dispatchTerminalKey(runtime, contract, "Space");
             return true;
         },
-        '1'...'9' => {
-            try runtime.clickButton(byte[0] - '1');
+        0x1b => return try handleDeclaredTerminalEscapeSequence(runtime, contract),
+        else => {
+            const key = [_]u8{std.ascii.toLower(byte[0])};
+            _ = try dispatchTerminalKey(runtime, contract, &key);
             return true;
         },
-        0x1b => return try handleTerminalEscapeSequence(runtime, allocator),
-        else => return true,
     }
 }
 
-fn handleTerminalEscapeSequence(runtime: *boon.headless.Session, allocator: std.mem.Allocator) !bool {
+fn handleDeclaredTerminalEscapeSequence(
+    runtime: *boon.headless.Session,
+    contract: *const boon.headless.TerminalContract,
+) !bool {
     var sequence: [2]u8 = undefined;
     const count = try std.posix.read(std.posix.STDIN_FILENO, &sequence);
-    if (count < 2 or sequence[0] != '[') return true;
-
+    if (count < 2 or sequence[0] != '[') {
+        _ = try dispatchTerminalKey(runtime, contract, "Escape");
+        return true;
+    }
     switch (sequence[1]) {
-        'A' => {
-            if (!try clickFirstKnownButton(runtime, allocator, &.{ "Up" })) {
-                _ = try clickFirstKnownButton(runtime, allocator, &.{ "Serve", "Launch" });
-            }
-        },
-        'B' => {
-            if (!try clickFirstKnownButton(runtime, allocator, &.{ "Down" })) {
-                _ = try clickFirstKnownButton(runtime, allocator, &.{ "Tick" });
-            }
-        },
-        'C' => _ = try clickFirstKnownButton(runtime, allocator, &.{ "Right" }),
-        'D' => _ = try clickFirstKnownButton(runtime, allocator, &.{ "Left" }),
-        else => {},
+        'A' => _ = try dispatchTerminalKey(runtime, contract, "Up"),
+        'B' => _ = try dispatchTerminalKey(runtime, contract, "Down"),
+        'C' => _ = try dispatchTerminalKey(runtime, contract, "Right"),
+        'D' => _ = try dispatchTerminalKey(runtime, contract, "Left"),
+        else => _ = try dispatchTerminalKey(runtime, contract, "Escape"),
     }
     return true;
+}
+
+fn dispatchTerminalKey(
+    runtime: *boon.headless.Session,
+    contract: *const boon.headless.TerminalContract,
+    key: []const u8,
+) !bool {
+    for (contract.keyboard_bindings) |binding| {
+        if (!binding.when) continue;
+        for (binding.keys) |candidate| {
+            if (std.mem.eql(u8, candidate, key)) {
+                try runtime.triggerLinkWithScope(binding.press_link, binding.scope);
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+fn dispatchHeadlessTerminalKey(
+    allocator: std.mem.Allocator,
+    runtime: *boon.headless.Session,
+    key: []const u8,
+) !bool {
+    const maybe_contract = try runtime.terminalContractAlloc(allocator);
+    if (maybe_contract == null) return false;
+    var contract = maybe_contract.?;
+    defer contract.deinit(allocator);
+    return try dispatchTerminalKey(runtime, &contract, key);
+}
+
+fn writeDeclaredTerminalHelp(stdout: *std.Io.Writer) !void {
+    try stdout.writeAll(
+        \\terminal shortcuts:
+        \\  declared keys  dispatch the matching Terminal/new keyboard binding
+        \\  :              open the debug command prompt
+        \\  T              print trace when `--trace` is enabled
+        \\  H              show this help
+        \\  Q              quit
+        \\
+    );
+}
+
+const RawTerminal = struct {
+    original: std.posix.termios,
+
+    fn restore(self: *const RawTerminal) !void {
+        try std.posix.tcsetattr(std.posix.STDIN_FILENO, .FLUSH, self.original);
+    }
+};
+
+fn enableRawTerminal() !?RawTerminal {
+    const original = std.posix.tcgetattr(std.posix.STDIN_FILENO) catch |err| switch (err) {
+        error.NotATerminal => return null,
+        else => return err,
+    };
+
+    var raw = original;
+    raw.iflag.ICRNL = false;
+    raw.iflag.IXON = false;
+    raw.lflag.ICANON = false;
+    raw.lflag.ECHO = false;
+    raw.cc[@intFromEnum(std.posix.V.MIN)] = 1;
+    raw.cc[@intFromEnum(std.posix.V.TIME)] = 0;
+    try std.posix.tcsetattr(std.posix.STDIN_FILENO, .FLUSH, raw);
+    return .{ .original = original };
 }
 
 fn readTerminalCommandLine(allocator: std.mem.Allocator, stdout: *std.Io.Writer) !?[]u8 {
@@ -1008,40 +1025,6 @@ fn readTerminalCommandLine(allocator: std.mem.Allocator, stdout: *std.Io.Writer)
     }
 }
 
-fn clickPrimaryKeyboardAction(runtime: *boon.headless.Session, allocator: std.mem.Allocator) !bool {
-    const snapshot = try runtime.snapshotAlloc(allocator);
-    defer allocator.free(snapshot);
-
-    if (std.mem.indexOf(u8, snapshot, "Ball:-1") != null or std.mem.indexOf(u8, snapshot, "Ready") != null) {
-        if (try clickFirstKnownButton(runtime, allocator, &.{ "Serve", "Launch" })) return true;
-    }
-    return try clickFirstKnownButton(runtime, allocator, &.{ "Tick", "Serve", "Launch" });
-}
-
-fn clickFirstKnownButton(runtime: *boon.headless.Session, allocator: std.mem.Allocator, labels: []const []const u8) !bool {
-    for (labels) |label| {
-        runtime.clickButtonByLabel(allocator, label) catch |err| switch (err) {
-            error.UnknownControlLabel => continue,
-            else => return err,
-        };
-        return true;
-    }
-    return false;
-}
-
-fn renderTerminalScreen(
-    allocator: std.mem.Allocator,
-    runtime: *boon.headless.Session,
-    stdout: *std.Io.Writer,
-) !void {
-    const snapshot = try runtime.snapshotAlloc(allocator);
-    defer allocator.free(snapshot);
-    const controls = try runtime.controlsAlloc(allocator);
-    defer allocator.free(controls);
-    try stdout.print("{s}\n\n{s}\n", .{ snapshot, controls });
-    try stdout.flush();
-}
-
 fn writeTerminalHelp(stdout: *std.Io.Writer) !void {
     try stdout.writeAll(
         \\commands:
@@ -1067,93 +1050,6 @@ fn writeTerminalHelp(stdout: *std.Io.Writer) !void {
         \\  quit
         \\
     );
-}
-
-fn writeTerminalKeyboardHelp(stdout: *std.Io.Writer) !void {
-    try stdout.writeAll(
-        \\keyboard shortcuts:
-        \\  Left Arrow / A   click label `Left`
-        \\  Right Arrow / D  click label `Right`
-        \\  Up Arrow / W     click label `Up`, else `Serve` or `Launch`
-        \\  Down Arrow / S   click label `Down`, else `Tick`
-        \\  Enter            click label `Serve` or `Launch`
-        \\  Space            context-sensitive primary action
-        \\  R                click label `Restart`
-        \\  1-9              click visible button index 0-8
-        \\  :                open the full command prompt for generic examples
-        \\  T                print trace when `--trace` is enabled
-        \\  H                show this help
-        \\  Q                quit
-        \\
-    );
-}
-
-fn writeTerminalKeyboardSummary(
-    allocator: std.mem.Allocator,
-    runtime: *boon.headless.Session,
-    stdout: *std.Io.Writer,
-    mode: KeyboardUiMode,
-) !void {
-    switch (mode) {
-        .vertical_game => {
-            try stdout.writeAll("keyboard: ↑/W up  ↓/S down  Enter serve/launch  R restart  Q quit");
-            return;
-        },
-        .horizontal_game => {
-            try stdout.writeAll("keyboard: ←/A left  →/D right  Enter serve/launch  R restart  Q quit");
-            return;
-        },
-        .generic => {},
-    }
-
-    const controls = try runtime.controlsAlloc(allocator);
-    defer allocator.free(controls);
-
-    const has_up_down = std.mem.indexOf(u8, controls, "Up") != null or std.mem.indexOf(u8, controls, "Down") != null;
-    const has_left_right = std.mem.indexOf(u8, controls, "Left") != null or std.mem.indexOf(u8, controls, "Right") != null;
-
-    if (has_up_down) {
-        try stdout.writeAll("keyboard: ↑/W up  ↓/S down  Enter serve  Space tick  1-9 buttons  : commands  H help  Q quit");
-        return;
-    }
-    if (has_left_right) {
-        try stdout.writeAll("keyboard: ←/A left  →/D right  Enter serve/launch  Space tick  1-9 buttons  : commands  H help  Q quit");
-        return;
-    }
-    try stdout.writeAll("keyboard: arrows move or act  Enter primary  Space tick  1-9 buttons  : commands  H help  Q quit");
-}
-
-fn renderTerminalGameScreen(
-    allocator: std.mem.Allocator,
-    runtime: *boon.headless.Session,
-    stdout: *std.Io.Writer,
-) !void {
-    const snapshot = try runtime.snapshotAlloc(allocator);
-    defer allocator.free(snapshot);
-
-    var lines = std.mem.tokenizeScalar(u8, snapshot, '\n');
-    while (lines.next()) |line| {
-        if (std.mem.startsWith(u8, line, "[") and std.mem.indexOf(u8, line, "Tick") != null) continue;
-        try stdout.print("{s}\n", .{line});
-    }
-    try stdout.flush();
-}
-
-fn detectKeyboardUiMode(allocator: std.mem.Allocator, runtime: *boon.headless.Session) !KeyboardUiMode {
-    const controls = try runtime.controlsAlloc(allocator);
-    defer allocator.free(controls);
-
-    if (std.mem.indexOf(u8, controls, "Tick") != null and std.mem.indexOf(u8, controls, "Up") != null and std.mem.indexOf(u8, controls, "Down") != null) {
-        return .vertical_game;
-    }
-    if (std.mem.indexOf(u8, controls, "Tick") != null and std.mem.indexOf(u8, controls, "Left") != null and std.mem.indexOf(u8, controls, "Right") != null) {
-        return .horizontal_game;
-    }
-    return .generic;
-}
-
-fn isIdleGameSnapshot(snapshot: []const u8) bool {
-    return std.mem.indexOf(u8, snapshot, "Press Enter") != null or std.mem.indexOf(u8, snapshot, "Ready") != null;
 }
 
 fn executeTerminalCommand(allocator: std.mem.Allocator, runtime: *boon.headless.Session, line: []const u8) !void {
@@ -1277,7 +1173,7 @@ fn executeHeadlessScript(
     };
 
     for (actions) |action| {
-        try executeHeadlessScriptAction(runtime, action);
+        try executeHeadlessScriptAction(allocator, runtime, action);
     }
 }
 
@@ -1516,7 +1412,7 @@ fn applyPhysicalThemeAndMode(runtime: *boon.headless.Session, theme: []const u8,
     }
 }
 
-fn executeHeadlessScriptAction(runtime: *boon.headless.Session, action: std.json.Value) !void {
+fn executeHeadlessScriptAction(allocator: std.mem.Allocator, runtime: *boon.headless.Session, action: std.json.Value) !void {
     const parts = switch (action) {
         .array => |array| array.items,
         else => return error.InvalidHeadlessScript,
@@ -1527,6 +1423,11 @@ fn executeHeadlessScriptAction(runtime: *boon.headless.Session, action: std.json
     if (std.mem.eql(u8, name, "click_button")) {
         if (parts.len != 2) return error.InvalidHeadlessScript;
         try runtime.clickButton(try jsonIndex(parts[1]));
+        return;
+    }
+    if (std.mem.eql(u8, name, "press_key")) {
+        if (parts.len != 2) return error.InvalidHeadlessScript;
+        _ = try dispatchHeadlessTerminalKey(allocator, runtime, try jsonString(parts[1]));
         return;
     }
     if (std.mem.eql(u8, name, "wait")) {

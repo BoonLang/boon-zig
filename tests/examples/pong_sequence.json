@@ -1,12 +1,12 @@
 {
   "actions": [
-    ["click_button", 2],
-    ["click_button", 3],
-    ["click_button", 3],
-    ["click_button", 3],
-    ["click_button", 3],
-    ["click_button", 3],
-    ["click_button", 2],
-    ["click_button", 3]
+    ["press_key", "Enter"],
+    ["press_key", "Space"],
+    ["press_key", "Space"],
+    ["press_key", "Space"],
+    ["press_key", "Space"],
+    ["press_key", "Space"],
+    ["press_key", "Enter"],
+    ["press_key", "Space"]
   ]
 }
