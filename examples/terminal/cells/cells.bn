@@ -1,0 +1,865 @@
+-- 7GUIs Task 7: Cells (Spreadsheet)
+-- 26 columns (A-Z) x 100 rows (1-100), official-size grid.
+-- Double-click edit, Enter commit, Escape cancel, blur exit, reactive formulas.
+
+FUNCTION matching_overrides(column, row) {
+    overrides |> List/retain(item, if: item.row == row |> WHEN {
+        True => item.column == column
+        __ => False
+    })
+}
+
+FUNCTION cell_formula(column, row) {
+    BLOCK {
+        matches: matching_overrides(column: column, row: row)
+        match_count: matches |> List/count()
+
+        match_count == 0 |> WHEN {
+            True => default_formula(column: column, row: row)
+
+            __ => BLOCK {
+                latest_match: matches |> List/get(index: match_count)
+                latest_match.text
+            }
+        }
+    }
+}
+
+FUNCTION parse_column_letter(text) {
+    text |> WHEN {
+        TEXT { A } => 1
+        TEXT { B } => 2
+        TEXT { C } => 3
+        TEXT { D } => 4
+        TEXT { E } => 5
+        TEXT { F } => 6
+        TEXT { G } => 7
+        TEXT { H } => 8
+        TEXT { I } => 9
+        TEXT { J } => 10
+        TEXT { K } => 11
+        TEXT { L } => 12
+        TEXT { M } => 13
+        TEXT { N } => 14
+        TEXT { O } => 15
+        TEXT { P } => 16
+        TEXT { Q } => 17
+        TEXT { R } => 18
+        TEXT { S } => 19
+        TEXT { T } => 20
+        TEXT { U } => 21
+        TEXT { V } => 22
+        TEXT { W } => 23
+        TEXT { X } => 24
+        TEXT { Y } => 25
+        TEXT { Z } => 26
+        __ => 0
+    }
+}
+
+FUNCTION extract_reference_column(ref_text) {
+    ref_text |> Text/substring(start: 0, length: 1) |> parse_column_letter()
+}
+
+FUNCTION extract_reference_row(ref_text) {
+    ref_text |> Text/substring(start: 1, length: 8) |> Text/to_number()
+}
+
+FUNCTION expression_value(text) {
+    BLOCK {
+        text_length: text |> Text/length()
+        comma_index: text |> Text/find(search: TEXT { , })
+        colon_index: text |> Text/find(search: TEXT { : })
+        has_comma: comma_index >= 0
+        has_colon: colon_index >= 0
+
+        has_comma |> WHEN {
+            True => BLOCK {
+                left_length: comma_index - 4
+
+                left_ref:
+                    text
+                    |> Text/substring(start: 4, length: left_length)
+                    |> Text/trim()
+
+                right_length: text_length - comma_index - 2
+
+                right_ref:
+                    text
+                    |> Text/substring(start: comma_index + 1, length: right_length)
+                    |> Text/trim()
+
+                left_column:
+                    left_ref
+                    |> Text/substring(start: 0, length: 1)
+                    |> parse_column_letter()
+
+                left_row:
+                    left_ref
+                    |> Text/substring(start: 1, length: 8)
+                    |> Text/to_number()
+
+                right_column:
+                    right_ref
+                    |> Text/substring(start: 0, length: 1)
+                    |> parse_column_letter()
+
+                right_row:
+                    right_ref
+                    |> Text/substring(start: 1, length: 8)
+                    |> Text/to_number()
+
+                compute_value(
+                    formula_text: cell_formula(column: left_column, row: left_row)
+                ) + compute_value(
+                    formula_text: cell_formula(column: right_column, row: right_row)
+                )
+            }
+
+            __ => has_colon |> WHEN {
+                True => BLOCK {
+                    start_ref_length: colon_index - 4
+
+                    start_ref:
+                        text
+                        |> Text/substring(start: 4, length: start_ref_length)
+                        |> Text/trim()
+
+                    end_ref_length: text_length - colon_index - 2
+
+                    end_ref:
+                        text
+                        |> Text/substring(start: colon_index + 1, length: end_ref_length)
+                        |> Text/trim()
+
+                    start_column:
+                        start_ref
+                        |> Text/substring(start: 0, length: 1)
+                        |> parse_column_letter()
+
+                    start_row:
+                        start_ref
+                        |> Text/substring(start: 1, length: 8)
+                        |> Text/to_number()
+
+                    end_row:
+                        end_ref
+                        |> Text/substring(start: 1, length: 8)
+                        |> Text/to_number()
+
+                    List/range(from: start_row, to: end_row)
+                    |> List/map(
+                        current_row
+
+                        new: compute_value(
+                            formula_text: cell_formula(
+                                column: start_column
+                                row: current_row
+                            )
+                        )
+                    )
+                    |> List/sum()
+                }
+
+                __ => 0
+            }
+        }
+    }
+}
+
+FUNCTION compute_value(formula_text) {
+    formula_text
+    |> Text/starts_with(prefix: TEXT { = })
+    |> WHILE {
+        False =>
+            formula_text
+            |> Text/to_number()
+            |> WHILE {
+                NaN => 0
+                number => number
+            }
+
+        __ => BLOCK {
+            formula_length: formula_text |> Text/length()
+
+            expression:
+                formula_text
+                |> Text/substring(start: 1, length: formula_length - 1)
+
+            expression_value(text: expression)
+            |> WHILE {
+                NaN => 0
+                number => number
+            }
+        }
+    }
+}
+
+FUNCTION make_cell(column, row) {
+    [column: column, row: row]
+}
+
+FUNCTION make_row_cells(row) {
+    LIST {
+        make_cell(column: 1, row: row)
+        make_cell(column: 2, row: row)
+        make_cell(column: 3, row: row)
+        make_cell(column: 4, row: row)
+        make_cell(column: 5, row: row)
+        make_cell(column: 6, row: row)
+        make_cell(column: 7, row: row)
+        make_cell(column: 8, row: row)
+        make_cell(column: 9, row: row)
+        make_cell(column: 10, row: row)
+        make_cell(column: 11, row: row)
+        make_cell(column: 12, row: row)
+        make_cell(column: 13, row: row)
+        make_cell(column: 14, row: row)
+        make_cell(column: 15, row: row)
+        make_cell(column: 16, row: row)
+        make_cell(column: 17, row: row)
+        make_cell(column: 18, row: row)
+        make_cell(column: 19, row: row)
+        make_cell(column: 20, row: row)
+        make_cell(column: 21, row: row)
+        make_cell(column: 22, row: row)
+        make_cell(column: 23, row: row)
+        make_cell(column: 24, row: row)
+        make_cell(column: 25, row: row)
+        make_cell(column: 26, row: row)
+    }
+}
+
+FUNCTION default_formula(column, row) {
+    column == 1 |> WHEN {
+        True => row |> WHEN {
+            1 => TEXT { 5 }
+            2 => TEXT { 10 }
+            3 => TEXT { 15 }
+            __ => Text/empty()
+        }
+
+        __ => column == 2 |> WHEN {
+            True => row == 1 |> WHEN {
+                True => TEXT { =add(A1, A2) }
+                __ => Text/empty()
+            }
+
+            __ => column == 3 |> WHEN {
+                True => row == 1 |> WHEN {
+                    True => TEXT { =sum(A1:A3) }
+                    __ => Text/empty()
+                }
+
+                __ => Text/empty()
+            }
+        }
+    }
+}
+
+FUNCTION is_editing_cell(cell) {
+    editing_active |> WHEN {
+        True => focused_row == cell.row |> WHEN {
+            True => focused_column == cell.column
+            __ => False
+        }
+
+        __ => False
+    }
+}
+
+FUNCTION column_header(column_index) {
+    column_index |> WHEN {
+        1 => TEXT { A }
+        2 => TEXT { B }
+        3 => TEXT { C }
+        4 => TEXT { D }
+        5 => TEXT { E }
+        6 => TEXT { F }
+        7 => TEXT { G }
+        8 => TEXT { H }
+        9 => TEXT { I }
+        10 => TEXT { J }
+        11 => TEXT { K }
+        12 => TEXT { L }
+        13 => TEXT { M }
+        14 => TEXT { N }
+        15 => TEXT { O }
+        16 => TEXT { P }
+        17 => TEXT { Q }
+        18 => TEXT { R }
+        19 => TEXT { S }
+        20 => TEXT { T }
+        21 => TEXT { U }
+        22 => TEXT { V }
+        23 => TEXT { W }
+        24 => TEXT { X }
+        25 => TEXT { Y }
+        26 => TEXT { Z }
+        __ => TEXT { ? }
+    }
+}
+
+FUNCTION single_space() {
+    Text/space()
+}
+
+FUNCTION spaces(count) {
+    single_space() |> Text/repeat(times: count)
+}
+
+FUNCTION clip_text(text, max_length) {
+    BLOCK {
+        text_length: text |> Text/length()
+
+        text_length > max_length |> WHEN {
+            True => text |> Text/substring(start: 0, length: max_length)
+            False => text
+        }
+    }
+}
+
+FUNCTION grid_cell_content(text) {
+    BLOCK {
+        content_width: 4
+
+        clipped_text: clip_text(text: text, max_length: content_width)
+        clipped_length: clipped_text |> Text/length()
+
+        List/range(from: 1, to: content_width)
+        |> List/map(
+            slot
+
+            new:
+                slot <= clipped_length |> WHEN {
+                    True => clipped_text |> Text/substring(start: slot - 1, length: 1)
+                    False => single_space()
+                }
+        )
+        |> Text/join()
+    }
+}
+
+FUNCTION box_text(left, content, right) {
+    LIST {
+        left
+        content
+        right
+    }
+    |> Text/join()
+}
+
+FUNCTION grid_cell_box(text, is_selected, is_hovered) {
+    BLOCK {
+        content: grid_cell_content(text: text)
+
+        is_selected |> WHEN {
+            True => box_text(left: TEXT { [ }, content: content, right: TEXT { ] })
+
+            False => is_hovered |> WHEN {
+                True => box_text(left: TEXT { * }, content: content, right: TEXT { * })
+                False => box_text(left: TEXT { | }, content: content, right: TEXT { | })
+            }
+        }
+    }
+}
+
+FUNCTION row_label_box(row_number, is_selected) {
+    BLOCK {
+        row_text: TEXT { {row_number} }
+        content: grid_cell_content(text: row_text)
+        is_selected |> WHEN {
+            True => box_text(left: TEXT { [ }, content: content, right: TEXT { ] })
+            False => box_text(left: TEXT { | }, content: content, right: TEXT { | })
+        }
+    }
+}
+
+FUNCTION empty_corner_box() {
+    grid_cell_box(
+        text: Text/empty()
+        is_selected: False
+        is_hovered: False
+    )
+}
+
+FUNCTION cell_display_text(formula_text, display_value) {
+    formula_text
+    |> Text/is_empty()
+    |> WHILE {
+        True => Text/empty()
+        __ => TEXT { {display_value} }
+    }
+}
+
+FUNCTION is_selected_cell(cell) {
+    focused_row == cell.row |> WHEN {
+        True => focused_column == cell.column
+        __ => False
+    }
+}
+
+FUNCTION is_selected_row(row_number) {
+    focused_row == row_number
+}
+
+FUNCTION is_hovered_cell(cell) {
+    hovered_active |> WHEN {
+        True => hovered_row == cell.row |> WHEN {
+            True => hovered_column == cell.column
+            __ => False
+        }
+
+        __ => False
+    }
+}
+
+FUNCTION make_cell_element(cell) {
+    BLOCK {
+        formula_text: cell_formula(column: cell.column, row: cell.row)
+        display_value: compute_value(formula_text: formula_text)
+        is_editing: is_editing_cell(cell: cell)
+        is_selected: is_selected_cell(cell: cell)
+        is_hovered: is_hovered_cell(cell: cell)
+        display_container: [event: [hovered: LINK]]
+        display_element: [event: [click: LINK, double_click: LINK]]
+        editing_element: [event: [change: LINK, key_down: LINK, blur: LINK]]
+
+        select_started_link:
+            display_element.event.click
+            |> THEN {
+                [
+                    row: cell.row
+                    column: cell.column
+                ]
+            }
+            |> LINK { event_ports.select_cell }
+
+        edit_started_link:
+            display_element.event.double_click
+            |> THEN {
+                [
+                    row: cell.row
+                    column: cell.column
+                ]
+            }
+            |> LINK { event_ports.edit_started }
+
+        edit_selected_again_link:
+            display_element.event.click
+            |> THEN {
+                focused_row == cell.row |> WHEN {
+                    True => focused_column == cell.column |> WHEN {
+                        True => [
+                            row: cell.row
+                            column: cell.column
+                        ]
+                        __ => SKIP
+                    }
+                    __ => SKIP
+                }
+            }
+            |> LINK { event_ports.edit_started }
+
+        edit_changed_link:
+            editing_element.event.change
+            |> THEN { editing_element.event.change.text }
+            |> LINK { event_ports.edit_text_event }
+
+        edit_committed_link:
+            editing_element.event.key_down.key
+            |> WHEN {
+                Enter => [
+                    row: cell.row
+                    column: cell.column
+                    text: editing_element.event.key_down.text
+                ]
+
+                __ => SKIP
+            }
+            |> LINK { event_ports.edit_committed }
+
+        edit_commit_active_reset_link:
+            editing_element.event.key_down.key
+            |> WHEN {
+                Enter => False
+                __ => SKIP
+            }
+            |> LINK { event_ports.edit_active_event }
+
+        edit_commit_text_reset_link:
+            editing_element.event.key_down.key
+            |> WHEN {
+                Enter => Text/empty()
+                __ => SKIP
+            }
+            |> LINK { event_ports.edit_text_event }
+
+        edit_cancelled_link:
+            editing_element.event.key_down.key
+            |> WHEN {
+                Escape => False
+                __ => SKIP
+            }
+            |> LINK { event_ports.edit_active_event }
+
+        edit_cancel_text_reset_link:
+            editing_element.event.key_down.key
+            |> WHEN {
+                Escape => Text/empty()
+                __ => SKIP
+            }
+            |> LINK { event_ports.edit_text_event }
+
+        edit_blurred_link:
+            editing_element.event.blur
+            |> THEN { False }
+            |> LINK { event_ports.edit_active_event }
+
+        edit_blur_text_reset_link:
+            editing_element.event.blur
+            |> THEN { Text/empty() }
+            |> LINK { event_ports.edit_text_event }
+
+        hovered_cell_link:
+            display_container.event.hovered
+            |> THEN {
+                [
+                    row: cell.row
+                    column: cell.column
+                    hovered: display_container.event.hovered
+                ]
+            }
+            |> LINK { event_ports.hovered_cell }
+
+        is_editing |> WHILE {
+            True => Element/text_input(
+                element: editing_element
+
+                style: [
+                    width: 48
+                    height: 26
+                    background: [color: Oklch [lightness: 1]]
+                    font: [color: Oklch [lightness: 0.12]]
+                ]
+
+                label: Hidden [text: TEXT { cell }]
+                text: editing_dirty |> WHEN {
+                    True => editing_text
+                    False => cell_formula(column: focused_column, row: focused_row)
+                }
+                placeholder: [text: Text/empty()]
+                focus: True
+            )
+
+            False => Element/stripe(
+                element: display_container
+                direction: Row
+                gap: 0
+                style: []
+
+                items: LIST {
+                    Element/label(
+                        element: display_element
+
+                        style: [
+                            width: 48
+                            height: 26
+                            background: [color: Oklch [lightness: 1]]
+                            font: [color: Oklch [lightness: 0.12]]
+                        ]
+
+                        label: grid_cell_box(
+                            text: cell_display_text(formula_text: formula_text, display_value: display_value)
+                            is_selected: is_selected
+                            is_hovered: is_hovered
+                        )
+                    )
+                }
+            )
+        }
+    }
+}
+
+FUNCTION make_row_elements(row_cells) {
+    row_cells |> List/map(cell, new: make_cell_element(cell: cell))
+}
+
+FUNCTION make_row(row_number, row_cells) {
+    Element/stripe(
+        element: []
+        direction: Row
+        gap: 0
+        style: []
+
+        items: LIST {
+            Element/label(
+                element: []
+
+                style: [
+                    width: 48
+                    height: 26
+                    background: [color: Oklch [lightness: 0.92]]
+                    font: [weight: Bold, color: Oklch [lightness: 0.22]]
+                ]
+
+                label: row_label_box(
+                    row_number: row_number
+                    is_selected: is_selected_row(row_number: row_number)
+                )
+            )
+
+            Element/stripe(
+                element: []
+                direction: Row
+                gap: 0
+                style: []
+                items: make_row_elements(row_cells: row_cells)
+            )
+        }
+    )
+}
+
+FUNCTION make_row_data(row_number, row_cells) {
+    [row: row_number, cells: row_cells]
+}
+
+all_row_cells: List/range(from: 1, to: 100) |> List/map(
+    row_number
+    new: make_row_data(row_number: row_number, row_cells: make_row_cells(row: row_number))
+)
+
+terminal: Terminal/new(
+    root: Element/stripe(
+        element: [
+            terminal: [
+                bindings: LIST {
+                    [
+                        keys: LIST { TEXT { Up } }
+                        link: event_ports.move_up
+                        when: editing_active |> Bool/not()
+                        label: TEXT { move up }
+                    ]
+                    [
+                        keys: LIST { TEXT { Down } }
+                        link: event_ports.move_down
+                        when: editing_active |> Bool/not()
+                        label: TEXT { move down }
+                    ]
+                    [
+                        keys: LIST { TEXT { Left } }
+                        link: event_ports.move_left
+                        when: editing_active |> Bool/not()
+                        label: TEXT { move left }
+                    ]
+                    [
+                        keys: LIST { TEXT { Right } }
+                        link: event_ports.move_right
+                        when: editing_active |> Bool/not()
+                        label: TEXT { move right }
+                    ]
+                    [
+                        keys: LIST { TEXT { Enter } }
+                        link: event_ports.edit_selected
+                        when: editing_active |> Bool/not()
+                        label: TEXT { edit }
+                    ]
+                }
+            ]
+        ]
+        direction: Column
+        gap: 0
+
+        style: [
+            padding: 20
+            background: [color: Oklch [lightness: 0.97]]
+            font: [color: Oklch [lightness: 0.12]]
+        ]
+
+        items: LIST {
+            Element/label(
+                element: []
+                style: [font: [size: 22, weight: Bold, color: Oklch [lightness: 0.18]]]
+                label: TEXT { Cells }
+            )
+
+            Element/label(
+                element: []
+                style: []
+                label: TEXT { Arrows or click move selection, Enter edits, double-click edits, wheel scrolls, hover highlights }
+            )
+
+            Element/stripe(
+                element: []
+                direction: Row
+                gap: 0
+                style: []
+
+                items: LIST {
+                    Element/label(
+                        element: []
+
+                style: [
+                    width: 48
+                    height: 26
+                    background: [color: Oklch [lightness: 0.92]]
+                ]
+
+                        label: empty_corner_box()
+                    )
+
+                    Element/stripe(
+                        element: []
+                        direction: Row
+                        gap: 0
+                        style: []
+
+                        items: List/range(from: 1, to: 26) |> List/map(column, new: Element/label(
+                            element: []
+
+                            style: [
+                                width: 48
+                                height: 26
+                                background: [color: Oklch [lightness: 0.92]]
+                                font: [weight: Bold, color: Oklch [lightness: 0.22]]
+                            ]
+
+                            label: grid_cell_box(
+                                text: column_header(column_index: column)
+                                is_selected: focused_column == column
+                                is_hovered: False
+                            )
+                        ))
+                    )
+                }
+            )
+
+            Element/stripe(
+                element: []
+                direction: Column
+                gap: 0
+                style: [scrollbars: True, height: 500]
+
+                items:
+                    all_row_cells
+                    |> List/map(
+                        row_data
+                        new: make_row(row_number: row_data.row, row_cells: row_data.cells)
+                    )
+            )
+        }
+    )
+
+    loop: None
+)
+
+event_ports: [
+    move_up: LINK
+    move_down: LINK
+    move_left: LINK
+    move_right: LINK
+    select_cell: LINK
+    edit_selected: LINK
+    edit_started: LINK
+    hovered_cell: LINK
+    edit_text_event: LINK
+    edit_active_event: LINK
+    edit_committed: LINK
+]
+
+edit_committed: event_ports.edit_committed
+
+focused_row: 1 |> HOLD state {
+    event_ports.move_up |> THEN {
+        state == 1 |> WHEN {
+            True => 1
+            False => state - 1
+        }
+    }
+    event_ports.move_down |> THEN {
+        state == 100 |> WHEN {
+            True => 100
+            False => state + 1
+        }
+    }
+    event_ports.select_cell.row
+    event_ports.edit_started.row
+}
+
+focused_column: 1 |> HOLD state {
+    event_ports.move_left |> THEN {
+        state == 1 |> WHEN {
+            True => 1
+            False => state - 1
+        }
+    }
+    event_ports.move_right |> THEN {
+        state == 26 |> WHEN {
+            True => 26
+            False => state + 1
+        }
+    }
+    event_ports.select_cell.column
+    event_ports.edit_started.column
+}
+
+hovered_row: 0 |> HOLD state {
+    event_ports.hovered_cell.row
+}
+
+hovered_column: 0 |> HOLD state {
+    event_ports.hovered_cell.column
+}
+
+hovered_active: False |> HOLD state {
+    event_ports.hovered_cell.hovered
+}
+
+editing_text: Text/empty() |> HOLD state {
+    event_ports.edit_text_event
+}
+
+editing_active: False |> HOLD state {
+    event_ports.edit_started |> THEN { True }
+    event_ports.edit_selected |> THEN { True }
+    event_ports.edit_active_event
+}
+
+editing_dirty: False |> HOLD state {
+    event_ports.edit_started |> THEN { False }
+    event_ports.edit_text_event |> THEN { True }
+    event_ports.edit_active_event |> THEN { False }
+}
+
+overrides: LIST {} |> HOLD state {
+    edit_committed |> THEN {
+        BLOCK {
+            trimmed_state: state |> List/retain(item, if: item.row == edit_committed.row
+            |> WHEN {
+                True => item.column == edit_committed.column |> WHEN {
+                    True => False
+                    __ => True
+                }
+
+                __ => True
+            })
+
+            committed_default_text: default_formula(
+                column: edit_committed.column
+                row: edit_committed.row
+            )
+
+            edit_committed.text == committed_default_text |> WHEN {
+                True => trimmed_state
+
+                __ => trimmed_state |> List/append(
+                    item: [
+                        row: edit_committed.row
+                        column: edit_committed.column
+                        text: edit_committed.text
+                    ]
+                )
+            }
+        }
+    }
+}

@@ -90,60 +90,43 @@ pub fn build(b: *std.Build) void {
     const run_terminal_step = b.step("run-terminal", "Run the interactive terminal fallback backend");
     run_terminal_step.dependOn(&run_terminal_cmd.step);
 
-    const boon_bin = b.getInstallPath(.bin, "boon-zig");
-    const sync_corpus_cmd = b.addSystemCommand(&.{
-        "python3",
-        "tools/corpus.py",
-        "sync",
-        "--boon-zig-bin",
-        boon_bin,
-    });
+    const sync_corpus_cmd = b.addRunArtifact(exe);
     sync_corpus_cmd.step.dependOn(b.getInstallStep());
-    const sync_corpus_step = b.step("sync-corpus", "Import the pinned upstream corpus and regenerate fixtures");
+    sync_corpus_cmd.addArg("sync-corpus");
+    const sync_corpus_step = b.step("sync-corpus", "Sync the pinned upstream corpus examples into examples/upstream");
     sync_corpus_step.dependOn(&sync_corpus_cmd.step);
 
-    const verify_corpus_cmd = b.addSystemCommand(&.{
-        "python3",
-        "tools/corpus.py",
-        "verify",
-        "--boon-zig-bin",
-        boon_bin,
-    });
+    const verify_corpus_cmd = b.addRunArtifact(exe);
     verify_corpus_cmd.step.dependOn(b.getInstallStep());
+    verify_corpus_cmd.addArg("verify-corpus");
     if (b.args) |args| verify_corpus_cmd.addArgs(args);
-    const verify_corpus_step = b.step("verify-corpus", "Verify imported upstream corpus and generated fixtures");
+    const verify_corpus_step = b.step("verify-corpus", "Verify imported upstream corpus tree and parser coverage");
     verify_corpus_step.dependOn(&verify_corpus_cmd.step);
 
-    const verify_examples_cmd = b.addSystemCommand(&.{
-        "python3",
-        "tools/verify_examples.py",
-        "--boon-zig-bin",
-        boon_bin,
-    });
+    const verify_examples_cmd = b.addRunArtifact(exe);
     verify_examples_cmd.step.dependOn(b.getInstallStep());
+    verify_examples_cmd.addArg("verify-examples");
     if (b.args) |args| verify_examples_cmd.addArgs(args);
     const verify_examples_step = b.step("verify-examples", "Verify example execution lanes and recorded blockers");
     verify_examples_step.dependOn(&verify_examples_cmd.step);
 
     const browser_out = b.getInstallPath(.prefix, "browser");
-    const browser_cmd = b.addSystemCommand(&.{
-        "python3",
-        "tools/build_browser_bundle.py",
-        "--out-dir",
-        browser_out,
-        "--boon-zig-bin",
-        boon_bin,
-    });
+    const browser_cmd = b.addRunArtifact(exe);
     browser_cmd.step.dependOn(b.getInstallStep());
+    browser_cmd.addArg("build-browser");
+    browser_cmd.addArg("--out-dir");
+    browser_cmd.addArg(browser_out);
     const browser_step = b.step("browser", "Build the browser host bundle");
     browser_step.dependOn(&browser_cmd.step);
 
-    const verify_visual_cmd = b.addSystemCommand(&.{
-        "python3",
-        "tools/verify_visual.py",
-    });
-    verify_visual_cmd.step.dependOn(&browser_cmd.step);
+    const verify_visual_cmd = b.addRunArtifact(exe);
+    verify_visual_cmd.step.dependOn(b.getInstallStep());
+    verify_visual_cmd.addArg("verify-visual");
     if (b.args) |args| verify_visual_cmd.addArgs(args);
+    if (b.args == null) {
+        verify_visual_cmd.addArg("--filter");
+        verify_visual_cmd.addArg("todo_mvc");
+    }
     const verify_visual_step = b.step("verify-visual", "Run browser visual comparison lanes");
     verify_visual_step.dependOn(&verify_visual_cmd.step);
 

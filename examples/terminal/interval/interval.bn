@@ -1,0 +1,3 @@
+tick: Duration [seconds: 1] |> Timer/interval()
+value: tick |> THEN { 1 } |> Math/sum()
+terminal: Terminal/new(root: value, loop: None)

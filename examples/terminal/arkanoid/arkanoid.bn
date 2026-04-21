@@ -32,8 +32,10 @@ store: [
         store.elements.tick_button.event.press |> THEN {
             ball |> WHEN {
                 -1 => -1
+
                 __ => ball == store.paddle |> WHEN {
                     True => -1
+
                     False => ball == 4 |> WHEN {
                         True => -1
                         False => ball + 1
@@ -47,11 +49,13 @@ store: [
         store.elements.tick_button.event.press |> THEN {
             store.ball |> WHEN {
                 -1 => bricks
+
                 __ => store.ball == store.paddle |> WHEN {
                     True => bricks |> WHEN {
                         0 => 0
                         __ => bricks - 1
                     }
+
                     False => bricks
                 }
             }
@@ -62,6 +66,7 @@ store: [
 
     status: store.bricks == 0 |> WHEN {
         True => TEXT { Cleared }
+
         False => store.ball |> WHEN {
             -1 => TEXT { Ready }
             __ => TEXT { Flight }
@@ -73,7 +78,51 @@ store: [
 
 terminal: Terminal/new(
     root: Element/stripe(
-        element: []
+        element: [
+            terminal: [
+                bindings: LIST {
+                    [
+                        keys: LIST {
+                            TEXT { Left }
+                            TEXT { a }
+                        }
+
+                        link: store.elements.left_button
+                        label: TEXT { left }
+                    ]
+
+                    [
+                        keys: LIST {
+                            TEXT { Right }
+                            TEXT { d }
+                        }
+
+                        link: store.elements.right_button
+                        label: TEXT { right }
+                    ]
+
+                    [
+                        keys: LIST {
+                            TEXT { Enter }
+                        }
+
+                        link: store.elements.launch_button
+                        when: store.ball == -1
+                        label: TEXT { launch }
+                    ]
+
+                    [
+                        keys: LIST {
+                            TEXT { Space }
+                        }
+
+                        link: store.elements.tick_button
+                        label: TEXT { tick }
+                    ]
+                }
+            ]
+        ]
+
         direction: Column
         gap: 0
         style: []
@@ -88,22 +137,11 @@ terminal: Terminal/new(
         }
     )
 
-    keyboard: [
-        bindings: LIST {
-            [keys: LIST { TEXT { Left } TEXT { a } }, press: store.elements.left_button, label: TEXT { left }]
-            [keys: LIST { TEXT { Right } TEXT { d } }, press: store.elements.right_button, label: TEXT { right }]
-            [keys: LIST { TEXT { Enter } }, press: store.elements.launch_button, when: store.ball == -1, label: TEXT { launch }]
-            [keys: LIST { TEXT { Space } }, press: store.elements.tick_button, label: TEXT { tick }]
-        }
-    ]
-
     loop: [
         pulse: store.elements.tick_button
         while: store.ball == -1 |> Bool/not()
-        every: Duration[milliseconds: 180]
+        every: Duration [milliseconds: 180]
     ]
-
-    presentation: [footer: Summary]
 )
 
 ------ board ------

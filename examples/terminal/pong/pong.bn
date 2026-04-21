@@ -12,7 +12,8 @@ store: [
 
     paddle: [min_center: 1, max_center: 5, start_center: 3]
     serve: [x: 8, y: 3, horizontal: Right, vertical: Down]
-    border_width: board.right_goal_x + 7
+    border_width:
+        (board.right_goal_x - board.left_goal_x + 1) + 6
 
     ------ links ------
 
@@ -44,21 +45,21 @@ store: [
                 }
             }
 
-            store.elements.restart_button.event.press |> THEN { store.paddle.start_center }
+            store.elements.restart_button.event.press
+            |> THEN { store.paddle.start_center }
         }
 
         --- derived ---
 
-        cpu:
-            store.ball.is_idle |> WHEN {
-                True => store.paddle.start_center
+        cpu: store.ball.is_idle |> WHEN {
+            True => store.paddle.start_center
 
-                False => store.ball.y |> WHEN {
-                    store.board.top_row => store.paddle.min_center
-                    store.board.bottom_row => store.paddle.max_center
-                    __ => store.ball.y
-                }
+            False => store.ball.y |> WHEN {
+                store.board.top_row => store.paddle.min_center
+                store.board.bottom_row => store.paddle.max_center
+                __ => store.ball.y
             }
+        }
     ]
 
     ball: [
@@ -124,9 +125,7 @@ store: [
 
         --- derived ---
 
-        is_idle:
-            store.ball.x == -1
-            |> Bool/or(that: store.ball.y == -1)
+        is_idle: store.ball.x == -1 |> Bool/or(that: store.ball.y == -1)
 
         next: [
             horizontal: store.is_hitting_paddle.cpu |> WHEN {
@@ -183,19 +182,23 @@ store: [
     is_hitting_paddle: [
         cpu:
             store.ball.horizontal == Left
-            |> Bool/and(that: store.ball.x == store.board.left_goal_x
-            |> Bool/or(that: store.ball.x == store.board.left_paddle_x))
-            |> Bool/and(that: store.ball.y == store.paddle_center.cpu
-            |> Bool/or(that: store.ball.y + 1 == store.paddle_center.cpu)
-            |> Bool/or(that: store.ball.y == store.paddle_center.cpu + 1))
+            |> Bool/and(that: store.ball.x == store.board.left_paddle_x)
+            |> Bool/and(
+                that: is_at_paddle_y(
+                    y: store.ball.y
+                    paddle_center: store.paddle_center.cpu
+                )
+            )
 
         player:
             store.ball.horizontal == Right
-            |> Bool/and(that: store.ball.x == store.board.right_paddle_x
-            |> Bool/or(that: store.ball.x == store.board.right_goal_x))
-            |> Bool/and(that: store.ball.y == store.paddle_center.player
-            |> Bool/or(that: store.ball.y + 1 == store.paddle_center.player)
-            |> Bool/or(that: store.ball.y == store.paddle_center.player + 1))
+            |> Bool/and(that: store.ball.x == store.board.right_paddle_x)
+            |> Bool/and(
+                that: is_at_paddle_y(
+                    y: store.ball.y
+                    paddle_center: store.paddle_center.player
+                )
+            )
     ]
 
     --- scoring ---
@@ -230,7 +233,60 @@ store: [
 
 terminal: Terminal/new(
     root: Element/stripe(
-        element: []
+        element: [
+            terminal: [
+                bindings: LIST {
+                    [
+                        keys: LIST {
+                            TEXT { Up }
+                            TEXT { w }
+                        }
+
+                        link: store.elements.up_button
+                        label: TEXT { up }
+                    ]
+
+                    [
+                        keys: LIST {
+                            TEXT { Down }
+                            TEXT { s }
+                        }
+
+                        link: store.elements.down_button
+                        label: TEXT { down }
+                    ]
+
+                    [
+                        keys: LIST {
+                            TEXT { Enter }
+                        }
+
+                        link: store.elements.serve_button
+                        when: store.ball.is_idle
+                        label: TEXT { serve }
+                    ]
+
+                    [
+                        keys: LIST {
+                            TEXT { Space }
+                        }
+
+                        link: store.elements.tick_button
+                        label: TEXT { tick }
+                    ]
+
+                    [
+                        keys: LIST {
+                            TEXT { r }
+                        }
+
+                        link: store.elements.restart_button
+                        label: TEXT { restart }
+                    ]
+                }
+            ]
+        ]
+
         direction: Column
         gap: 0
         style: []
@@ -242,23 +298,11 @@ terminal: Terminal/new(
         }
     )
 
-    keyboard: [
-        bindings: LIST {
-            [keys: LIST { TEXT { Up } TEXT { w } }, press: store.elements.up_button, label: TEXT { up }]
-            [keys: LIST { TEXT { Down } TEXT { s } }, press: store.elements.down_button, label: TEXT { down }]
-            [keys: LIST { TEXT { Enter } }, press: store.elements.serve_button, when: store.ball.is_idle, label: TEXT { serve }]
-            [keys: LIST { TEXT { Space } }, press: store.elements.tick_button, label: TEXT { tick }]
-            [keys: LIST { TEXT { r } }, press: store.elements.restart_button, label: TEXT { restart }]
-        }
-    ]
-
     loop: [
         pulse: store.elements.tick_button
         while: store.ball.is_idle |> Bool/not()
-        every: Duration[milliseconds: 180]
+        every: Duration [milliseconds: 180]
     ]
-
-    presentation: [footer: Summary]
 )
 
 ------ hud ------
@@ -341,11 +385,14 @@ FUNCTION court_row(row, cpu_paddle_center, player_paddle_center, ball_x, ball_y)
 
 ------ board helpers ------
 
+FUNCTION is_at_paddle_y(y, paddle_center) {
+    y == paddle_center
+    |> Bool/or(that: y + 1 == paddle_center)
+    |> Bool/or(that: y == paddle_center + 1)
+}
+
 FUNCTION paddle_segment(row, paddle_center) {
-    row == paddle_center
-    |> Bool/or(that: row + 1 == paddle_center)
-    |> Bool/or(that: row == paddle_center + 1)
-    |> WHEN {
+    is_at_paddle_y(y: row, paddle_center: paddle_center) |> WHEN {
         True => TEXT { [] }
         False => TEXT { .. }
     }
@@ -353,11 +400,9 @@ FUNCTION paddle_segment(row, paddle_center) {
 
 FUNCTION center_track(ball_x) {
     List/range(from: store.board.left_goal_x, to: store.board.right_goal_x)
-    |> List/map(column, new:
-        ball_x == column |> WHEN {
-            True => TEXT { o }
-            False => TEXT { . }
-        }
-    )
+    |> List/map(column, new: ball_x == column |> WHEN {
+        True => TEXT { o }
+        False => TEXT { . }
+    })
     |> Text/join()
 }

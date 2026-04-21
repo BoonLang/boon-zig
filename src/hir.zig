@@ -528,7 +528,7 @@ const Lowerer = struct {
             if (argument == .token and isBareFormArgToken(argument.token.kind)) {
                 try bare_args.append(self.arena, try self.formBareArg(argument.token));
             } else if (std.mem.eql(u8, keyword_text, "TEXT") and argument == .group and argument.group.delimiter == .braces) {
-                try lowered_args.append(self.arena, try self.lowerRawTextBody(argument.group));
+                try lowered_args.append(self.arena, try self.lowerRawTextBody(argument.group, textHashCount(self.source, keyword_token.span.end, argument.group.span.start)));
             } else {
                 try lowered_args.append(self.arena, try self.lowerExpr(argument));
             }
@@ -546,34 +546,56 @@ const Lowerer = struct {
         return .{ .form = lowered };
     }
 
-    fn lowerRawTextBody(self: *Lowerer, group: *ast.Group) LowerError!Expr {
+    fn lowerRawTextBody(self: *Lowerer, group: *ast.Group, hash_count: usize) LowerError!Expr {
         var items: std.ArrayList(Item) = .empty;
         defer items.deinit(self.arena);
 
         const body_start = group.span.start + 1;
         const body_end = group.span.end - 1;
         var cursor = body_start;
-        var index = body_start;
+        const marker = if (hash_count == 0)
+            "{"
+        else if (hash_count == 1)
+            "#{"
+        else
+            "__multi_hash_marker__";
 
-        while (index < body_end) : (index += 1) {
-            if (self.source[index] != '{') continue;
+        if (hash_count <= 1) {
+            var search_start = body_start;
+            while (search_start < body_end) {
+                const relative = std.mem.indexOfPos(u8, self.source[body_start..body_end], search_start - body_start, marker) orelse break;
+                const absolute_start = body_start + relative;
 
-            try self.appendRawTextLiteral(&items, cursor, index);
+                try self.appendRawTextLiteral(&items, cursor, absolute_start);
 
-            var depth: usize = 1;
-            var close_index = index + 1;
-            while (close_index < body_end and depth != 0) : (close_index += 1) {
-                switch (self.source[close_index]) {
-                    '{' => depth += 1,
-                    '}' => depth -= 1,
-                    else => {},
-                }
+                const value_start = absolute_start + marker.len;
+                const close_relative = std.mem.indexOfScalarPos(u8, self.source[value_start..body_end], 0, '}') orelse {
+                    return self.fail(group.span, "unterminated TEXT interpolation");
+                };
+                const close_index = value_start + close_relative;
+
+                try items.append(self.arena, .{ .expr = try self.lowerInlineTextExpr(ast.Span.init(value_start, close_index)) });
+                cursor = close_index + 1;
+                search_start = close_index + 1;
             }
-            if (depth != 0) return self.fail(group.span, "unterminated TEXT interpolation");
+        } else {
+            var search_start = body_start;
+            while (search_start + hash_count + 1 <= body_end) {
+                const maybe_start = findHashedInterpolation(self.source[body_start..body_end], search_start - body_start, hash_count) orelse break;
+                const absolute_start = body_start + maybe_start;
 
-            try items.append(self.arena, .{ .expr = try self.lowerInlineTextExpr(ast.Span.init(index + 1, close_index - 1)) });
-            cursor = close_index;
-            index = close_index - 1;
+                try self.appendRawTextLiteral(&items, cursor, absolute_start);
+
+                const value_start = absolute_start + hash_count + 1;
+                const close_relative = std.mem.indexOfScalarPos(u8, self.source[value_start..body_end], 0, '}') orelse {
+                    return self.fail(group.span, "unterminated TEXT interpolation");
+                };
+                const close_index = value_start + close_relative;
+
+                try items.append(self.arena, .{ .expr = try self.lowerInlineTextExpr(ast.Span.init(value_start, close_index)) });
+                cursor = close_index + 1;
+                search_start = close_index + 1;
+            }
         }
 
         try self.appendRawTextLiteral(&items, cursor, body_end);
@@ -588,8 +610,19 @@ const Lowerer = struct {
     }
 
     fn appendRawTextLiteral(self: *Lowerer, items: *std.ArrayList(Item), start: usize, end: usize) LowerError!void {
-        const chunk = std.mem.trim(u8, self.source[start..end], " \n\r\t");
-        if (chunk.len == 0) return;
+        const raw_chunk = self.source[start..end];
+        const fully_trimmed = std.mem.trim(u8, raw_chunk, " \n\r\t");
+        if (fully_trimmed.len == 0) {
+            const only_spaces = std.mem.indexOfNone(u8, raw_chunk, " ") == null;
+            if (!only_spaces) return;
+            try items.append(self.arena, .{ .expr = .{ .atom = .{
+                .text = try self.arena.dupe(u8, raw_chunk),
+                .span = ast.Span.init(start, end),
+            } } });
+            return;
+        }
+
+        const chunk = fully_trimmed;
         try items.append(self.arena, .{ .expr = .{ .atom = .{
             .text = try self.arena.dupe(u8, chunk),
             .span = ast.Span.init(start, end),
@@ -727,6 +760,26 @@ const Lowerer = struct {
 
 fn isCommaTokenExpr(expr: ast.Expr) bool {
     return expr == .token and expr.token.kind == .comma;
+}
+
+fn textHashCount(source: []const u8, keyword_end: usize, brace_start: usize) usize {
+    var index = keyword_end;
+    while (index < brace_start and (source[index] == ' ' or source[index] == '\t')) : (index += 1) {}
+    var count: usize = 0;
+    while (index < brace_start and source[index] == '#') : (index += 1) {
+        count += 1;
+    }
+    return count;
+}
+
+fn findHashedInterpolation(source: []const u8, start: usize, hash_count: usize) ?usize {
+    var index = start;
+    while (index + hash_count + 1 <= source.len) : (index += 1) {
+        var matched: usize = 0;
+        while (matched < hash_count and index + matched < source.len and source[index + matched] == '#') : (matched += 1) {}
+        if (matched == hash_count and index + matched < source.len and source[index + matched] == '{') return index;
+    }
+    return null;
 }
 
 fn isBareFormArgToken(kind: ast.TokenKind) bool {
@@ -1176,6 +1229,28 @@ test "lowers text bodies with literal parentheses and brackets" {
     try std.testing.expect(std.mem.indexOf(u8, rendered, "[X]") != null);
 }
 
+test "lowers hash-delimited text interpolation" {
+    const source =
+        \\document: TEXT ##{ a[href^="#{url}"] { color: ##{theme.color}; } }
+        \\
+    ;
+    const outcome = try lowerAlloc(std.testing.allocator, source);
+    const document = switch (outcome) {
+        .ok => |document| document,
+        .err => |failure| {
+            std.debug.print("unexpected hash text interpolation failure: {s}\n", .{failure.message});
+            return error.UnexpectedHirFailure;
+        },
+    };
+    var lowered = document;
+    defer lowered.deinit();
+
+    const rendered = try renderAlloc(std.testing.allocator, &lowered);
+    defer std.testing.allocator.free(rendered);
+    try std.testing.expect(std.mem.indexOf(u8, rendered, "a[href^=\"#{url}\"] { color:") != null);
+    try std.testing.expect(std.mem.indexOf(u8, rendered, "access<direct>(symbol(theme), color)") != null);
+}
+
 test "rejects call expressions in TEXT interpolation" {
     const source =
         \\document: TEXT { Count: {store.items |> List/count()} }
@@ -1213,8 +1288,7 @@ test "lowers call-like text bodies as raw text" {
 }
 
 test "golden HIR for counter" {
-    try expectGolden(
-        "../examples/upstream/counter/counter.bn",
+    try expectGolden("../examples/upstream/counter/counter.bn",
         \\stats definitions=14 exprs=34 calls=4 forms=4
         \\binding document = call<tagged_value>(path(Document/new), named(root=call<tagged_value>(path(Element/stripe), named(element=record()), named(direction=symbol(Column)), named(gap=number(0)), named(style=record()), named(items=form(list_dynamic, args=[seq<braces>(symbol(counter); symbol(increment_button))])))))
         \\binding counter = call<call>(path(Math/sum), form(latest, args=[seq<braces>(number(0); form(then, args=[access<direct>(access<direct>(access<direct>(symbol(increment_button), event), press), ...), seq<braces>(number(1))]))]))
@@ -1224,8 +1298,7 @@ test "golden HIR for counter" {
 }
 
 test "golden HIR for interval" {
-    try expectGolden(
-        "../examples/upstream/interval/interval.bn",
+    try expectGolden("../examples/upstream/interval/interval.bn",
         \\stats definitions=2 exprs=13 calls=4 forms=1
         \\binding document = call<tagged_value>(path(Document/new), call<call>(path(Math/sum), form(then, args=[call<call>(path(Timer/interval), call<tagged_value>(path(Duration), named(seconds=number(1)))), seq<braces>(number(1))])))
         \\
@@ -1233,8 +1306,7 @@ test "golden HIR for interval" {
 }
 
 test "golden HIR summary for cells" {
-    try expectGolden(
-        "../examples/upstream/cells/cells.bn",
+    try expectGolden("../examples/upstream/cells/cells.bn",
         \\stats definitions=320 exprs=1449 calls=132 forms=146
         \\expr form(function_decl, bare=[matching_overrides], args=[seq<parentheses>(symbol(column); symbol(row)), seq<braces>(call<call>(path(List/retain), symbol(overrides), symbol(item), named(if=form(when, args=[binary(equal, access<direct>(..., row), symbol(row)), seq<braces>(number(0)); wildcard(__)=number(0)]))))])
         \\expr form(function_decl, bare=[cell_formula], args=[seq<parentheses>(symbol(column); symbol(row)), seq<braces>(form(block, args=[match_count=call<call>(path(List/count), call<call>(path(matching_overrides), named(column=symbol(column)), named(row=symbol(row)))); match_count=access<direct>(..., text)]))])
@@ -1266,8 +1338,7 @@ test "golden HIR summary for cells" {
 }
 
 test "golden HIR for pong stub" {
-    try expectGolden(
-        "../examples/terminal/pong/pong.bn",
+    try expectGolden("../examples/terminal/pong/pong.bn",
         \\stats definitions=2 exprs=7 calls=1 forms=1
         \\binding document = call<tagged_value>(path(Document/new), named(root=form(text, args=[seq<braces>(atom(Pong); symbol(phase); number(2); symbol(parser); symbol(stub))])))
         \\
@@ -1275,8 +1346,7 @@ test "golden HIR for pong stub" {
 }
 
 test "golden HIR for arkanoid stub" {
-    try expectGolden(
-        "../examples/terminal/arkanoid/arkanoid.bn",
+    try expectGolden("../examples/terminal/arkanoid/arkanoid.bn",
         \\stats definitions=2 exprs=7 calls=1 forms=1
         \\binding document = call<tagged_value>(path(Document/new), named(root=form(text, args=[seq<braces>(symbol(Arkanoid); symbol(phase); number(2); symbol(parser); symbol(stub))])))
         \\
@@ -1288,6 +1358,11 @@ test "lowers phase 3 verification examples" {
     try expectLowers("../examples/upstream/interval/interval.bn");
     try expectLowers("../examples/upstream/cells/cells.bn");
     try expectLowers("../examples/upstream/while/while.bn");
+    try expectLowers("../examples/terminal/counter/counter.bn");
+    try expectLowers("../examples/terminal/interval/interval.bn");
+    try expectLowers("../examples/terminal/todo_mvc/todo_mvc.bn");
+    try expectLowers("../examples/terminal/cells/cells.bn");
+    try expectLowers("../examples/terminal/cells_dynamic/cells_dynamic.bn");
     try expectLowers("../examples/terminal/pong/pong.bn");
     try expectLowers("../examples/terminal/arkanoid/arkanoid.bn");
 }

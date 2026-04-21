@@ -1,0 +1,45 @@
+terminal: Terminal/new(
+    root: Element/stripe(
+        element: [
+            terminal: [
+                bindings: LIST {
+                    [
+                        keys: LIST {
+                            TEXT { + }
+                            TEXT { = }
+                            TEXT { Enter }
+                            TEXT { Space }
+                        }
+
+                        link: increment_button.event.press
+                        label: TEXT { increment }
+                    ]
+                }
+            ]
+        ]
+
+        direction: Column
+        gap: 0
+        style: []
+
+        items: LIST {
+            counter
+            increment_button
+        }
+    )
+
+    loop: None
+)
+
+counter:
+    LATEST {
+        0
+        increment_button.event.press |> THEN { 1 }
+    }
+    |> Math/sum()
+
+increment_button: Element/button(
+    element: [event: [press: LINK]]
+    style: []
+    label: TEXT { + }
+)

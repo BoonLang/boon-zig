@@ -59,6 +59,21 @@ pub fn main(init: std.process.Init) !void {
             try cli.writeHelp(&stderr_writer.interface);
             break :blk 1;
         },
+        error.MissingFilter => blk: {
+            try stderr_writer.interface.print("error: --filter requires a value like p0 or a case name\n\n", .{});
+            try cli.writeHelp(&stderr_writer.interface);
+            break :blk 1;
+        },
+        error.MissingOutDir => blk: {
+            try stderr_writer.interface.print("error: --out-dir requires a path\n\n", .{});
+            try cli.writeHelp(&stderr_writer.interface);
+            break :blk 1;
+        },
+        error.MissingVerifyMode => blk: {
+            try stderr_writer.interface.print("error: verify-examples requires either --headless or --terminal-grid\n\n", .{});
+            try cli.writeHelp(&stderr_writer.interface);
+            break :blk 1;
+        },
         error.InvalidHeadlessScript => blk: {
             try stderr_writer.interface.print("error: invalid headless script format\n", .{});
             break :blk 1;

@@ -56,9 +56,70 @@ pub fn lexAlloc(allocator: std.mem.Allocator, source: []const u8) !Outcome {
             .kind = classifyBareToken(lexeme),
             .span = ast.Span.init(start, index),
         });
+
+        if (std.mem.eql(u8, lexeme, "TEXT")) {
+            const maybe_close_index = try lexTextTail(&tokens, allocator, source, index);
+            if (maybe_close_index) |close_index| {
+                index = close_index + 1;
+            }
+        }
     }
 
     return .{ .ok = try tokens.toOwnedSlice(allocator) };
+}
+
+fn lexTextTail(
+    tokens: *std.ArrayList(ast.Token),
+    allocator: std.mem.Allocator,
+    source: []const u8,
+    start: usize,
+) !?usize {
+    var index = start;
+    while (index < source.len and (source[index] == ' ' or source[index] == '\t')) : (index += 1) {}
+    while (index < source.len and source[index] == '#') : (index += 1) {}
+    if (index >= source.len or source[index] != '{') return null;
+    return try lexRawTextBody(tokens, allocator, source, index);
+}
+
+fn lexRawTextBody(
+    tokens: *std.ArrayList(ast.Token),
+    allocator: std.mem.Allocator,
+    source: []const u8,
+    open_index: usize,
+) !usize {
+    try tokens.append(allocator, .{
+        .kind = .l_brace,
+        .span = ast.Span.init(open_index, open_index + 1),
+    });
+
+    const body_start = open_index + 1;
+    var cursor = body_start;
+    var interpolation_depth: usize = 0;
+
+    while (cursor < source.len) : (cursor += 1) {
+        switch (source[cursor]) {
+            '{' => interpolation_depth += 1,
+            '}' => {
+                if (interpolation_depth == 0) {
+                    if (body_start != cursor) {
+                        try tokens.append(allocator, .{
+                            .kind = .atom,
+                            .span = ast.Span.init(body_start, cursor),
+                        });
+                    }
+                    try tokens.append(allocator, .{
+                        .kind = .r_brace,
+                        .span = ast.Span.init(cursor, cursor + 1),
+                    });
+                    return cursor;
+                }
+                interpolation_depth -= 1;
+            },
+            else => {},
+        }
+    }
+
+    return error.OutOfMemory;
 }
 
 fn matchPunctuator(
@@ -157,7 +218,7 @@ fn isTokenBoundary(source: []const u8, index: usize) bool {
 
     return switch (byte) {
         '(', ')', '[', ']', '{', '}', ',', ':', '.', '?', '>', '<', '+', '-', '*', '/', '%', '^' => true,
-        '|', '=' => true,
+        '=' => true,
         else => false,
     };
 }
@@ -279,4 +340,67 @@ test "classifies decimals paths and pascal tags" {
     try std.testing.expectEqual(ast.TokenKind.numeric_literal, tokens[2].kind);
     try std.testing.expectEqual(ast.TokenKind.snake_identifier, tokens[3].kind);
     try std.testing.expectEqual(ast.TokenKind.pascal_identifier, tokens[5].kind);
+}
+
+test "allows pipe character inside raw text bodies" {
+    const source = "document: TEXT { |a| }";
+    const outcome = try lexAlloc(std.testing.allocator, source);
+    const tokens = switch (outcome) {
+        .ok => |tokens| tokens,
+        .err => |failure| {
+            std.debug.print("unexpected lex failure: {s}\n", .{failure.message});
+            return error.UnexpectedLexFailure;
+        },
+    };
+    defer std.testing.allocator.free(tokens);
+
+    try std.testing.expectEqual(ast.TokenKind.snake_identifier, tokens[0].kind);
+    try std.testing.expectEqual(ast.TokenKind.colon, tokens[1].kind);
+    try std.testing.expectEqual(ast.TokenKind.keyword, tokens[2].kind);
+    try std.testing.expectEqual(ast.TokenKind.l_brace, tokens[3].kind);
+    try std.testing.expectEqual(ast.TokenKind.atom, tokens[4].kind);
+    try std.testing.expectEqualStrings("|a|", source[tokens[4].span.start..tokens[4].span.end]);
+    try std.testing.expectEqual(ast.TokenKind.r_brace, tokens[5].kind);
+}
+
+test "allows bracket characters inside raw text bodies" {
+    const source = "document: TEXT { [A] [B] }";
+    const outcome = try lexAlloc(std.testing.allocator, source);
+    const tokens = switch (outcome) {
+        .ok => |tokens| tokens,
+        .err => |failure| {
+            std.debug.print("unexpected lex failure: {s}\n", .{failure.message});
+            return error.UnexpectedLexFailure;
+        },
+    };
+    defer std.testing.allocator.free(tokens);
+
+    try std.testing.expectEqual(ast.TokenKind.snake_identifier, tokens[0].kind);
+    try std.testing.expectEqual(ast.TokenKind.colon, tokens[1].kind);
+    try std.testing.expectEqual(ast.TokenKind.keyword, tokens[2].kind);
+    try std.testing.expectEqual(ast.TokenKind.l_brace, tokens[3].kind);
+    try std.testing.expectEqual(ast.TokenKind.atom, tokens[4].kind);
+    try std.testing.expectEqualStrings("[A] [B] ", source[tokens[4].span.start..tokens[4].span.end]);
+    try std.testing.expectEqual(ast.TokenKind.r_brace, tokens[5].kind);
+}
+
+test "allows hash-prefixed text delimiters" {
+    const source = "document: TEXT ##{ a[href^=\"#{url}\"] { color: ##{color}; } }";
+    const outcome = try lexAlloc(std.testing.allocator, source);
+    const tokens = switch (outcome) {
+        .ok => |tokens| tokens,
+        .err => |failure| {
+            std.debug.print("unexpected lex failure: {s}\n", .{failure.message});
+            return error.UnexpectedLexFailure;
+        },
+    };
+    defer std.testing.allocator.free(tokens);
+
+    try std.testing.expectEqual(ast.TokenKind.snake_identifier, tokens[0].kind);
+    try std.testing.expectEqual(ast.TokenKind.colon, tokens[1].kind);
+    try std.testing.expectEqual(ast.TokenKind.keyword, tokens[2].kind);
+    try std.testing.expectEqual(ast.TokenKind.l_brace, tokens[3].kind);
+    try std.testing.expectEqual(ast.TokenKind.atom, tokens[4].kind);
+    try std.testing.expectEqualStrings(" a[href^=\"#{url}\"] { color: ##{color}; } ", source[tokens[4].span.start..tokens[4].span.end]);
+    try std.testing.expectEqual(ast.TokenKind.r_brace, tokens[5].kind);
 }

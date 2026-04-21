@@ -48,9 +48,7 @@ const DocumentValue = struct {
 
 const TerminalValue = struct {
     root: Value,
-    keyboard: Value = .none,
     loop: Value = .none,
-    presentation: Value = .none,
 };
 
 const StripeDirection = enum {
@@ -61,18 +59,26 @@ const StripeDirection = enum {
 const StripeValue = struct {
     items: []Value,
     direction: StripeDirection,
+    gap: usize = 0,
     hovered_link: ?flow_ir.NodeId = null,
+    terminal_bindings: Value = .none,
     event_scope: ?*const EvalScope = null,
 };
 
 const LabelValue = struct {
     label: Value,
+    click_link: ?flow_ir.NodeId = null,
     double_click_link: ?flow_ir.NodeId = null,
+    terminal_width: usize = 0,
+    terminal_height: usize = 0,
+    terminal_bindings: Value = .none,
     event_scope: ?*const EvalScope = null,
 };
 
 const ContainerValue = struct {
     child: Value,
+    terminal_bindings: Value = .none,
+    event_scope: ?*const EvalScope = null,
 };
 
 const CheckboxValue = struct {
@@ -80,6 +86,9 @@ const CheckboxValue = struct {
     label: Value = .none,
     checked: Value = .none,
     click_link: ?flow_ir.NodeId,
+    terminal_width: usize = 0,
+    terminal_height: usize = 0,
+    terminal_bindings: Value = .none,
     event_scope: ?*const EvalScope = null,
 };
 
@@ -87,6 +96,9 @@ const ButtonValue = struct {
     label: Value,
     press_link: ?flow_ir.NodeId,
     hovered_link: ?flow_ir.NodeId = null,
+    terminal_width: usize = 0,
+    terminal_height: usize = 0,
+    terminal_bindings: Value = .none,
     event_scope: ?*const EvalScope = null,
 };
 
@@ -96,17 +108,24 @@ const TextInputValue = struct {
     key_link: ?flow_ir.NodeId = null,
     blur_link: ?flow_ir.NodeId = null,
     focus_link: ?flow_ir.NodeId = null,
+    terminal_width: usize = 0,
+    terminal_height: usize = 0,
+    terminal_bindings: Value = .none,
     event_scope: ?*const EvalScope = null,
 };
 
 const SelectValue = struct {
     selected: Value,
     change_link: ?flow_ir.NodeId,
+    terminal_width: usize = 0,
+    terminal_height: usize = 0,
+    terminal_bindings: Value = .none,
     event_scope: ?*const EvalScope = null,
 };
 
 const SliderValue = struct {
     change_link: ?flow_ir.NodeId,
+    terminal_bindings: Value = .none,
     event_scope: ?*const EvalScope = null,
 };
 
@@ -166,14 +185,9 @@ pub const PhysicalRenderTarget = union(enum) {
     }
 };
 
-pub const TerminalFooterMode = enum {
-    summary,
-    hidden,
-};
-
 pub const TerminalKeyBinding = struct {
     keys: [][]const u8,
-    press_link: flow_ir.NodeId,
+    link: flow_ir.NodeId,
     scope: ?*const EvalScope = null,
     when: bool,
     label: ?[]const u8,
@@ -186,10 +200,24 @@ pub const TerminalLoopSpec = struct {
     every_ms: u64,
 };
 
+pub const TerminalHitRegion = struct {
+    x: usize,
+    y: usize,
+    width: usize,
+    height: usize,
+    button_index: ?usize = null,
+    label_double_click_index: ?usize = null,
+    text_input_index: ?usize = null,
+    hover_index: ?usize = null,
+
+    pub fn contains(self: TerminalHitRegion, x: usize, y: usize) bool {
+        return x >= self.x and x < self.x + self.width and y >= self.y and y < self.y + self.height;
+    }
+};
+
 pub const TerminalContract = struct {
     keyboard_bindings: []TerminalKeyBinding,
     loop: ?TerminalLoopSpec,
-    footer: TerminalFooterMode,
 
     pub fn deinit(self: *TerminalContract, allocator: std.mem.Allocator) void {
         for (self.keyboard_bindings) |binding| {
@@ -243,6 +271,23 @@ const PersistKind = enum {
 const ControlEventRef = struct {
     link: flow_ir.NodeId,
     scope: ?*const EvalScope = null,
+};
+
+const TerminalLayoutCounters = struct {
+    button: usize = 0,
+    label_double_click: usize = 0,
+    text_input: usize = 0,
+    hover: usize = 0,
+};
+
+const TerminalLayoutSize = struct {
+    width: usize,
+    height: usize,
+};
+
+const TerminalStyleSize = struct {
+    width: usize = 0,
+    height: usize = 0,
 };
 
 const GridBlock = struct {
@@ -326,7 +371,12 @@ pub const Session = struct {
         self.arena.deinit();
     }
 
+    fn flushPendingQueue(self: *Session) !void {
+        if (self.queue.items.len != 0) try self.processQueue();
+    }
+
     pub fn renderAlloc(self: *Session, allocator: std.mem.Allocator) anyerror![]u8 {
+        try self.flushPendingQueue();
         const root_binding = self.flow.root_binding orelse return error.MissingDocumentRoot;
         var scratch = std.heap.ArenaAllocator.init(allocator);
         defer scratch.deinit();
@@ -340,6 +390,7 @@ pub const Session = struct {
     }
 
     pub fn snapshotAlloc(self: *Session, allocator: std.mem.Allocator) anyerror![]u8 {
+        try self.flushPendingQueue();
         const root_binding = self.flow.root_binding orelse return error.MissingDocumentRoot;
         var scratch = std.heap.ArenaAllocator.init(allocator);
         defer scratch.deinit();
@@ -363,6 +414,7 @@ pub const Session = struct {
     }
 
     pub fn physicalRenderTarget(self: *Session, allocator: std.mem.Allocator) !?PhysicalRenderTarget {
+        try self.flushPendingQueue();
         var scratch = std.heap.ArenaAllocator.init(allocator);
         defer scratch.deinit();
         return try self.livePhysicalRenderTarget(scratch.allocator());
@@ -520,6 +572,7 @@ pub const Session = struct {
 
     pub fn terminalContractAlloc(self: *Session, allocator: std.mem.Allocator) !?TerminalContract {
         if (self.rootKind() != .terminal) return null;
+        try self.flushPendingQueue();
         const root_binding = self.flow.root_binding orelse return error.MissingDocumentRoot;
         var scratch = std.heap.ArenaAllocator.init(allocator);
         defer scratch.deinit();
@@ -530,6 +583,26 @@ pub const Session = struct {
             else => return error.ExpectedTerminalRoot,
         };
         return try terminalContractFromValue(self, allocator, terminal);
+    }
+
+    pub fn terminalHitRegionsAlloc(self: *Session, allocator: std.mem.Allocator) !?[]TerminalHitRegion {
+        if (self.rootKind() != .terminal) return null;
+        try self.flushPendingQueue();
+        const root_binding = self.flow.root_binding orelse return error.MissingDocumentRoot;
+        var scratch = std.heap.ArenaAllocator.init(allocator);
+        defer scratch.deinit();
+
+        const value = try self.evalNode(scratch.allocator(), self.flow.bindings[root_binding].node, null);
+        const terminal = switch (value) {
+            .terminal => |terminal| terminal,
+            else => return error.ExpectedTerminalRoot,
+        };
+
+        var regions: std.ArrayList(TerminalHitRegion) = .empty;
+        defer regions.deinit(allocator);
+        var counters = TerminalLayoutCounters{};
+        _ = try self.collectTerminalHitRegions(allocator, &regions, &counters, terminal.root, 0, 0);
+        return try regions.toOwnedSlice(allocator);
     }
 
     pub fn clickButtonByLabel(self: *Session, allocator: std.mem.Allocator, label: []const u8) !void {
@@ -558,6 +631,20 @@ pub const Session = struct {
 
     pub fn blurFirstTextInput(self: *Session, allocator: std.mem.Allocator) !void {
         return self.blurTextInput(try self.firstControlIndex(allocator, .text_input));
+    }
+
+    pub fn textInputCountAlloc(self: *Session, allocator: std.mem.Allocator) !usize {
+        try self.flushPendingQueue();
+        const value = try self.interactionRootValue();
+        var inputs: std.ArrayList(*TextInputValue) = .empty;
+        defer inputs.deinit(allocator);
+        try collectTextInputValues(self, &inputs, allocator, value);
+        return inputs.items.len;
+    }
+
+    pub fn textInputTextAlloc(self: *Session, allocator: std.mem.Allocator, index: usize) ![]u8 {
+        const value = try self.currentTextInputValue(index);
+        return try allocator.dupe(u8, try valueAsText(value));
     }
 
     pub fn clickButton(self: *Session, index: usize) !void {
@@ -1742,7 +1829,12 @@ pub const Session = struct {
             else
                 null,
             .checkbox => |checkbox| if (std.mem.eql(u8, event_name, "click")) checkbox.click_link else null,
-            .label => |label| if (std.mem.eql(u8, event_name, "double_click")) label.double_click_link else null,
+            .label => |label| if (std.mem.eql(u8, event_name, "click"))
+                label.click_link
+            else if (std.mem.eql(u8, event_name, "double_click"))
+                label.double_click_link
+            else
+                null,
             .stripe => |stripe| if (std.mem.eql(u8, event_name, "hovered")) stripe.hovered_link else null,
             .text_input => |input| if (std.mem.eql(u8, event_name, "change"))
                 input.change_link
@@ -2436,6 +2528,7 @@ pub const Session = struct {
     }
 
     fn interactionRootValue(self: *Session) anyerror!Value {
+        try self.flushPendingQueue();
         const root_binding = self.flow.root_binding orelse return error.MissingDocumentRoot;
         return try self.evalNode(self.arena.allocator(), self.flow.bindings[root_binding].node, null);
     }
@@ -2697,27 +2790,24 @@ pub const Session = struct {
             .symbol => |text| lookupLocal(scope, text) orelse try self.evalNode(allocator, access.target, scope),
             else => try self.evalNode(allocator, access.target, scope),
         };
-        return switch (target) {
+        const result: anyerror!Value = switch (target) {
             .record => |fields| blk: {
                 const field_value = findRecordValue(fields, access.field) orelse return error.MissingRecordField;
                 break :blk switch (field_value) {
-                    .link => |link| self.getLinkValue(link, scope) orelse .{ .link = link },
-                    .scoped_node => |deferred| if (!self.nodeNeedsScope(deferred.node_id) and self.nodeNeedsDeferredField(deferred.node_id))
-                        blk2: {
-                            const resolved = try self.evalNode(allocator, deferred.node_id, canonicalControlScope(deferred.scope));
-                            break :blk2 switch (resolved) {
-                                .link => |link| self.getLinkValue(link, scope) orelse resolved,
-                                else => resolved,
-                            };
-                        }
-                    else
-                        blk2: {
-                            const resolved = try self.materializeValue(allocator, field_value);
-                            break :blk2 switch (resolved) {
-                                .link => |link| self.getLinkValue(link, scope) orelse resolved,
-                                else => resolved,
-                            };
-                        },
+                    .link => |link| .{ .link = link },
+                    .scoped_node => |deferred| if (!self.nodeNeedsScope(deferred.node_id) and self.nodeNeedsDeferredField(deferred.node_id)) blk2: {
+                        const resolved = try self.evalNode(allocator, deferred.node_id, canonicalControlScope(deferred.scope));
+                        break :blk2 switch (resolved) {
+                            .link => |link| self.getLinkValue(link, scope) orelse resolved,
+                            else => resolved,
+                        };
+                    } else blk2: {
+                        const resolved = try self.materializeValue(allocator, field_value);
+                        break :blk2 switch (resolved) {
+                            .link => |link| self.getLinkValue(link, scope) orelse resolved,
+                            else => resolved,
+                        };
+                    },
                     else => blk2: {
                         const resolved = try self.materializeValue(allocator, field_value);
                         break :blk2 switch (resolved) {
@@ -2810,9 +2900,18 @@ pub const Session = struct {
                     };
                     break :blk .{ .record = fields };
                 }
+                if (self.getLinkValue(link, scope)) |link_value| {
+                    if (recordFieldFromValue(link_value, access.field)) |field_value| break :blk field_value;
+                }
                 break :blk error.UnsupportedFieldAccess;
             },
             else => error.UnsupportedFieldAccess,
+        };
+        return result catch |err| {
+            if (err == error.UnsupportedFieldAccess) {
+                return err;
+            }
+            return err;
         };
     }
 
@@ -3000,12 +3099,11 @@ pub const Session = struct {
         }
         if (std.mem.eql(u8, call.path, "Terminal/new")) {
             const root_node = findNamed(call.named, "root") orelse if (call.positional.len != 0) call.positional[0] else return error.MissingRootArg;
+            const loop_node = findNamed(call.named, "loop") orelse return error.MissingArgument;
             const terminal = try allocator.create(TerminalValue);
             terminal.* = .{
                 .root = try self.evalNode(allocator, root_node, scope),
-                .keyboard = if (findNamed(call.named, "keyboard")) |node| try self.evalNode(allocator, node, scope) else .none,
-                .loop = if (findNamed(call.named, "loop")) |node| try self.evalNode(allocator, node, scope) else .none,
-                .presentation = if (findNamed(call.named, "presentation")) |node| try self.evalNode(allocator, node, scope) else .none,
+                .loop = try self.evalNode(allocator, loop_node, scope),
             };
             return .{ .terminal = terminal };
         }
@@ -3015,7 +3113,11 @@ pub const Session = struct {
             const element_value = try self.evalNode(allocator, element_node, scope);
             var element_scope = try withLocalBinding(allocator, scope, "element", element_value);
             const container = try allocator.create(ContainerValue);
-            container.* = .{ .child = try self.evalNode(allocator, children_node, &element_scope) };
+            container.* = .{
+                .child = try self.evalNode(allocator, children_node, &element_scope),
+                .terminal_bindings = extractTerminalMetadata(element_value),
+                .event_scope = try captureScope(allocator, &element_scope),
+            };
             return .{ .container = container };
         }
         if (std.mem.eql(u8, call.path, "Element/svg_circle")) {
@@ -3038,6 +3140,7 @@ pub const Session = struct {
                 .items = layers,
                 .direction = .column,
                 .hovered_link = extractHoverLink(element_value),
+                .terminal_bindings = extractTerminalMetadata(element_value),
                 .event_scope = try captureScope(allocator, &element_scope),
             };
             return .{ .stripe = stripe };
@@ -3093,7 +3196,12 @@ pub const Session = struct {
                     try self.evalNode(allocator, direction_node, scope)
                 else
                     .{ .symbol = "Column" }),
+                .gap = if (findNamed(call.named, "gap")) |gap_node|
+                    try valueAsIndex(try self.evalNode(allocator, gap_node, scope))
+                else
+                    0,
                 .hovered_link = try self.resolveElementEventLink(element_node, "hovered", scope),
+                .terminal_bindings = extractTerminalMetadata(element_value),
                 .event_scope = try captureScope(allocator, &element_scope),
             };
             return .{ .stripe = stripe };
@@ -3101,12 +3209,19 @@ pub const Session = struct {
         if (std.mem.eql(u8, call.path, "Element/label") or std.mem.eql(u8, call.path, "Scene/Element/label")) {
             const element_node = findNamed(call.named, "element") orelse return error.MissingElementArg;
             const label_node = findNamed(call.named, "label") orelse return error.MissingLabelArg;
+            const style_node = findNamed(call.named, "style");
             const element_value = try self.evalNode(allocator, element_node, scope);
             var element_scope = try withLocalBinding(allocator, scope, "element", element_value);
+            const style_value = if (style_node) |node| try self.evalNode(allocator, node, scope) else .none;
+            const style_size = terminalStyleSizeFromValue(style_value);
             const label = try allocator.create(LabelValue);
             label.* = .{
                 .label = try self.evalNode(allocator, label_node, &element_scope),
+                .click_link = try self.resolveElementEventLink(element_node, "click", scope),
                 .double_click_link = try self.resolveElementEventLink(element_node, "double_click", scope),
+                .terminal_width = style_size.width,
+                .terminal_height = style_size.height,
+                .terminal_bindings = extractTerminalMetadata(element_value),
                 .event_scope = try captureScope(allocator, &element_scope),
             };
             return .{ .label = label };
@@ -3117,7 +3232,11 @@ pub const Session = struct {
             const element_value = try self.evalNode(allocator, element_node, scope);
             var element_scope = try withLocalBinding(allocator, scope, "element", element_value);
             const container = try allocator.create(ContainerValue);
-            container.* = .{ .child = try self.evalNode(allocator, child_node, &element_scope) };
+            container.* = .{
+                .child = try self.evalNode(allocator, child_node, &element_scope),
+                .terminal_bindings = extractTerminalMetadata(element_value),
+                .event_scope = try captureScope(allocator, &element_scope),
+            };
             return .{ .container = container };
         }
         if (std.mem.eql(u8, call.path, "Scene/Element/block")) {
@@ -3126,7 +3245,11 @@ pub const Session = struct {
             const element_value = try self.evalNode(allocator, element_node, scope);
             var element_scope = try withLocalBinding(allocator, scope, "element", element_value);
             const container = try allocator.create(ContainerValue);
-            container.* = .{ .child = try self.evalNode(allocator, child_node, &element_scope) };
+            container.* = .{
+                .child = try self.evalNode(allocator, child_node, &element_scope),
+                .terminal_bindings = extractTerminalMetadata(element_value),
+                .event_scope = try captureScope(allocator, &element_scope),
+            };
             return .{ .container = container };
         }
         if (std.mem.eql(u8, call.path, "Element/paragraph") or std.mem.eql(u8, call.path, "Scene/Element/paragraph")) {
@@ -3135,7 +3258,11 @@ pub const Session = struct {
             const element_value = try self.evalNode(allocator, element_node, scope);
             var element_scope = try withLocalBinding(allocator, scope, "element", element_value);
             const container = try allocator.create(ContainerValue);
-            container.* = .{ .child = try self.evalNode(allocator, contents_node, &element_scope) };
+            container.* = .{
+                .child = try self.evalNode(allocator, contents_node, &element_scope),
+                .terminal_bindings = extractTerminalMetadata(element_value),
+                .event_scope = try captureScope(allocator, &element_scope),
+            };
             return .{ .container = container };
         }
         if (std.mem.eql(u8, call.path, "Element/checkbox") or std.mem.eql(u8, call.path, "Scene/Element/checkbox")) {
@@ -3143,14 +3270,20 @@ pub const Session = struct {
             const icon_node = findNamed(call.named, "icon") orelse return error.MissingArgument;
             const label_node = findNamed(call.named, "label");
             const checked_node = findNamed(call.named, "checked");
+            const style_node = findNamed(call.named, "style");
             const element_value = try self.evalNode(allocator, element_node, scope);
             var element_scope = try withLocalBinding(allocator, scope, "element", element_value);
+            const style_value = if (style_node) |node| try self.evalNode(allocator, node, scope) else .none;
+            const style_size = terminalStyleSizeFromValue(style_value);
             const checkbox = try allocator.create(CheckboxValue);
             checkbox.* = .{
                 .icon = try self.evalNode(allocator, icon_node, &element_scope),
                 .label = if (label_node) |node| try self.evalNode(allocator, node, &element_scope) else .none,
                 .checked = if (checked_node) |node| try self.evalNode(allocator, node, &element_scope) else .none,
                 .click_link = try self.resolveElementEventLink(element_node, "click", scope),
+                .terminal_width = style_size.width,
+                .terminal_height = style_size.height,
+                .terminal_bindings = extractTerminalMetadata(element_value),
                 .event_scope = try captureScope(allocator, &element_scope),
             };
             return .{ .checkbox = checkbox };
@@ -3166,6 +3299,11 @@ pub const Session = struct {
             const label = try allocator.create(LabelValue);
             label.* = .{
                 .label = try self.evalNode(allocator, text_node, &element_scope),
+                .click_link = if (element_node) |node|
+                    try self.resolveElementEventLink(node, "click", scope)
+                else
+                    null,
+                .terminal_bindings = extractTerminalMetadata(element_value),
                 .event_scope = try captureScope(allocator, &element_scope),
             };
             return .{ .label = label };
@@ -3292,13 +3430,19 @@ pub const Session = struct {
         if (std.mem.eql(u8, call.path, "Element/button") or std.mem.eql(u8, call.path, "Scene/Element/button")) {
             const label_node = findNamed(call.named, "label") orelse return error.MissingLabelArg;
             const element_node = findNamed(call.named, "element") orelse return error.MissingElementArg;
+            const style_node = findNamed(call.named, "style");
             const element_value = try self.evalNode(allocator, element_node, scope);
             var element_scope = try withLocalBinding(allocator, scope, "element", element_value);
+            const style_value = if (style_node) |node| try self.evalNode(allocator, node, scope) else .none;
+            const style_size = terminalStyleSizeFromValue(style_value);
             const button = try allocator.create(ButtonValue);
             button.* = .{
                 .label = try self.evalNode(allocator, label_node, &element_scope),
                 .press_link = try self.resolveElementEventLink(element_node, "press", scope),
                 .hovered_link = try self.resolveElementEventLink(element_node, "hovered", scope),
+                .terminal_width = style_size.width,
+                .terminal_height = style_size.height,
+                .terminal_bindings = extractTerminalMetadata(element_value),
                 .event_scope = try captureScope(allocator, &element_scope),
             };
             return .{ .button = button };
@@ -3306,8 +3450,11 @@ pub const Session = struct {
         if (std.mem.eql(u8, call.path, "Element/text_input") or std.mem.eql(u8, call.path, "Scene/Element/text_input")) {
             const element_node = findNamed(call.named, "element") orelse return error.MissingElementArg;
             const text_node = findNamed(call.named, "text") orelse return error.MissingArgument;
+            const style_node = findNamed(call.named, "style");
             const element_value = try self.evalNode(allocator, element_node, scope);
             var element_scope = try withLocalBinding(allocator, scope, "element", element_value);
+            const style_value = if (style_node) |node| try self.evalNode(allocator, node, scope) else .none;
+            const style_size = terminalStyleSizeFromValue(style_value);
             const input = try allocator.create(TextInputValue);
             input.* = .{
                 .text = try self.evalNode(allocator, text_node, &element_scope),
@@ -3315,6 +3462,9 @@ pub const Session = struct {
                 .key_link = try self.resolveElementEventLink(element_node, "key_down", scope),
                 .blur_link = try self.resolveElementEventLink(element_node, "blur", scope),
                 .focus_link = try self.resolveElementEventLink(element_node, "focus", scope),
+                .terminal_width = style_size.width,
+                .terminal_height = style_size.height,
+                .terminal_bindings = extractTerminalMetadata(element_value),
                 .event_scope = try captureScope(allocator, &element_scope),
             };
             return .{ .text_input = input };
@@ -3322,12 +3472,18 @@ pub const Session = struct {
         if (std.mem.eql(u8, call.path, "Element/select")) {
             const element_node = findNamed(call.named, "element") orelse return error.MissingElementArg;
             const selected_node = findNamed(call.named, "selected") orelse return error.MissingArgument;
+            const style_node = findNamed(call.named, "style");
             const element_value = try self.evalNode(allocator, element_node, scope);
             var element_scope = try withLocalBinding(allocator, scope, "element", element_value);
+            const style_value = if (style_node) |node| try self.evalNode(allocator, node, scope) else .none;
+            const style_size = terminalStyleSizeFromValue(style_value);
             const select = try allocator.create(SelectValue);
             select.* = .{
                 .selected = try self.evalNode(allocator, selected_node, &element_scope),
                 .change_link = try self.resolveElementEventLink(element_node, "change", scope),
+                .terminal_width = style_size.width,
+                .terminal_height = style_size.height,
+                .terminal_bindings = extractTerminalMetadata(element_value),
                 .event_scope = try captureScope(allocator, &element_scope),
             };
             return .{ .select = select };
@@ -3339,6 +3495,7 @@ pub const Session = struct {
             var element_scope = try withLocalBinding(allocator, scope, "element", element_value);
             const label = try allocator.create(LabelValue);
             label.* = .{ .label = try self.evalNode(allocator, label_node, &element_scope) };
+            label.terminal_bindings = extractTerminalMetadata(element_value);
             label.event_scope = try captureScope(allocator, &element_scope);
             return .{ .label = label };
         }
@@ -3350,10 +3507,13 @@ pub const Session = struct {
         }
         if (std.mem.eql(u8, call.path, "Element/slider")) {
             const element_node = findNamed(call.named, "element") orelse return error.MissingElementArg;
+            const element_value = try self.evalNode(allocator, element_node, scope);
+            var element_scope = try withLocalBinding(allocator, scope, "element", element_value);
             const slider = try allocator.create(SliderValue);
             slider.* = .{
                 .change_link = try self.resolveElementEventLink(element_node, "change", scope),
-                .event_scope = try captureScope(allocator, scope),
+                .terminal_bindings = extractTerminalMetadata(element_value),
+                .event_scope = try captureScope(allocator, &element_scope),
             };
             return .{ .slider = slider };
         }
@@ -3681,22 +3841,47 @@ pub const Session = struct {
             .document => |document| try self.snapshotBlock(allocator, document.root),
             .terminal => |terminal| try self.snapshotBlock(allocator, terminal.root),
             .stripe => |stripe| switch (stripe.direction) {
-                .row => try self.snapshotRowBlock(allocator, stripe.items),
+                .row => try self.snapshotRowBlock(allocator, stripe.items, stripe.gap),
                 .column => try self.snapshotColumnBlock(allocator, stripe.items),
             },
-            .label => |label| try self.snapshotBlock(allocator, label.label),
+            .label => |label| try self.snapshotSizedBlock(
+                allocator,
+                try self.snapshotBlock(allocator, label.label),
+                label.terminal_width,
+                label.terminal_height,
+            ),
             .container => |container| try self.snapshotBlock(allocator, container.child),
-            .checkbox => |checkbox| try self.snapshotCheckboxBlock(allocator, checkbox),
-            .button => |button| try self.snapshotWrappedBlock(allocator, button.label, "[", "]"),
-            .text_input => |input| try self.snapshotWrappedBlock(allocator, input.text, "<", ">"),
-            .select => |select| try self.snapshotWrappedBlock(allocator, select.selected, "<", ">"),
+            .checkbox => |checkbox| try self.snapshotSizedBlock(
+                allocator,
+                try self.snapshotCheckboxBlock(allocator, checkbox),
+                checkbox.terminal_width,
+                checkbox.terminal_height,
+            ),
+            .button => |button| try self.snapshotSizedBlock(
+                allocator,
+                try self.snapshotWrappedBlock(allocator, button.label, "[", "]"),
+                button.terminal_width,
+                button.terminal_height,
+            ),
+            .text_input => |input| try self.snapshotSizedBlock(
+                allocator,
+                try self.snapshotWrappedBlock(allocator, input.text, "<", ">"),
+                input.terminal_width,
+                input.terminal_height,
+            ),
+            .select => |select| try self.snapshotSizedBlock(
+                allocator,
+                try self.snapshotWrappedBlock(allocator, select.selected, "<", ">"),
+                select.terminal_width,
+                select.terminal_height,
+            ),
             .scoped_node => |deferred| try self.snapshotBlock(allocator, try self.evalNode(allocator, deferred.node_id, deferred.scope)),
             .slider => try self.snapshotLiteralBlock(allocator, "<slider>"),
             else => try self.snapshotInlineBlock(allocator, value),
         };
     }
 
-    fn snapshotRowBlock(self: *Session, allocator: std.mem.Allocator, items: []Value) anyerror!GridBlock {
+    fn snapshotRowBlock(self: *Session, allocator: std.mem.Allocator, items: []Value, gap: usize) anyerror!GridBlock {
         if (items.len == 0) return try self.snapshotLiteralBlock(allocator, "");
 
         const child_blocks = try allocator.alloc(GridBlock, items.len);
@@ -3706,7 +3891,7 @@ pub const Session = struct {
             const block = try self.snapshotBlock(allocator, item);
             child_blocks[index] = block;
             total_width += block.width;
-            if (index != 0) total_width += 1;
+            if (index != 0) total_width += gap;
             height = @max(height, block.lines.len);
         }
         if (height == 0) height = 1;
@@ -3717,7 +3902,7 @@ pub const Session = struct {
             defer line.deinit(allocator);
 
             for (child_blocks, 0..) |block, block_index| {
-                if (block_index != 0) try line.append(allocator, ' ');
+                if (block_index != 0 and gap != 0) try line.appendNTimes(allocator, ' ', gap);
                 const segment = if (row_index < block.lines.len) block.lines[row_index] else "";
                 try line.appendSlice(allocator, segment);
                 if (segment.len < block.width) {
@@ -3769,6 +3954,43 @@ pub const Session = struct {
         return try self.snapshotLiteralBlock(allocator, display);
     }
 
+    fn snapshotSizedBlock(
+        self: *Session,
+        allocator: std.mem.Allocator,
+        block: GridBlock,
+        min_width: usize,
+        min_height: usize,
+    ) anyerror!GridBlock {
+        _ = self;
+
+        const target_width = @max(block.width, min_width);
+        const target_height = @max(@max(block.lines.len, 1), if (min_height == 0) @as(usize, 1) else min_height);
+
+        if (target_width == block.width and target_height == @max(block.lines.len, 1)) return block;
+
+        const lines = try allocator.alloc([]const u8, target_height);
+        var row_index: usize = 0;
+        while (row_index < target_height) : (row_index += 1) {
+            if (row_index < block.lines.len) {
+                const line = block.lines[row_index];
+                if (line.len >= target_width) {
+                    lines[row_index] = line;
+                } else {
+                    var padded: std.ArrayList(u8) = .empty;
+                    defer padded.deinit(allocator);
+                    try padded.appendSlice(allocator, line);
+                    try padded.appendNTimes(allocator, ' ', target_width - line.len);
+                    lines[row_index] = try padded.toOwnedSlice(allocator);
+                }
+            } else {
+                lines[row_index] = try allocator.alloc(u8, target_width);
+                @memset(@constCast(lines[row_index]), ' ');
+            }
+        }
+
+        return .{ .lines = lines, .width = target_width };
+    }
+
     fn snapshotInlineBlock(self: *Session, allocator: std.mem.Allocator, value: Value) anyerror!GridBlock {
         return try self.snapshotLiteralBlock(allocator, try self.inlineRenderedValueAlloc(allocator, value));
     }
@@ -3790,6 +4012,9 @@ pub const Session = struct {
                 for (stripe.items) |item| try self.collectControlSummary(allocator, summary, item);
             },
             .label => |label| {
+                if (label.click_link != null) {
+                    try summary.clicks.append(allocator, try self.inlineRenderedValueAlloc(allocator, label.label));
+                }
                 if (label.double_click_link != null) {
                     try summary.double_clicks.append(allocator, try self.inlineRenderedValueAlloc(allocator, label.label));
                 }
@@ -3821,6 +4046,206 @@ pub const Session = struct {
             .scoped_node => |deferred| try self.collectControlSummary(allocator, summary, try self.evalNode(allocator, deferred.node_id, deferred.scope)),
             else => {},
         }
+    }
+
+    fn collectTerminalHitRegions(
+        self: *Session,
+        allocator: std.mem.Allocator,
+        regions: *std.ArrayList(TerminalHitRegion),
+        counters: *TerminalLayoutCounters,
+        value: Value,
+        x: usize,
+        y: usize,
+    ) anyerror!TerminalLayoutSize {
+        return switch (value) {
+            .document => |document| try self.collectTerminalHitRegions(allocator, regions, counters, document.root, x, y),
+            .terminal => |terminal| try self.collectTerminalHitRegions(allocator, regions, counters, terminal.root, x, y),
+            .list => |items| try self.collectTerminalHitRow(allocator, regions, counters, items, x, y, 0),
+            .stripe => |stripe| switch (stripe.direction) {
+                .row => blk: {
+                    const hover_index = if (stripe.hovered_link != null) blk_hover: {
+                        const index = counters.hover;
+                        counters.hover += 1;
+                        break :blk_hover index;
+                    } else null;
+                    const size = try self.collectTerminalHitRow(allocator, regions, counters, stripe.items, x, y, stripe.gap);
+                    if (hover_index) |index| {
+                        try regions.append(allocator, .{
+                            .x = x,
+                            .y = y,
+                            .width = size.width,
+                            .height = size.height,
+                            .hover_index = index,
+                        });
+                    }
+                    break :blk size;
+                },
+                .column => blk: {
+                    const hover_index = if (stripe.hovered_link != null) blk_hover: {
+                        const index = counters.hover;
+                        counters.hover += 1;
+                        break :blk_hover index;
+                    } else null;
+
+                    var cursor_y = y;
+                    var width: usize = 0;
+                    for (stripe.items) |item| {
+                        const child_size = try self.collectTerminalHitRegions(allocator, regions, counters, item, x, cursor_y);
+                        cursor_y += child_size.height;
+                        width = @max(width, child_size.width);
+                    }
+                    const size = TerminalLayoutSize{
+                        .width = width,
+                        .height = cursor_y - y,
+                    };
+                    if (hover_index) |index| {
+                        try regions.append(allocator, .{
+                            .x = x,
+                            .y = y,
+                            .width = size.width,
+                            .height = size.height,
+                            .hover_index = index,
+                        });
+                    }
+                    break :blk size;
+                },
+            },
+            .label => |label| blk: {
+                const click_index = if (label.click_link != null) blk_click: {
+                    const index = counters.button;
+                    counters.button += 1;
+                    break :blk_click index;
+                } else null;
+                const double_click_index = if (label.double_click_link != null) blk_double: {
+                    const index = counters.label_double_click;
+                    counters.label_double_click += 1;
+                    break :blk_double index;
+                } else null;
+                const child_size = try self.collectTerminalHitRegions(allocator, regions, counters, label.label, x, y);
+                const size = TerminalLayoutSize{
+                    .width = @max(child_size.width, label.terminal_width),
+                    .height = @max(child_size.height, if (label.terminal_height == 0) @as(usize, 1) else label.terminal_height),
+                };
+                if (click_index != null or double_click_index != null) {
+                    try regions.append(allocator, .{
+                        .x = x,
+                        .y = y,
+                        .width = size.width,
+                        .height = size.height,
+                        .button_index = click_index,
+                        .label_double_click_index = double_click_index,
+                    });
+                }
+                break :blk size;
+            },
+            .container => |container| try self.collectTerminalHitRegions(allocator, regions, counters, container.child, x, y),
+            .checkbox => |checkbox| blk: {
+                const index = if (checkbox.click_link != null) blk_click: {
+                    const next = counters.button;
+                    counters.button += 1;
+                    break :blk_click next;
+                } else null;
+                const block = try self.snapshotCheckboxBlock(allocator, checkbox);
+                const width = @max(block.width, checkbox.terminal_width);
+                const height = @max(@max(block.lines.len, 1), if (checkbox.terminal_height == 0) @as(usize, 1) else checkbox.terminal_height);
+                if (index) |click_index| {
+                    try regions.append(allocator, .{
+                        .x = x,
+                        .y = y,
+                        .width = width,
+                        .height = height,
+                        .button_index = click_index,
+                    });
+                }
+                break :blk .{ .width = width, .height = height };
+            },
+            .button => |button| blk: {
+                const button_index = if (button.press_link != null) blk_click: {
+                    const next = counters.button;
+                    counters.button += 1;
+                    break :blk_click next;
+                } else null;
+                const hover_index = if (button.hovered_link != null) blk_hover: {
+                    const next = counters.hover;
+                    counters.hover += 1;
+                    break :blk_hover next;
+                } else null;
+                const block = try self.snapshotWrappedBlock(allocator, button.label, "[", "]");
+                const width = @max(block.width, button.terminal_width);
+                const height = @max(@max(block.lines.len, 1), if (button.terminal_height == 0) @as(usize, 1) else button.terminal_height);
+                if (button_index != null or hover_index != null) {
+                    try regions.append(allocator, .{
+                        .x = x,
+                        .y = y,
+                        .width = width,
+                        .height = height,
+                        .button_index = button_index,
+                        .hover_index = hover_index,
+                    });
+                }
+                break :blk .{ .width = width, .height = height };
+            },
+            .text_input => |input| blk: {
+                const text_input_index = if (input.change_link != null) blk_input: {
+                    const next = counters.text_input;
+                    counters.text_input += 1;
+                    break :blk_input next;
+                } else null;
+                const block = try self.snapshotWrappedBlock(allocator, input.text, "<", ">");
+                const width = @max(block.width, input.terminal_width);
+                const height = @max(@max(block.lines.len, 1), if (input.terminal_height == 0) @as(usize, 1) else input.terminal_height);
+                if (text_input_index) |index| {
+                    try regions.append(allocator, .{
+                        .x = x,
+                        .y = y,
+                        .width = width,
+                        .height = height,
+                        .text_input_index = index,
+                    });
+                }
+                break :blk .{ .width = width, .height = height };
+            },
+            .select => |select| blk: {
+                const block = try self.snapshotWrappedBlock(allocator, select.selected, "<", ">");
+                break :blk .{
+                    .width = @max(block.width, select.terminal_width),
+                    .height = @max(@max(block.lines.len, 1), if (select.terminal_height == 0) @as(usize, 1) else select.terminal_height),
+                };
+            },
+            .slider => blk: {
+                const block = try self.snapshotLiteralBlock(allocator, "<slider>");
+                break :blk .{ .width = block.width, .height = @max(block.lines.len, 1) };
+            },
+            .scoped_node => |deferred| try self.collectTerminalHitRegions(allocator, regions, counters, try self.evalNode(allocator, deferred.node_id, deferred.scope), x, y),
+            else => blk: {
+                const block = try self.snapshotInlineBlock(allocator, value);
+                break :blk .{ .width = block.width, .height = @max(block.lines.len, 1) };
+            },
+        };
+    }
+
+    fn collectTerminalHitRow(
+        self: *Session,
+        allocator: std.mem.Allocator,
+        regions: *std.ArrayList(TerminalHitRegion),
+        counters: *TerminalLayoutCounters,
+        items: []Value,
+        x: usize,
+        y: usize,
+        gap: usize,
+    ) anyerror!TerminalLayoutSize {
+        var cursor_x = x;
+        var height: usize = if (items.len == 0) 1 else 0;
+        for (items, 0..) |item, index| {
+            if (index != 0) cursor_x += gap;
+            const child_size = try self.collectTerminalHitRegions(allocator, regions, counters, item, cursor_x, y);
+            cursor_x += child_size.width;
+            height = @max(height, child_size.height);
+        }
+        return .{
+            .width = cursor_x - x,
+            .height = height,
+        };
     }
 
     fn checkboxDisplayAlloc(self: *Session, allocator: std.mem.Allocator, checkbox: *CheckboxValue) anyerror![]u8 {
@@ -3864,6 +4289,7 @@ pub const Session = struct {
     }
 
     fn controlIndexByOrdinal(self: *Session, allocator: std.mem.Allocator, kind: ControlKind, ordinal: usize) !usize {
+        try self.flushPendingQueue();
         var scratch = std.heap.ArenaAllocator.init(allocator);
         defer scratch.deinit();
 
@@ -3902,6 +4328,7 @@ pub const Session = struct {
     }
 
     fn controlIndexByLabel(self: *Session, allocator: std.mem.Allocator, kind: ControlKind, label: []const u8) !usize {
+        try self.flushPendingQueue();
         var scratch = std.heap.ArenaAllocator.init(allocator);
         defer scratch.deinit();
 
@@ -4601,6 +5028,7 @@ fn controlEventValue(allocator: std.mem.Allocator, value: Value) anyerror!Value 
         },
         .label => |label| blk: {
             var fields = [_]RecordField{
+                .{ .name = "click", .value = optionalLinkValue(label.click_link) },
                 .{ .name = "double_click", .value = optionalLinkValue(label.double_click_link) },
             };
             break :blk try allocRecordValue(allocator, &fields);
@@ -4608,8 +5036,8 @@ fn controlEventValue(allocator: std.mem.Allocator, value: Value) anyerror!Value 
         .text_input => |input| blk: {
             const change_link = input.change_link;
             const key_link = input.key_link orelse input.change_link;
-            const blur_link = input.blur_link orelse input.change_link;
-            const focus_link = input.focus_link orelse input.change_link;
+            const blur_link = input.blur_link;
+            const focus_link = input.focus_link;
             var change_fields = [_]RecordField{
                 .{ .name = "value", .value = optionalLinkValue(change_link) },
                 .{ .name = "text", .value = optionalLinkValue(change_link) },
@@ -4674,6 +5102,22 @@ fn recordFieldFromValue(value: Value, name: []const u8) ?Value {
         .record => |fields| findRecordValue(fields, name),
         else => null,
     };
+}
+
+fn terminalStyleSizeFromValue(value: Value) TerminalStyleSize {
+    const width_value = recordFieldFromValue(value, "width");
+    const height_value = recordFieldFromValue(value, "height");
+    const width_px = if (width_value) |resolved| valueAsNumber(resolved) catch 0 else 0;
+    const height_px = if (height_value) |resolved| valueAsNumber(resolved) catch 0 else 0;
+    return .{
+        .width = terminalStyleSpan(width_px, 8),
+        .height = terminalStyleSpan(height_px, 26),
+    };
+}
+
+fn terminalStyleSpan(size: f64, divisor: f64) usize {
+    if (size <= 0) return 0;
+    return @max(@as(usize, 1), @as(usize, @intFromFloat(@ceil(size / divisor))));
 }
 
 fn persistKindLabel(kind: flow_ir.Node.Kind) ?[]const u8 {
@@ -5041,6 +5485,7 @@ fn valueAsText(value: Value) anyerror![]const u8 {
 
 fn valueAsIndex(value: Value) anyerror!usize {
     const number = try valueAsNumber(value);
+    if (std.math.isNan(number)) return 0;
     if (number <= 0) return 0;
     return @intFromFloat(@floor(number));
 }
@@ -5083,8 +5528,8 @@ fn listItemsFromValue(value: Value) anyerror![]Value {
 
 fn compareValues(lhs: Value, rhs: Value) anyerror!std.math.Order {
     return switch (lhs) {
-        .number => |number| std.math.order(number, try valueAsNumber(rhs)),
-        .duration_ms => |duration_ms| std.math.order(@as(f64, @floatFromInt(duration_ms)), try valueAsNumber(rhs)),
+        .number => |number| try compareNumbers(number, try valueAsNumber(rhs)),
+        .duration_ms => |duration_ms| try compareNumbers(@as(f64, @floatFromInt(duration_ms)), try valueAsNumber(rhs)),
         .text => |text| switch (rhs) {
             .text => |other| std.mem.order(u8, text, other),
             .symbol => |other| std.mem.order(u8, text, other),
@@ -5097,6 +5542,11 @@ fn compareValues(lhs: Value, rhs: Value) anyerror!std.math.Order {
         },
         else => error.ExpectedComparableValue,
     };
+}
+
+fn compareNumbers(lhs: f64, rhs: f64) anyerror!std.math.Order {
+    if (std.math.isNan(lhs) or std.math.isNan(rhs)) return error.ExpectedComparableValue;
+    return std.math.order(lhs, rhs);
 }
 
 fn booleanValue(value: bool) Value {
@@ -5564,7 +6014,12 @@ fn eventLinkFromValue(value: Value, event_name: []const u8) ?flow_ir.NodeId {
         else
             null,
         .checkbox => |checkbox| if (std.mem.eql(u8, event_name, "click")) checkbox.click_link else null,
-        .label => |label| if (std.mem.eql(u8, event_name, "double_click")) label.double_click_link else null,
+        .label => |label| if (std.mem.eql(u8, event_name, "click"))
+            label.click_link
+        else if (std.mem.eql(u8, event_name, "double_click"))
+            label.double_click_link
+        else
+            null,
         .stripe => |stripe| if (std.mem.eql(u8, event_name, "hovered")) stripe.hovered_link else null,
         .text_input => |input| if (std.mem.eql(u8, event_name, "change"))
             input.change_link
@@ -5613,6 +6068,13 @@ fn extractEventLink(value: Value, event_name: []const u8) ?flow_ir.NodeId {
     };
 }
 
+fn extractTerminalMetadata(value: Value) Value {
+    return switch (value) {
+        .record => |fields| findRecordValue(fields, "terminal") orelse .none,
+        else => .none,
+    };
+}
+
 fn optionalLinkValue(link: ?flow_ir.NodeId) Value {
     return if (link) |resolved| .{ .link = resolved } else .none;
 }
@@ -5624,16 +6086,9 @@ fn allocRecordValue(allocator: std.mem.Allocator, fields: []const RecordField) !
 }
 
 fn terminalContractFromValue(self: *Session, allocator: std.mem.Allocator, terminal: *TerminalValue) !TerminalContract {
-    const keyboard_bindings = try terminalBindingsAlloc(self, allocator, terminal.keyboard);
-    errdefer {
-        for (keyboard_bindings) |binding| allocator.free(binding.keys);
-        allocator.free(keyboard_bindings);
-    }
-
     return .{
-        .keyboard_bindings = keyboard_bindings,
+        .keyboard_bindings = try collectTerminalBindingsAlloc(self, allocator, terminal.root),
         .loop = try terminalLoopSpecFromValue(self, allocator, terminal.loop),
-        .footer = try terminalFooterModeFromValue(self, allocator, terminal.presentation),
     };
 }
 
@@ -5690,16 +6145,24 @@ fn terminalPreferredScopeAlloc(self: *Session, allocator: std.mem.Allocator, val
     };
 }
 
-fn terminalBindingsAlloc(self: *Session, allocator: std.mem.Allocator, keyboard_value: Value) ![]TerminalKeyBinding {
-    if (keyboard_value == .none) return allocator.alloc(TerminalKeyBinding, 0);
-    const binding_scope = try terminalPreferredScopeAlloc(self, allocator, keyboard_value);
-    errdefer destroyCapturedScope(allocator, binding_scope);
-    defer destroyCapturedScope(allocator, binding_scope);
-    const resolved_keyboard = try materializeTerminalContractValue(self, allocator, keyboard_value);
-    const bindings_value = recordFieldFromValue(resolved_keyboard, "bindings") orelse return error.MissingRecordField;
-    const items = try listItemsFromValue(bindings_value);
-    const bindings = try allocator.alloc(TerminalKeyBinding, items.len);
-    for (items, 0..) |item, index| {
+fn appendTerminalBindingsFromValue(
+    self: *Session,
+    allocator: std.mem.Allocator,
+    bindings: *std.ArrayList(TerminalKeyBinding),
+    bindings_value: Value,
+    scope: ?*const EvalScope,
+) !void {
+    if (bindings_value == .none) return;
+    const resolved_terminal = try materializeTerminalContractValue(self, allocator, bindings_value);
+    const resolved_bindings = switch (resolved_terminal) {
+        .record => |fields| findRecordValue(fields, "bindings") orelse return,
+        .list => resolved_terminal,
+        .none => return,
+        else => return error.ExpectedRecordValue,
+    };
+    const items = try listItemsFromValue(resolved_bindings);
+    const canonical_scope = Session.canonicalControlScope(scope) orelse scope;
+    for (items) |item| {
         const fields = switch (item) {
             .record => |fields| fields,
             else => return error.ExpectedRecordValue,
@@ -5712,29 +6175,40 @@ fn terminalBindingsAlloc(self: *Session, allocator: std.mem.Allocator, keyboard_
         }
         errdefer allocator.free(keys);
 
-        const press_value = findRecordValue(fields, "press") orelse return error.MissingRecordField;
-        const press_link = switch (press_value) {
+        const link_value = findRecordValue(fields, "link") orelse return error.MissingRecordField;
+        const link = switch (link_value) {
             .link => |link| link,
             else => return error.ExpectedLinkValue,
         };
         const when = if (findRecordValue(fields, "when")) |when_value| try valueAsBool(when_value) else true;
         const label = if (findRecordValue(fields, "label")) |label_value| try allocator.dupe(u8, try valueAsText(label_value)) else null;
-        bindings[index] = .{
+        try bindings.append(allocator, .{
             .keys = keys,
-            .press_link = press_link,
-            .scope = if (binding_scope) |scope| try captureScope(allocator, scope) else null,
+            .link = link,
+            .scope = if (canonical_scope) |resolved_scope| try captureScope(allocator, resolved_scope) else null,
             .when = when,
             .label = label,
-        };
+        });
     }
-    return bindings;
+}
+
+fn collectTerminalBindingsAlloc(self: *Session, allocator: std.mem.Allocator, value: Value) ![]TerminalKeyBinding {
+    var bindings: std.ArrayList(TerminalKeyBinding) = .empty;
+    defer bindings.deinit(allocator);
+    try collectTerminalBindings(self, &bindings, allocator, value);
+    return try bindings.toOwnedSlice(allocator);
 }
 
 fn terminalLoopSpecFromValue(self: *Session, allocator: std.mem.Allocator, loop_value: Value) !?TerminalLoopSpec {
     if (loop_value == .none) return null;
-    const loop_scope = try terminalPreferredScopeAlloc(self, allocator, loop_value);
-    errdefer destroyCapturedScope(allocator, loop_scope);
     const resolved_loop = try materializeTerminalContractValue(self, allocator, loop_value);
+    switch (resolved_loop) {
+        .none => return null,
+        .symbol => |symbol| if (std.mem.eql(u8, symbol, "None")) return null,
+        else => {},
+    }
+    const loop_scope = try terminalPreferredScopeAlloc(self, allocator, resolved_loop);
+    errdefer destroyCapturedScope(allocator, loop_scope);
     const pulse_value = recordFieldFromValue(resolved_loop, "pulse") orelse return error.MissingRecordField;
     const pulse_link = switch (pulse_value) {
         .link => |link| link,
@@ -5753,17 +6227,6 @@ fn terminalLoopSpecFromValue(self: *Session, allocator: std.mem.Allocator, loop_
     };
 }
 
-fn terminalFooterModeFromValue(self: *Session, allocator: std.mem.Allocator, presentation_value: Value) !TerminalFooterMode {
-    if (presentation_value == .none) return .summary;
-    const resolved_presentation = try materializeTerminalContractValue(self, allocator, presentation_value);
-    const footer_value = recordFieldFromValue(resolved_presentation, "footer") orelse return .summary;
-    return switch (footer_value) {
-        .symbol => |text| if (std.mem.eql(u8, text, "Hidden")) .hidden else .summary,
-        .text => |text| if (std.mem.eql(u8, text, "Hidden")) .hidden else .summary,
-        else => .summary,
-    };
-}
-
 fn collectButtonLinks(self: *Session, list: *std.ArrayList(ControlEventRef), allocator: std.mem.Allocator, value: Value) !void {
     switch (value) {
         .list => |items| for (items) |item| try collectButtonLinks(self, list, allocator, item),
@@ -5771,9 +6234,34 @@ fn collectButtonLinks(self: *Session, list: *std.ArrayList(ControlEventRef), all
         .terminal => |terminal| try collectButtonLinks(self, list, allocator, terminal.root),
         .stripe => |stripe| for (stripe.items) |item| try collectButtonLinks(self, list, allocator, item),
         .container => |container| try collectButtonLinks(self, list, allocator, container.child),
+        .label => |label| if (label.click_link) |link| try list.append(allocator, .{ .link = link, .scope = label.event_scope }),
         .checkbox => |checkbox| if (checkbox.click_link) |link| try list.append(allocator, .{ .link = link, .scope = checkbox.event_scope }),
         .button => |button| if (button.press_link) |link| try list.append(allocator, .{ .link = link, .scope = button.event_scope }),
         .scoped_node => |deferred| try collectButtonLinks(self, list, allocator, try self.evalNode(allocator, deferred.node_id, deferred.scope)),
+        else => {},
+    }
+}
+
+fn collectTerminalBindings(self: *Session, list: *std.ArrayList(TerminalKeyBinding), allocator: std.mem.Allocator, value: Value) !void {
+    switch (value) {
+        .list => |items| for (items) |item| try collectTerminalBindings(self, list, allocator, item),
+        .document => |document| try collectTerminalBindings(self, list, allocator, document.root),
+        .terminal => |terminal| try collectTerminalBindings(self, list, allocator, terminal.root),
+        .stripe => |stripe| {
+            try appendTerminalBindingsFromValue(self, allocator, list, stripe.terminal_bindings, stripe.event_scope);
+            for (stripe.items) |item| try collectTerminalBindings(self, list, allocator, item);
+        },
+        .label => |label| try appendTerminalBindingsFromValue(self, allocator, list, label.terminal_bindings, label.event_scope),
+        .container => |container| {
+            try appendTerminalBindingsFromValue(self, allocator, list, container.terminal_bindings, container.event_scope);
+            try collectTerminalBindings(self, list, allocator, container.child);
+        },
+        .checkbox => |checkbox| try appendTerminalBindingsFromValue(self, allocator, list, checkbox.terminal_bindings, checkbox.event_scope),
+        .button => |button| try appendTerminalBindingsFromValue(self, allocator, list, button.terminal_bindings, button.event_scope),
+        .text_input => |input| try appendTerminalBindingsFromValue(self, allocator, list, input.terminal_bindings, input.event_scope),
+        .select => |select| try appendTerminalBindingsFromValue(self, allocator, list, select.terminal_bindings, select.event_scope),
+        .slider => |slider| try appendTerminalBindingsFromValue(self, allocator, list, slider.terminal_bindings, slider.event_scope),
+        .scoped_node => |deferred| try collectTerminalBindings(self, list, allocator, try self.evalNode(allocator, deferred.node_id, deferred.scope)),
         else => {},
     }
 }
@@ -5866,7 +6354,7 @@ fn collectTextInputBlurLinks(self: *Session, list: *std.ArrayList(ControlEventRe
         .terminal => |terminal| try collectTextInputBlurLinks(self, list, allocator, terminal.root),
         .stripe => |stripe| for (stripe.items) |item| try collectTextInputBlurLinks(self, list, allocator, item),
         .container => |container| try collectTextInputBlurLinks(self, list, allocator, container.child),
-        .text_input => |input| if (input.blur_link orelse input.change_link) |link| try list.append(allocator, .{ .link = link, .scope = input.event_scope }),
+        .text_input => |input| if (input.blur_link) |link| try list.append(allocator, .{ .link = link, .scope = input.event_scope }),
         .scoped_node => |deferred| try collectTextInputBlurLinks(self, list, allocator, try self.evalNode(allocator, deferred.node_id, deferred.scope)),
         else => {},
     }
@@ -5879,7 +6367,7 @@ fn collectTextInputFocusLinks(self: *Session, list: *std.ArrayList(ControlEventR
         .terminal => |terminal| try collectTextInputFocusLinks(self, list, allocator, terminal.root),
         .stripe => |stripe| for (stripe.items) |item| try collectTextInputFocusLinks(self, list, allocator, item),
         .container => |container| try collectTextInputFocusLinks(self, list, allocator, container.child),
-        .text_input => |input| if (input.focus_link orelse input.change_link) |link| try list.append(allocator, .{ .link = link, .scope = input.event_scope }),
+        .text_input => |input| if (input.focus_link) |link| try list.append(allocator, .{ .link = link, .scope = input.event_scope }),
         .scoped_node => |deferred| try collectTextInputFocusLinks(self, list, allocator, try self.evalNode(allocator, deferred.node_id, deferred.scope)),
         else => {},
     }
@@ -6829,7 +7317,76 @@ test "stored text input element in record exposes change and key events through 
     try std.testing.expectEqualStrings("MilkMilk", after_key);
 }
 
-test "terminal root exposes declared keyboard binding and scoped link pulses" {
+test "custom record event links preserve key_down.text access after key press" {
+    const source =
+        \\event_ports: [
+        \\    edit_text_event: LINK
+        \\    edit_committed: LINK
+        \\]
+        \\
+        \\draft: TEXT {} |> HOLD draft {
+        \\    event_ports.edit_text_event
+        \\}
+        \\
+        \\committed: TEXT { idle } |> HOLD committed {
+        \\    event_ports.edit_committed
+        \\}
+        \\
+        \\input: BLOCK {
+        \\    editing_element: [event: [change: LINK, key_down: LINK]]
+        \\
+        \\    edit_changed_link:
+        \\        editing_element.event.change
+        \\        |> THEN { editing_element.event.change.text }
+        \\        |> LINK { event_ports.edit_text_event }
+        \\
+        \\    edit_committed_link:
+        \\        editing_element.event.key_down.key
+        \\        |> WHEN {
+        \\            Enter => editing_element.event.key_down.text
+        \\            __ => SKIP
+        \\        }
+        \\        |> LINK { event_ports.edit_committed }
+        \\
+        \\    Element/text_input(
+        \\        element: editing_element
+        \\        style: []
+        \\        label: Hidden[text: TEXT { Input }]
+        \\        text: draft
+        \\        placeholder: []
+        \\        focus: False
+        \\    )
+        \\}
+        \\
+        \\document: Document/new(root: Element/stripe(
+        \\    element: []
+        \\    direction: Column
+        \\    gap: 0
+        \\    style: []
+        \\    items: LIST { input, committed }
+        \\))
+    ;
+
+    const outcome = try runAlloc(std.testing.allocator, source, .{ .trace = true });
+    const session_value = switch (outcome) {
+        .ok => |session| session,
+        .err => |failure| {
+            std.debug.print("unexpected custom event link failure: {s}\n", .{failure.message});
+            return error.UnexpectedHeadlessFailure;
+        },
+    };
+    var session = session_value;
+    defer session.deinit();
+
+    try session.setTextInputValue(0, "Milk");
+    try session.pressTextInputKey(0, "Enter");
+
+    const rendered = try session.renderAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(rendered);
+    try std.testing.expectEqualStrings("MilkMilk", rendered);
+}
+
+test "terminal root exposes element-owned terminal binding and scoped link pulses" {
     const source =
         \\store: [
         \\    elements: [launch: LINK]
@@ -6839,15 +7396,20 @@ test "terminal root exposes declared keyboard binding and scoped link pulses" {
         \\]
         \\
         \\terminal: Terminal/new(
-        \\    root: Element/label(element: [], style: [], label: store.count)
-        \\    keyboard: [
-        \\        bindings: LIST {
-        \\            [keys: LIST { TEXT { Enter } } press: store.elements.launch label: TEXT { launch }]
-        \\        }
-        \\    ]
-        \\    presentation: [footer: Summary]
+        \\    root: Element/label(
+        \\        element: [
+        \\            terminal: [
+        \\                bindings: LIST {
+        \\                    [keys: LIST { TEXT { Enter } } link: store.elements.launch label: TEXT { launch }]
+        \\                }
+        \\            ]
+        \\        ]
+        \\        style: []
+        \\        label: store.count
+        \\    )
+        \\    loop: None
         \\)
-        ;
+    ;
     const outcome = try runAlloc(std.testing.allocator, source, .{});
     const session_value = switch (outcome) {
         .ok => |session| session,
@@ -6867,11 +7429,38 @@ test "terminal root exposes declared keyboard binding and scoped link pulses" {
     try std.testing.expectEqualStrings("Enter", contract.keyboard_bindings[0].keys[0]);
     try std.testing.expect(contract.keyboard_bindings[0].scope != null);
 
-    try session.triggerLinkWithScope(contract.keyboard_bindings[0].press_link, contract.keyboard_bindings[0].scope);
+    try session.triggerLinkWithScope(contract.keyboard_bindings[0].link, contract.keyboard_bindings[0].scope);
 
     const rendered = try session.renderAlloc(std.testing.allocator);
     defer std.testing.allocator.free(rendered);
     try std.testing.expectEqualStrings("1", rendered);
+}
+
+test "pong terminal root exposes root element bindings" {
+    const source = @embedFile("../examples/terminal/pong/pong.bn");
+    const outcome = try runAlloc(std.testing.allocator, source, .{});
+    const session_value = switch (outcome) {
+        .ok => |session| session,
+        .err => |failure| {
+            std.debug.print("unexpected pong terminal failure: {s}\n", .{failure.message});
+            return error.UnexpectedHeadlessFailure;
+        },
+    };
+    var session = session_value;
+    defer session.deinit();
+
+    var contract = (try session.terminalContractAlloc(std.testing.allocator)).?;
+    defer contract.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(@as(usize, 5), contract.keyboard_bindings.len);
+    try std.testing.expectEqualStrings("Up", contract.keyboard_bindings[0].keys[0]);
+    try std.testing.expectEqualStrings("Enter", contract.keyboard_bindings[2].keys[0]);
+
+    try session.triggerLinkWithScope(contract.keyboard_bindings[2].link, contract.keyboard_bindings[2].scope);
+
+    const rendered = try session.renderAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(rendered);
+    try std.testing.expect(std.mem.indexOf(u8, rendered, "Rally") != null);
 }
 
 test "nested store hold field exposes sibling derived value through headless runtime" {
@@ -7672,6 +8261,101 @@ test "cells_dynamic headless session recomputes dependent cells after edit commi
     defer std.testing.allocator.free(trace);
     try std.testing.expect(std.mem.indexOf(u8, trace, "external label_double_click") != null);
     try std.testing.expect(std.mem.indexOf(u8, trace, "external text_input_key") != null);
+}
+
+test "terminal cells headless session recomputes dependent cells after edit commit" {
+    const source = @embedFile("../examples/terminal/cells/cells.bn");
+    const outcome = try runAlloc(std.testing.allocator, source, .{ .trace = true });
+    const session_value = switch (outcome) {
+        .ok => |session| session,
+        .err => |failure| {
+            std.debug.print("unexpected terminal cells edit failure: {s}\n", .{failure.message});
+            return error.UnexpectedHeadlessFailure;
+        },
+    };
+    var session = session_value;
+    defer session.deinit();
+
+    try session.doubleClickLabelByText(std.testing.allocator, "5");
+    try session.setFirstTextInputValue(std.testing.allocator, "7");
+    try session.pressFirstTextInputKey(std.testing.allocator, "Enter");
+
+    const rendered = try session.renderAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(rendered);
+    try std.testing.expect(std.mem.indexOf(u8, rendered, "1 7 17 32") != null);
+}
+
+test "terminal cells commit still works after snapshot renders between edit steps" {
+    const source = @embedFile("../examples/terminal/cells/cells.bn");
+    const outcome = try runAlloc(std.testing.allocator, source, .{ .trace = true });
+    const session_value = switch (outcome) {
+        .ok => |session| session,
+        .err => |failure| {
+            std.debug.print("unexpected terminal cells snapshot-step failure: {s}\n", .{failure.message});
+            return error.UnexpectedHeadlessFailure;
+        },
+    };
+    var session = session_value;
+    defer session.deinit();
+
+    try session.doubleClickLabelByText(std.testing.allocator, "5");
+    const after_open = try session.snapshotAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(after_open);
+    try std.testing.expect(std.mem.indexOf(u8, after_open, "<5>") != null);
+
+    try session.setFirstTextInputValue(std.testing.allocator, "7");
+    const after_change = try session.snapshotAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(after_change);
+    try std.testing.expect(std.mem.indexOf(u8, after_change, "<7>") != null);
+
+    try session.pressFirstTextInputKey(std.testing.allocator, "Enter");
+    const rendered = try session.snapshotAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(rendered);
+    try std.testing.expect(std.mem.indexOf(u8, rendered, "1 7 17 32") != null);
+}
+
+test "terminal cells invalid formula commit degrades safely instead of crashing" {
+    const source = @embedFile("../examples/terminal/cells/cells.bn");
+    const outcome = try runAlloc(std.testing.allocator, source, .{ .trace = true });
+    const session_value = switch (outcome) {
+        .ok => |session| session,
+        .err => |failure| {
+            std.debug.print("unexpected terminal cells invalid-formula failure: {s}\n", .{failure.message});
+            return error.UnexpectedHeadlessFailure;
+        },
+    };
+    var session = session_value;
+    defer session.deinit();
+
+    try session.doubleClickLabelByText(std.testing.allocator, "15");
+    try session.setFirstTextInputValue(std.testing.allocator, "=add(A1, A2)7");
+    try session.pressFirstTextInputKey(std.testing.allocator, "Enter");
+
+    const rendered = try session.renderAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(rendered);
+    try std.testing.expect(std.mem.indexOf(u8, rendered, "1 5 0 30") != null);
+}
+
+test "terminal cells_dynamic headless session recomputes dependent cells after edit commit" {
+    const source = @embedFile("../examples/terminal/cells_dynamic/cells_dynamic.bn");
+    const outcome = try runAlloc(std.testing.allocator, source, .{ .trace = true });
+    const session_value = switch (outcome) {
+        .ok => |session| session,
+        .err => |failure| {
+            std.debug.print("unexpected terminal cells_dynamic edit failure: {s}\n", .{failure.message});
+            return error.UnexpectedHeadlessFailure;
+        },
+    };
+    var session = session_value;
+    defer session.deinit();
+
+    try session.doubleClickLabelByText(std.testing.allocator, "5");
+    try session.setFirstTextInputValue(std.testing.allocator, "7");
+    try session.pressFirstTextInputKey(std.testing.allocator, "Enter");
+
+    const rendered = try session.renderAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(rendered);
+    try std.testing.expect(std.mem.indexOf(u8, rendered, "1 7 17 32") != null);
 }
 
 test "todo_mvc headless session adds, toggles, clears, and filters todos" {
