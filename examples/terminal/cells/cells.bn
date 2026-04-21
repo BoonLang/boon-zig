@@ -2,6 +2,53 @@
 -- 26 columns (A-Z) x 100 rows (1-100), official-size grid.
 -- Double-click edit, Enter commit, Escape cancel, blur exit, reactive formulas.
 
+total_rows: 100
+total_columns: 26
+visible_row_count: 7
+visible_column_count: 5
+
+FUNCTION max_row_start() {
+    total_rows - visible_row_count + 1
+}
+
+FUNCTION max_column_start() {
+    total_columns - visible_column_count + 1
+}
+
+FUNCTION viewport_row_start() {
+    focused_row <= 3 |> WHEN {
+        True => 1
+        __ => focused_row >= max_row_start() + 2 |> WHEN {
+            True => max_row_start()
+            __ => focused_row - 2
+        }
+    }
+}
+
+FUNCTION viewport_column_start() {
+    focused_column <= 3 |> WHEN {
+        True => 1
+        __ => focused_column >= max_column_start() + 2 |> WHEN {
+            True => max_column_start()
+            __ => focused_column - 2
+        }
+    }
+}
+
+FUNCTION visible_row_numbers() {
+    List/range(
+        from: viewport_row_start()
+        to: viewport_row_start() + visible_row_count - 1
+    )
+}
+
+FUNCTION visible_columns() {
+    List/range(
+        from: viewport_column_start()
+        to: viewport_column_start() + visible_column_count - 1
+    )
+}
+
 FUNCTION matching_overrides(column, row) {
     overrides |> List/retain(item, if: item.row == row |> WHEN {
         True => item.column == column
@@ -200,34 +247,8 @@ FUNCTION make_cell(column, row) {
 }
 
 FUNCTION make_row_cells(row) {
-    LIST {
-        make_cell(column: 1, row: row)
-        make_cell(column: 2, row: row)
-        make_cell(column: 3, row: row)
-        make_cell(column: 4, row: row)
-        make_cell(column: 5, row: row)
-        make_cell(column: 6, row: row)
-        make_cell(column: 7, row: row)
-        make_cell(column: 8, row: row)
-        make_cell(column: 9, row: row)
-        make_cell(column: 10, row: row)
-        make_cell(column: 11, row: row)
-        make_cell(column: 12, row: row)
-        make_cell(column: 13, row: row)
-        make_cell(column: 14, row: row)
-        make_cell(column: 15, row: row)
-        make_cell(column: 16, row: row)
-        make_cell(column: 17, row: row)
-        make_cell(column: 18, row: row)
-        make_cell(column: 19, row: row)
-        make_cell(column: 20, row: row)
-        make_cell(column: 21, row: row)
-        make_cell(column: 22, row: row)
-        make_cell(column: 23, row: row)
-        make_cell(column: 24, row: row)
-        make_cell(column: 25, row: row)
-        make_cell(column: 26, row: row)
-    }
+    visible_columns()
+    |> List/map(column, new: make_cell(column: column, row: row))
 }
 
 FUNCTION default_formula(column, row) {
@@ -620,15 +641,6 @@ FUNCTION make_row(row_number, row_cells) {
     )
 }
 
-FUNCTION make_row_data(row_number, row_cells) {
-    [row: row_number, cells: row_cells]
-}
-
-all_row_cells: List/range(from: 1, to: 100) |> List/map(
-    row_number
-    new: make_row_data(row_number: row_number, row_cells: make_row_cells(row: row_number))
-)
-
 terminal: Terminal/new(
     root: Element/stripe(
         element: [
@@ -686,7 +698,7 @@ terminal: Terminal/new(
             Element/label(
                 element: []
                 style: []
-                label: TEXT { Arrows or click move selection, Enter edits, double-click edits, wheel scrolls, hover highlights }
+                label: TEXT { Arrows or click move selection, Enter edits, double-click edits, hover highlights }
             )
 
             Element/stripe(
@@ -714,7 +726,7 @@ terminal: Terminal/new(
                         gap: 0
                         style: []
 
-                        items: List/range(from: 1, to: 26) |> List/map(column, new: Element/label(
+                        items: visible_columns() |> List/map(column, new: Element/label(
                             element: []
 
                             style: [
@@ -738,14 +750,15 @@ terminal: Terminal/new(
                 element: []
                 direction: Column
                 gap: 0
-                style: [scrollbars: True, height: 500]
+                style: [height: 500]
 
-                items:
-                    all_row_cells
-                    |> List/map(
-                        row_data
-                        new: make_row(row_number: row_data.row, row_cells: row_data.cells)
+                items: visible_row_numbers() |> List/map(
+                    row_number
+                    new: make_row(
+                        row_number: row_number
+                        row_cells: make_row_cells(row: row_number)
                     )
+                )
             )
         }
     )

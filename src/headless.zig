@@ -230,6 +230,33 @@ pub const TerminalContract = struct {
     }
 };
 
+fn cloneTerminalContract(allocator: std.mem.Allocator, contract: TerminalContract) !TerminalContract {
+    const bindings = try allocator.alloc(TerminalKeyBinding, contract.keyboard_bindings.len);
+    for (contract.keyboard_bindings, 0..) |binding, index| {
+        const keys = try allocator.alloc([]const u8, binding.keys.len);
+        for (binding.keys, 0..) |key, key_index| {
+            keys[key_index] = try allocator.dupe(u8, key);
+        }
+        bindings[index] = .{
+            .keys = keys,
+            .link = binding.link,
+            .scope = if (binding.scope) |scope| try captureScope(allocator, scope) else null,
+            .when = binding.when,
+            .label = if (binding.label) |label| try allocator.dupe(u8, label) else null,
+        };
+    }
+
+    return .{
+        .keyboard_bindings = bindings,
+        .loop = if (contract.loop) |loop| .{
+            .pulse_link = loop.pulse_link,
+            .scope = if (loop.scope) |scope| try captureScope(allocator, scope) else null,
+            .while_active = loop.while_active,
+            .every_ms = loop.every_ms,
+        } else null,
+    };
+}
+
 const PersistedScalarKind = enum {
     none,
     number,
@@ -273,6 +300,18 @@ const ControlEventRef = struct {
     scope: ?*const EvalScope = null,
 };
 
+const CachedControlKind = enum {
+    button,
+    slider,
+    text_input,
+    text_input_key,
+    text_input_blur,
+    text_input_focus,
+    label_double_click,
+    hover,
+    select,
+};
+
 const TerminalLayoutCounters = struct {
     button: usize = 0,
     label_double_click: usize = 0,
@@ -314,7 +353,9 @@ const ControlSummary = struct {
 const control_summary_limit: usize = 16;
 
 pub const Session = struct {
+    backing_allocator: std.mem.Allocator,
     arena: std.heap.ArenaAllocator,
+    memo_arena: std.heap.ArenaAllocator,
     flow: flow_ir.Document,
     trace_enabled: bool,
     trace_lines: std.ArrayList([]const u8) = .empty,
@@ -332,6 +373,18 @@ pub const Session = struct {
     link_key_values: []Value = &.{},
     link_key_inited: []bool = &.{},
     scoped_link_key_values: std.AutoHashMapUnmanaged(ScopedNodeKey, Value) = .empty,
+    eval_cache: std.AutoHashMapUnmanaged(ScopedNodeKey, Value) = .empty,
+    cached_terminal_contract: ?*TerminalContract = null,
+    cached_terminal_hit_regions: ?[]TerminalHitRegion = null,
+    cached_button_links: ?[]ControlEventRef = null,
+    cached_slider_links: ?[]ControlEventRef = null,
+    cached_text_input_links: ?[]ControlEventRef = null,
+    cached_text_input_key_links: ?[]ControlEventRef = null,
+    cached_text_input_blur_links: ?[]ControlEventRef = null,
+    cached_text_input_focus_links: ?[]ControlEventRef = null,
+    cached_label_double_click_links: ?[]ControlEventRef = null,
+    cached_hover_links: ?[]ControlEventRef = null,
+    cached_select_links: ?[]ControlEventRef = null,
     list_values: []Value = &.{},
     list_inited: []bool = &.{},
     list_remove_tombstones: [][]Value = &.{},
@@ -367,8 +420,27 @@ pub const Session = struct {
         self.scoped_hold_values.deinit(self.arena.allocator());
         self.scoped_link_values.deinit(self.arena.allocator());
         self.scoped_link_key_values.deinit(self.arena.allocator());
+        self.eval_cache.deinit(self.arena.allocator());
+        self.memo_arena.deinit();
         self.flow.deinit();
         self.arena.deinit();
+    }
+
+    fn invalidateEvalCache(self: *Session) void {
+        self.eval_cache.clearRetainingCapacity();
+        self.cached_terminal_contract = null;
+        self.cached_terminal_hit_regions = null;
+        self.cached_button_links = null;
+        self.cached_slider_links = null;
+        self.cached_text_input_links = null;
+        self.cached_text_input_key_links = null;
+        self.cached_text_input_blur_links = null;
+        self.cached_text_input_focus_links = null;
+        self.cached_label_double_click_links = null;
+        self.cached_hover_links = null;
+        self.cached_select_links = null;
+        self.memo_arena.deinit();
+        self.memo_arena = std.heap.ArenaAllocator.init(self.backing_allocator);
     }
 
     fn flushPendingQueue(self: *Session) !void {
@@ -570,39 +642,53 @@ pub const Session = struct {
         try self.enqueueExternalNodePulse(link, scope);
     }
 
-    pub fn terminalContractAlloc(self: *Session, allocator: std.mem.Allocator) !?TerminalContract {
+    pub fn terminalContractView(self: *Session) !?*const TerminalContract {
         if (self.rootKind() != .terminal) return null;
         try self.flushPendingQueue();
-        const root_binding = self.flow.root_binding orelse return error.MissingDocumentRoot;
-        var scratch = std.heap.ArenaAllocator.init(allocator);
-        defer scratch.deinit();
+        if (self.cached_terminal_contract) |contract| return contract;
 
-        const value = try self.evalNode(scratch.allocator(), self.flow.bindings[root_binding].node, null);
+        const root_binding = self.flow.root_binding orelse return error.MissingDocumentRoot;
+        const value = try self.evalNode(self.arena.allocator(), self.flow.bindings[root_binding].node, null);
         const terminal = switch (value) {
             .terminal => |terminal| terminal,
             else => return error.ExpectedTerminalRoot,
         };
-        return try terminalContractFromValue(self, allocator, terminal);
+
+        const contract = try self.memo_arena.allocator().create(TerminalContract);
+        contract.* = try terminalContractFromValue(self, self.memo_arena.allocator(), terminal);
+        self.cached_terminal_contract = contract;
+        return contract;
     }
 
-    pub fn terminalHitRegionsAlloc(self: *Session, allocator: std.mem.Allocator) !?[]TerminalHitRegion {
+    pub fn terminalContractAlloc(self: *Session, allocator: std.mem.Allocator) !?TerminalContract {
+        const contract = (try self.terminalContractView()) orelse return null;
+        return try cloneTerminalContract(allocator, contract.*);
+    }
+
+    pub fn terminalHitRegionsView(self: *Session) !?[]const TerminalHitRegion {
         if (self.rootKind() != .terminal) return null;
         try self.flushPendingQueue();
-        const root_binding = self.flow.root_binding orelse return error.MissingDocumentRoot;
-        var scratch = std.heap.ArenaAllocator.init(allocator);
-        defer scratch.deinit();
+        if (self.cached_terminal_hit_regions) |regions| return regions;
 
-        const value = try self.evalNode(scratch.allocator(), self.flow.bindings[root_binding].node, null);
+        const root_binding = self.flow.root_binding orelse return error.MissingDocumentRoot;
+        const value = try self.evalNode(self.arena.allocator(), self.flow.bindings[root_binding].node, null);
         const terminal = switch (value) {
             .terminal => |terminal| terminal,
             else => return error.ExpectedTerminalRoot,
         };
 
         var regions: std.ArrayList(TerminalHitRegion) = .empty;
-        defer regions.deinit(allocator);
+        defer regions.deinit(self.memo_arena.allocator());
         var counters = TerminalLayoutCounters{};
-        _ = try self.collectTerminalHitRegions(allocator, &regions, &counters, terminal.root, 0, 0);
-        return try regions.toOwnedSlice(allocator);
+        _ = try self.collectTerminalHitRegions(self.memo_arena.allocator(), &regions, &counters, terminal.root, 0, 0);
+        const owned = try regions.toOwnedSlice(self.memo_arena.allocator());
+        self.cached_terminal_hit_regions = owned;
+        return owned;
+    }
+
+    pub fn terminalHitRegionsAlloc(self: *Session, allocator: std.mem.Allocator) !?[]TerminalHitRegion {
+        const regions = (try self.terminalHitRegionsView()) orelse return null;
+        return try allocator.dupe(TerminalHitRegion, regions);
     }
 
     pub fn clickButtonByLabel(self: *Session, allocator: std.mem.Allocator, label: []const u8) !void {
@@ -1129,6 +1215,7 @@ pub const Session = struct {
                         if (self.sum_inited[index]) {
                             try self.logf("restore sum n{d} = {d}", .{ index, self.sum_values[index] });
                         } else if (try self.initialNumericValue(call.positional[0])) |value| {
+                            self.invalidateEvalCache();
                             self.sum_values[index] = value;
                             self.sum_inited[index] = true;
                             try self.logf("init sum n{d} = {d}", .{ index, value });
@@ -2238,6 +2325,7 @@ pub const Session = struct {
                 }
                 if (std.mem.eql(u8, call.path, "Math/sum")) {
                     const value = try valueAsNumber(try valueFromPulsePayload(self, self.arena.allocator(), pulse.payload, pulse.scope));
+                    self.invalidateEvalCache();
                     self.sum_values[subscriber] += value;
                     self.sum_inited[subscriber] = true;
                     try self.logf("sum n{d} += {d} -> {d}", .{
@@ -2256,6 +2344,7 @@ pub const Session = struct {
                 if (std.mem.eql(u8, call.path, "Router/go_to") and call.positional.len != 0) {
                     const route = try self.evalNode(self.arena.allocator(), call.positional[0], null);
                     if (route != .none) {
+                        self.invalidateEvalCache();
                         self.route_value = route;
                         try self.logf("router_go_to n{d} -> {s}", .{ subscriber, try valueAsText(route) });
                         try self.queue.append(self.arena.allocator(), .{ .source = subscriber, .payload = .{ .node = subscriber } });
@@ -2446,85 +2535,100 @@ pub const Session = struct {
         };
     }
 
-    fn buttonLinkAt(self: *Session, index: usize) anyerror!ControlEventRef {
+    fn cachedControlRefs(self: *Session, kind: CachedControlKind) anyerror![]const ControlEventRef {
+        switch (kind) {
+            .button => if (self.cached_button_links) |links| return links,
+            .slider => if (self.cached_slider_links) |links| return links,
+            .text_input => if (self.cached_text_input_links) |links| return links,
+            .text_input_key => if (self.cached_text_input_key_links) |links| return links,
+            .text_input_blur => if (self.cached_text_input_blur_links) |links| return links,
+            .text_input_focus => if (self.cached_text_input_focus_links) |links| return links,
+            .label_double_click => if (self.cached_label_double_click_links) |links| return links,
+            .hover => if (self.cached_hover_links) |links| return links,
+            .select => if (self.cached_select_links) |links| return links,
+        }
+
         const value = try self.interactionRootValue();
         var links: std.ArrayList(ControlEventRef) = .empty;
-        defer links.deinit(self.arena.allocator());
-        try collectButtonLinks(self, &links, self.arena.allocator(), value);
-        if (index >= links.items.len) return error.InvalidButtonIndex;
-        return links.items[index];
+        defer links.deinit(self.memo_arena.allocator());
+        switch (kind) {
+            .button => try collectButtonLinks(self, &links, self.memo_arena.allocator(), value),
+            .slider => try collectSliderLinks(self, &links, self.memo_arena.allocator(), value),
+            .text_input => try collectTextInputLinks(self, &links, self.memo_arena.allocator(), value),
+            .text_input_key => try collectTextInputKeyLinks(self, &links, self.memo_arena.allocator(), value),
+            .text_input_blur => try collectTextInputBlurLinks(self, &links, self.memo_arena.allocator(), value),
+            .text_input_focus => try collectTextInputFocusLinks(self, &links, self.memo_arena.allocator(), value),
+            .label_double_click => try collectLabelDoubleClickLinks(self, &links, self.memo_arena.allocator(), value),
+            .hover => try collectHoverLinks(self, &links, self.memo_arena.allocator(), value),
+            .select => try collectSelectLinks(self, &links, self.memo_arena.allocator(), value),
+        }
+        const owned = try links.toOwnedSlice(self.memo_arena.allocator());
+        switch (kind) {
+            .button => self.cached_button_links = owned,
+            .slider => self.cached_slider_links = owned,
+            .text_input => self.cached_text_input_links = owned,
+            .text_input_key => self.cached_text_input_key_links = owned,
+            .text_input_blur => self.cached_text_input_blur_links = owned,
+            .text_input_focus => self.cached_text_input_focus_links = owned,
+            .label_double_click => self.cached_label_double_click_links = owned,
+            .hover => self.cached_hover_links = owned,
+            .select => self.cached_select_links = owned,
+        }
+        return owned;
+    }
+
+    fn buttonLinkAt(self: *Session, index: usize) anyerror!ControlEventRef {
+        const links = try self.cachedControlRefs(.button);
+        if (index >= links.len) return error.InvalidButtonIndex;
+        return links[index];
     }
 
     fn sliderLinkAt(self: *Session, index: usize) anyerror!ControlEventRef {
-        const value = try self.interactionRootValue();
-        var links: std.ArrayList(ControlEventRef) = .empty;
-        defer links.deinit(self.arena.allocator());
-        try collectSliderLinks(self, &links, self.arena.allocator(), value);
-        if (index >= links.items.len) return error.InvalidSliderIndex;
-        return links.items[index];
+        const links = try self.cachedControlRefs(.slider);
+        if (index >= links.len) return error.InvalidSliderIndex;
+        return links[index];
     }
 
     fn textInputLinkAt(self: *Session, index: usize) anyerror!ControlEventRef {
-        const value = try self.interactionRootValue();
-        var links: std.ArrayList(ControlEventRef) = .empty;
-        defer links.deinit(self.arena.allocator());
-        try collectTextInputLinks(self, &links, self.arena.allocator(), value);
-        if (index >= links.items.len) return error.InvalidTextInputIndex;
-        return links.items[index];
+        const links = try self.cachedControlRefs(.text_input);
+        if (index >= links.len) return error.InvalidTextInputIndex;
+        return links[index];
     }
 
     fn textInputKeyLinkAt(self: *Session, index: usize) anyerror!ControlEventRef {
-        const value = try self.interactionRootValue();
-        var links: std.ArrayList(ControlEventRef) = .empty;
-        defer links.deinit(self.arena.allocator());
-        try collectTextInputKeyLinks(self, &links, self.arena.allocator(), value);
-        if (index >= links.items.len) return error.InvalidTextInputIndex;
-        return links.items[index];
+        const links = try self.cachedControlRefs(.text_input_key);
+        if (index >= links.len) return error.InvalidTextInputIndex;
+        return links[index];
     }
 
     fn textInputBlurLinkAt(self: *Session, index: usize) anyerror!ControlEventRef {
-        const value = try self.interactionRootValue();
-        var links: std.ArrayList(ControlEventRef) = .empty;
-        defer links.deinit(self.arena.allocator());
-        try collectTextInputBlurLinks(self, &links, self.arena.allocator(), value);
-        if (index >= links.items.len) return error.InvalidTextInputIndex;
-        return links.items[index];
+        const links = try self.cachedControlRefs(.text_input_blur);
+        if (index >= links.len) return error.InvalidTextInputIndex;
+        return links[index];
     }
 
     fn textInputFocusLinkAt(self: *Session, index: usize) anyerror!ControlEventRef {
-        const value = try self.interactionRootValue();
-        var links: std.ArrayList(ControlEventRef) = .empty;
-        defer links.deinit(self.arena.allocator());
-        try collectTextInputFocusLinks(self, &links, self.arena.allocator(), value);
-        if (index >= links.items.len) return error.InvalidTextInputIndex;
-        return links.items[index];
+        const links = try self.cachedControlRefs(.text_input_focus);
+        if (index >= links.len) return error.InvalidTextInputIndex;
+        return links[index];
     }
 
     fn labelDoubleClickLinkAt(self: *Session, index: usize) anyerror!ControlEventRef {
-        const value = try self.interactionRootValue();
-        var links: std.ArrayList(ControlEventRef) = .empty;
-        defer links.deinit(self.arena.allocator());
-        try collectLabelDoubleClickLinks(self, &links, self.arena.allocator(), value);
-        if (index >= links.items.len) return error.InvalidButtonIndex;
-        return links.items[index];
+        const links = try self.cachedControlRefs(.label_double_click);
+        if (index >= links.len) return error.InvalidButtonIndex;
+        return links[index];
     }
 
     fn hoverLinkAt(self: *Session, index: usize) anyerror!ControlEventRef {
-        const value = try self.interactionRootValue();
-        var links: std.ArrayList(ControlEventRef) = .empty;
-        defer links.deinit(self.arena.allocator());
-        try collectHoverLinks(self, &links, self.arena.allocator(), value);
-        if (index >= links.items.len) return error.InvalidButtonIndex;
-        return links.items[index];
+        const links = try self.cachedControlRefs(.hover);
+        if (index >= links.len) return error.InvalidButtonIndex;
+        return links[index];
     }
 
     fn selectLinkAt(self: *Session, index: usize) anyerror!ControlEventRef {
-        const value = try self.interactionRootValue();
-        var links: std.ArrayList(ControlEventRef) = .empty;
-        defer links.deinit(self.arena.allocator());
-        try collectSelectLinks(self, &links, self.arena.allocator(), value);
-        if (index >= links.items.len) return error.InvalidSelectIndex;
-        return links.items[index];
+        const links = try self.cachedControlRefs(.select);
+        if (index >= links.len) return error.InvalidSelectIndex;
+        return links[index];
     }
 
     fn interactionRootValue(self: *Session) anyerror!Value {
@@ -2539,6 +2643,14 @@ pub const Session = struct {
         return .{
             .node_id = node_id,
             .scope_id = normalized_scope.id,
+        };
+    }
+
+    fn evalCacheKey(self: *Session, node_id: flow_ir.NodeId, scope: ?*const EvalScope) ScopedNodeKey {
+        _ = self;
+        return .{
+            .node_id = node_id,
+            .scope_id = if (scope) |resolved| resolved.id else 0,
         };
     }
 
@@ -2578,6 +2690,7 @@ pub const Session = struct {
     }
 
     fn setLinkValue(self: *Session, node_id: flow_ir.NodeId, scope: ?*const EvalScope, value: Value) !void {
+        self.invalidateEvalCache();
         if (self.scopedNodeKey(node_id, scope)) |key| {
             try self.scoped_link_values.put(self.arena.allocator(), key, value);
             return;
@@ -2592,6 +2705,7 @@ pub const Session = struct {
     }
 
     fn setLinkKeyValue(self: *Session, node_id: flow_ir.NodeId, scope: ?*const EvalScope, value: Value) !void {
+        self.invalidateEvalCache();
         if (self.scopedNodeKey(node_id, scope)) |key| {
             try self.scoped_link_key_values.put(self.arena.allocator(), key, value);
             return;
@@ -2606,6 +2720,7 @@ pub const Session = struct {
     }
 
     fn setLatestPayload(self: *Session, node_id: flow_ir.NodeId, scope: ?*const EvalScope, payload: PulsePayload) !void {
+        self.invalidateEvalCache();
         if (self.scopedNodeKey(node_id, scope)) |key| {
             try self.scoped_latest_values.put(self.arena.allocator(), key, payload);
             return;
@@ -2619,6 +2734,7 @@ pub const Session = struct {
     }
 
     fn setHoldValue(self: *Session, node_id: flow_ir.NodeId, scope: ?*const EvalScope, value: Value) !void {
+        self.invalidateEvalCache();
         if (self.scopedNodeKey(node_id, scope)) |key| {
             try self.scoped_hold_values.put(self.arena.allocator(), key, value);
             return;
@@ -2637,6 +2753,15 @@ pub const Session = struct {
     }
 
     fn evalNode(self: *Session, allocator: std.mem.Allocator, node_id: flow_ir.NodeId, scope: ?*const EvalScope) anyerror!Value {
+        const cache_key = self.evalCacheKey(node_id, scope);
+        if (self.eval_cache.get(cache_key)) |cached| return cached;
+
+        const value = try self.evalNodeUncached(allocator, node_id, scope);
+        try self.eval_cache.put(self.arena.allocator(), cache_key, value);
+        return value;
+    }
+
+    fn evalNodeUncached(self: *Session, allocator: std.mem.Allocator, node_id: flow_ir.NodeId, scope: ?*const EvalScope) anyerror!Value {
         const node = self.flow.nodes[node_id];
         return switch (node.kind) {
             .number => |number| .{ .number = number.value },
@@ -4433,6 +4558,7 @@ pub const Session = struct {
             if (limit == 0) {
                 self.skip_values[node_id] = value;
                 self.skip_inited[node_id] = true;
+                self.invalidateEvalCache();
             } else {
                 self.skip_seen[node_id] = 1;
             }
@@ -4450,6 +4576,7 @@ pub const Session = struct {
 
         self.skip_values[node_id] = try valueFromPulsePayload(self, self.arena.allocator(), payload, scope);
         self.skip_inited[node_id] = true;
+        self.invalidateEvalCache();
         try self.logf("skip n{d} emitted", .{node_id});
         try self.queue.append(self.arena.allocator(), .{ .source = node_id, .payload = .{ .node = node_id } });
     }
@@ -4459,6 +4586,7 @@ pub const Session = struct {
         const base = try self.evalNode(allocator, call.positional[0], null);
         self.list_values[node_id] = try cloneListValue(self.arena.allocator(), base);
         self.list_inited[node_id] = true;
+        self.invalidateEvalCache();
         try self.logf("init list_append n{d}", .{node_id});
     }
 
@@ -4467,6 +4595,7 @@ pub const Session = struct {
         const base = try self.evalNode(allocator, call.positional[0], null);
         self.list_values[node_id] = try cloneListValue(self.arena.allocator(), base);
         self.list_inited[node_id] = true;
+        self.invalidateEvalCache();
         try self.logf("init list_clear n{d}", .{node_id});
     }
 
@@ -4475,6 +4604,7 @@ pub const Session = struct {
         const base = try self.evalNode(allocator, call.positional[0], null);
         self.list_values[node_id] = try self.filterRemovedItems(self.arena.allocator(), base, self.list_remove_tombstones[node_id]);
         self.list_inited[node_id] = true;
+        self.invalidateEvalCache();
         try self.logf("init list_remove n{d}", .{node_id});
     }
 
@@ -4483,6 +4613,7 @@ pub const Session = struct {
         const base = try self.evalNode(allocator, call.positional[0], null);
         self.list_values[node_id] = try cloneListValue(self.arena.allocator(), base);
         self.list_inited[node_id] = true;
+        self.invalidateEvalCache();
         try self.logf("init list_remove_last n{d}", .{node_id});
     }
 
@@ -4493,6 +4624,7 @@ pub const Session = struct {
             const base = try self.evalNode(self.arena.allocator(), call.positional[0], null);
             self.list_values[node_id] = try cloneListValue(self.arena.allocator(), base);
             self.list_inited[node_id] = true;
+            self.invalidateEvalCache();
             try self.logf("list_append n{d} mirror", .{node_id});
             try self.queue.append(self.arena.allocator(), .{ .source = node_id, .payload = .{ .node = node_id } });
             return;
@@ -4512,6 +4644,7 @@ pub const Session = struct {
         next[current.len] = item;
         self.list_values[node_id] = .{ .list = next };
         self.list_inited[node_id] = true;
+        self.invalidateEvalCache();
         try self.logf("list_append n{d} len={d}", .{ node_id, next.len });
         try self.queue.append(self.arena.allocator(), .{ .source = node_id, .payload = .{ .node = node_id } });
     }
@@ -4524,6 +4657,7 @@ pub const Session = struct {
             const base = try self.evalNode(self.arena.allocator(), call.positional[0], null);
             self.list_values[node_id] = try cloneListValue(self.arena.allocator(), base);
             self.list_inited[node_id] = true;
+            self.invalidateEvalCache();
             try self.logf("list_clear n{d} mirror", .{node_id});
             try self.queue.append(self.arena.allocator(), .{ .source = node_id, .payload = .{ .node = node_id } });
             return;
@@ -4531,6 +4665,7 @@ pub const Session = struct {
         if (try self.valueTriggerSource(on_node) != source) return;
         self.list_values[node_id] = .{ .list = &.{} };
         self.list_inited[node_id] = true;
+        self.invalidateEvalCache();
         try self.logf("list_clear n{d} cleared", .{node_id});
         try self.queue.append(self.arena.allocator(), .{ .source = node_id, .payload = .{ .node = node_id } });
     }
@@ -4549,6 +4684,7 @@ pub const Session = struct {
             const base = try self.evalNode(self.arena.allocator(), base_node, null);
             self.list_values[node_id] = try self.filterRemovedItems(self.arena.allocator(), base, self.list_remove_tombstones[node_id]);
             self.list_inited[node_id] = true;
+            self.invalidateEvalCache();
             try self.logf("list_remove n{d} mirror len={d}", .{ node_id, (try listItemsFromValue(self.list_values[node_id])).len });
             try self.queue.append(self.arena.allocator(), .{ .source = node_id, .payload = .{ .node = node_id } });
             return;
@@ -4560,6 +4696,7 @@ pub const Session = struct {
             const base = try self.evalNode(self.arena.allocator(), base_node, null);
             self.list_values[node_id] = try self.filterRemovedItems(self.arena.allocator(), base, self.list_remove_tombstones[node_id]);
             self.list_inited[node_id] = true;
+            self.invalidateEvalCache();
             break :blk try listItemsFromValue(self.list_values[node_id]);
         };
 
@@ -4585,6 +4722,7 @@ pub const Session = struct {
         );
         self.list_values[node_id] = .{ .list = try kept.toOwnedSlice(self.arena.allocator()) };
         self.list_inited[node_id] = true;
+        self.invalidateEvalCache();
         try self.logf("list_remove n{d} removed={d} len={d}", .{ node_id, removed.items.len, kept.items.len });
         try self.queue.append(self.arena.allocator(), .{ .source = node_id, .payload = .{ .node = node_id } });
     }
@@ -4599,6 +4737,7 @@ pub const Session = struct {
             const base = try self.evalNode(self.arena.allocator(), base_node, null);
             self.list_values[node_id] = try cloneListValue(self.arena.allocator(), base);
             self.list_inited[node_id] = true;
+            self.invalidateEvalCache();
             try self.logf("list_remove_last n{d} mirror", .{node_id});
             try self.queue.append(self.arena.allocator(), .{ .source = node_id, .payload = .{ .node = node_id } });
             return;
@@ -4611,6 +4750,7 @@ pub const Session = struct {
             const base = try self.evalNode(self.arena.allocator(), base_node, null);
             self.list_values[node_id] = try cloneListValue(self.arena.allocator(), base);
             self.list_inited[node_id] = true;
+            self.invalidateEvalCache();
             break :blk try listItemsFromValue(self.list_values[node_id]);
         };
 
@@ -4620,6 +4760,7 @@ pub const Session = struct {
         @memcpy(next, current[0 .. current.len - 1]);
         self.list_values[node_id] = .{ .list = next };
         self.list_inited[node_id] = true;
+        self.invalidateEvalCache();
         try self.logf("list_remove_last n{d} len={d}", .{ node_id, next.len });
         try self.queue.append(self.arena.allocator(), .{ .source = node_id, .payload = .{ .node = node_id } });
     }
@@ -4999,9 +5140,13 @@ pub fn runAlloc(allocator: std.mem.Allocator, source: []const u8, options: Optio
 
     var arena = std.heap.ArenaAllocator.init(allocator);
     errdefer arena.deinit();
+    var memo_arena = std.heap.ArenaAllocator.init(allocator);
+    errdefer memo_arena.deinit();
 
     var session = Session{
+        .backing_allocator = allocator,
         .arena = arena,
+        .memo_arena = memo_arena,
         .flow = document,
         .trace_enabled = options.trace,
         .state_file_path = if (options.state_file_path) |path| try arena.allocator().dupe(u8, path) else null,

@@ -517,7 +517,7 @@ const headless_p0_cases = [_]VerifyHeadlessCase{
     .{
         .name = "cells",
         .path = "examples/terminal/cells/cells.bn",
-        .expected = .{ .contains = "[ 1  ][ 5  ]| 15 || 30 |" },
+        .expected = .{ .contains = "|    |[A   ]|B   ||C   ||D   ||E   |[ 1  ][ 5  ]| 15 || 30 ||    ||    |" },
     },
     .{
         .name = "todo_mvc",
@@ -1607,12 +1607,11 @@ fn runTerminal(
                 var input_state = TerminalInputState{};
                 defer input_state.deinit(allocator);
                 while (true) {
-                    var contract = (try runtime.terminalContractAlloc(allocator)).?;
-                    defer contract.deinit(allocator);
-                    try renderTerminalDeclaredScreen(allocator, &runtime, stdout, &contract, &input_state);
+                    const contract = (try runtime.terminalContractView()) orelse return error.ExpectedTerminalRoot;
+                    try renderTerminalDeclaredScreen(allocator, &runtime, stdout, contract, &input_state);
                     try normalizeTerminalInputState(allocator, &runtime, &input_state);
                     try promotePendingTerminalFocus(allocator, &runtime, &input_state);
-                    const should_continue = handleTerminalDeclaredInput(allocator, args, &runtime, stdout, stderr, &contract, &input_state) catch |err| blk: {
+                    const should_continue = handleTerminalDeclaredInput(allocator, args, &runtime, stdout, stderr, contract, &input_state) catch |err| blk: {
                         try stderr.print("error: {s}\n", .{@errorName(err)});
                         try stderr.flush();
                         break :blk true;
@@ -1635,9 +1634,8 @@ fn runTerminal(
             var input_state = TerminalInputState{};
             defer input_state.deinit(allocator);
             while (true) {
-                var contract = (try runtime.terminalContractAlloc(allocator)).?;
-                defer contract.deinit(allocator);
-                try renderTerminalDeclaredScreen(allocator, &runtime, stdout, &contract, &input_state);
+                const contract = (try runtime.terminalContractView()) orelse return error.ExpectedTerminalRoot;
+                try renderTerminalDeclaredScreen(allocator, &runtime, stdout, contract, &input_state);
                 try normalizeTerminalInputState(allocator, &runtime, &input_state);
                 try promotePendingTerminalFocus(allocator, &runtime, &input_state);
                 try stdout.writeAll("> ");
@@ -1663,7 +1661,7 @@ fn runTerminal(
                 if (std.mem.eql(u8, line, "render") or std.mem.eql(u8, line, "controls")) continue;
                 if (std.mem.startsWith(u8, line, "press ")) {
                     const key = std.mem.trim(u8, line["press ".len..], " \t");
-                    if (key.len != 0) _ = try dispatchTerminalNamedKey(allocator, &runtime, &contract, &input_state, key);
+                    if (key.len != 0) _ = try dispatchTerminalNamedKey(allocator, &runtime, contract, &input_state, key);
                     continue;
                 }
                 if (std.mem.eql(u8, line, "trace")) {
@@ -2022,9 +2020,7 @@ fn handleTerminalMouseEvent(
         else => {},
     }
 
-    const maybe_regions = try runtime.terminalHitRegionsAlloc(allocator);
-    const regions = maybe_regions orelse return;
-    defer allocator.free(regions);
+    const regions = (try runtime.terminalHitRegionsView()) orelse return;
 
     const absolute_x = event.x + input_state.view_x;
     const absolute_y = event.y + input_state.view_y;
@@ -2188,9 +2184,7 @@ fn focusPromotedTextInput(
     absolute_x: ?usize,
     absolute_y: ?usize,
 ) !void {
-    const maybe_regions = try runtime.terminalHitRegionsAlloc(allocator);
-    if (maybe_regions) |regions| {
-        defer allocator.free(regions);
+    if (try runtime.terminalHitRegionsView()) |regions| {
         if (absolute_x != null and absolute_y != null) {
             for (regions) |region| {
                 if (region.text_input_index) |text_input_index| {
@@ -2313,11 +2307,9 @@ fn dispatchHeadlessTerminalKey(
     runtime: *boon.headless.Session,
     key: []const u8,
 ) !bool {
-    const maybe_contract = try runtime.terminalContractAlloc(allocator);
-    if (maybe_contract == null) return false;
-    var contract = maybe_contract.?;
-    defer contract.deinit(allocator);
-    return try dispatchTerminalKey(runtime, &contract, key);
+    _ = allocator;
+    const contract = (try runtime.terminalContractView()) orelse return false;
+    return try dispatchTerminalKey(runtime, contract, key);
 }
 
 fn dispatchHeadlessTerminalNamedKey(
@@ -2326,11 +2318,8 @@ fn dispatchHeadlessTerminalNamedKey(
     input_state: *TerminalInputState,
     key: []const u8,
 ) !bool {
-    const maybe_contract = try runtime.terminalContractAlloc(allocator);
-    if (maybe_contract == null) return false;
-    var contract = maybe_contract.?;
-    defer contract.deinit(allocator);
-    const dispatched = try dispatchTerminalNamedKey(allocator, runtime, &contract, input_state, key);
+    const contract = (try runtime.terminalContractView()) orelse return false;
+    const dispatched = try dispatchTerminalNamedKey(allocator, runtime, contract, input_state, key);
     try normalizeTerminalInputState(allocator, runtime, input_state);
     try promotePendingTerminalFocus(allocator, runtime, input_state);
     return dispatched;
@@ -2364,9 +2353,7 @@ fn dispatchHeadlessTerminalMouse(
             .is_motion = false,
         }),
         .double_click => {
-            const maybe_regions = try runtime.terminalHitRegionsAlloc(allocator);
-            if (maybe_regions) |regions| {
-                defer allocator.free(regions);
+            if (try runtime.terminalHitRegionsView()) |regions| {
                 const absolute_x = x + input_state.view_x;
                 const absolute_y = y + input_state.view_y;
                 for (regions) |region| {
@@ -2430,14 +2417,13 @@ fn normalizeTerminalInputState(
     runtime: *boon.headless.Session,
     input_state: *TerminalInputState,
 ) !void {
+    if (input_state.focused_text_input == null and input_state.hovered_indices.items.len == 0) return;
     if (input_state.focused_text_input) |index| {
         if (index >= try runtime.textInputCountAlloc(allocator)) {
             input_state.focused_text_input = null;
         }
     }
-    const maybe_regions = try runtime.terminalHitRegionsAlloc(allocator);
-    if (maybe_regions) |regions| {
-        defer allocator.free(regions);
+    if (try runtime.terminalHitRegionsView()) |regions| {
         var valid_hovers: std.ArrayList(usize) = .empty;
         defer valid_hovers.deinit(allocator);
         for (regions) |region| {
