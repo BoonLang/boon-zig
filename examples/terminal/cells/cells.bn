@@ -1,5 +1,5 @@
 -- 7GUIs Task 7: Cells (Spreadsheet)
--- 26 columns (A-Z) x 100 rows (1-100), official-size grid.
+-- 26 columns (A-Z) x 100 rows (0-99), official-size grid.
 -- Double-click edit, Enter commit, Escape cancel, blur exit, reactive formulas.
 
 total_rows: 100
@@ -59,7 +59,7 @@ visible_column_count: BLOCK {
 }
 
 FUNCTION max_row_start() {
-    total_rows - visible_row_count + 1
+    total_rows - visible_row_count
 }
 
 FUNCTION max_column_start() {
@@ -67,8 +67,8 @@ FUNCTION max_column_start() {
 }
 
 FUNCTION viewport_row_start() {
-    focused_row <= 3 |> WHEN {
-        True => 1
+    focused_row <= 2 |> WHEN {
+        True => 0
         __ => focused_row >= max_row_start() + 2 |> WHEN {
             True => max_row_start()
             __ => focused_row - 2
@@ -155,127 +155,657 @@ FUNCTION parse_column_letter(text) {
     }
 }
 
-FUNCTION extract_reference_column(ref_text) {
-    ref_text |> Text/substring(start: 0, length: 1) |> parse_column_letter()
-}
-
-FUNCTION extract_reference_row(ref_text) {
-    ref_text |> Text/substring(start: 1, length: 8) |> Text/to_number()
-}
-
-FUNCTION expression_value(text) {
+FUNCTION number_or_zero(text) {
     BLOCK {
-        text_length: text |> Text/length()
-        comma_index: text |> Text/find(search: TEXT { , })
-        colon_index: text |> Text/find(search: TEXT { : })
-        has_comma: comma_index >= 0
-        has_colon: colon_index >= 0
+        trimmed_text: text |> Text/trim()
 
-        has_comma |> WHEN {
-            True => BLOCK {
-                left_length: comma_index - 4
-
-                left_ref:
-                    text
-                    |> Text/substring(start: 4, length: left_length)
-                    |> Text/trim()
-
-                right_length: text_length - comma_index - 2
-
-                right_ref:
-                    text
-                    |> Text/substring(start: comma_index + 1, length: right_length)
-                    |> Text/trim()
-
-                left_column:
-                    left_ref
-                    |> Text/substring(start: 0, length: 1)
-                    |> parse_column_letter()
-
-                left_row:
-                    left_ref
-                    |> Text/substring(start: 1, length: 8)
-                    |> Text/to_number()
-
-                right_column:
-                    right_ref
-                    |> Text/substring(start: 0, length: 1)
-                    |> parse_column_letter()
-
-                right_row:
-                    right_ref
-                    |> Text/substring(start: 1, length: 8)
-                    |> Text/to_number()
-
-                compute_value(
-                    formula_text: cell_formula(column: left_column, row: left_row)
-                ) + compute_value(
-                    formula_text: cell_formula(column: right_column, row: right_row)
-                )
-            }
-
-            __ => has_colon |> WHEN {
-                True => BLOCK {
-                    start_ref_length: colon_index - 4
-
-                    start_ref:
-                        text
-                        |> Text/substring(start: 4, length: start_ref_length)
-                        |> Text/trim()
-
-                    end_ref_length: text_length - colon_index - 2
-
-                    end_ref:
-                        text
-                        |> Text/substring(start: colon_index + 1, length: end_ref_length)
-                        |> Text/trim()
-
-                    start_column:
-                        start_ref
-                        |> Text/substring(start: 0, length: 1)
-                        |> parse_column_letter()
-
-                    start_row:
-                        start_ref
-                        |> Text/substring(start: 1, length: 8)
-                        |> Text/to_number()
-
-                    end_row:
-                        end_ref
-                        |> Text/substring(start: 1, length: 8)
-                        |> Text/to_number()
-
-                    List/range(from: start_row, to: end_row)
-                    |> List/map(
-                        current_row
-
-                        new: compute_value(
-                            formula_text: cell_formula(
-                                column: start_column
-                                row: current_row
-                            )
-                        )
-                    )
-                    |> List/sum()
+        is_integer_text(text: trimmed_text) |> WHEN {
+            True =>
+                trimmed_text
+                |> Text/to_number()
+                |> WHILE {
+                    NaN => 0
+                    number => number
                 }
 
-                __ => 0
+            __ => 0
+        }
+    }
+}
+
+FUNCTION number_or_minus_one(text) {
+    BLOCK {
+        trimmed_text: text |> Text/trim()
+
+        is_integer_text(text: trimmed_text) |> WHEN {
+            True =>
+                trimmed_text
+                |> Text/to_number()
+                |> WHILE {
+                    NaN => -1
+                    number => number
+                }
+
+            __ => -1
+        }
+    }
+}
+
+FUNCTION is_digit_char(text) {
+    text |> WHEN {
+        TEXT { 0 } => True
+        TEXT { 1 } => True
+        TEXT { 2 } => True
+        TEXT { 3 } => True
+        TEXT { 4 } => True
+        TEXT { 5 } => True
+        TEXT { 6 } => True
+        TEXT { 7 } => True
+        TEXT { 8 } => True
+        TEXT { 9 } => True
+        __ => False
+    }
+}
+
+FUNCTION all_digit_text(text, index) {
+    BLOCK {
+        text_length: text |> Text/length()
+
+        index >= text_length |> WHEN {
+            True => True
+
+            __ => BLOCK {
+                current_char: text |> Text/substring(start: index, length: 1)
+                is_digit_char(text: current_char) |> WHEN {
+                    True => all_digit_text(text: text, index: index + 1)
+                    __ => False
+                }
             }
         }
     }
 }
 
-FUNCTION compute_value(formula_text) {
+FUNCTION is_integer_text(text) {
+    BLOCK {
+        trimmed_text: text |> Text/trim()
+        text_length: trimmed_text |> Text/length()
+
+        text_length == 0 |> WHEN {
+            True => False
+
+            __ => BLOCK {
+                first_char: trimmed_text |> Text/substring(start: 0, length: 1)
+
+                first_char == TEXT { - } |> WHEN {
+                    True => text_length == 1 |> WHEN {
+                        True => False
+                        __ =>
+                            all_digit_text(
+                                text: trimmed_text |> Text/substring(start: 1, length: text_length - 1)
+                                index: 0
+                            )
+                    }
+
+                    __ => all_digit_text(text: trimmed_text, index: 0)
+                }
+            }
+        }
+    }
+}
+
+FUNCTION is_number_text(text) {
+    is_integer_text(text: text)
+}
+
+FUNCTION find_index_or_minus_one(text, search) {
+    text
+    |> Text/find(search: search)
+    |> WHILE {
+        NaN => -1
+        index => index
+    }
+}
+
+FUNCTION min_number(a, b) {
+    a <= b |> WHEN {
+        True => a
+        __ => b
+    }
+}
+
+FUNCTION max_number(a, b) {
+    a >= b |> WHEN {
+        True => a
+        __ => b
+    }
+}
+
+FUNCTION top_level_separator_index(text, separator, index, depth) {
+    BLOCK {
+        text_length: text |> Text/length()
+
+        index >= text_length |> WHEN {
+            True => -1
+
+            __ => BLOCK {
+                current_char: text |> Text/substring(start: index, length: 1)
+
+                current_char == TEXT { ( } |> WHEN {
+                    True =>
+                        top_level_separator_index(
+                            text: text
+                            separator: separator
+                            index: index + 1
+                            depth: depth + 1
+                        )
+
+                    __ => current_char == TEXT { ) } |> WHEN {
+                        True =>
+                            top_level_separator_index(
+                                text: text
+                                separator: separator
+                                index: index + 1
+                                depth: depth - 1
+                            )
+
+                        __ => current_char == separator |> WHEN {
+                            True => depth == 0 |> WHEN {
+                                True => index
+                                __ =>
+                                    top_level_separator_index(
+                                        text: text
+                                        separator: separator
+                                        index: index + 1
+                                        depth: depth
+                                    )
+                            }
+
+                            __ =>
+                                top_level_separator_index(
+                                    text: text
+                                    separator: separator
+                                    index: index + 1
+                                    depth: depth
+                                )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+FUNCTION reference_info(ref_text) {
+    BLOCK {
+        trimmed_ref: ref_text |> Text/trim()
+        ref_length: trimmed_ref |> Text/length()
+
+        ref_length < 2 |> WHEN {
+            True => [valid: False, column: 0, row: 0]
+
+            __ => ref_length > 3 |> WHEN {
+                True => [valid: False, column: 0, row: 0]
+
+                __ => BLOCK {
+                    column_text: trimmed_ref |> Text/substring(start: 0, length: 1)
+                    row_text: trimmed_ref |> Text/substring(start: 1, length: ref_length - 1)
+                    row_length: row_text |> Text/length()
+                    column: parse_column_letter(text: column_text)
+                    row_number: number_or_minus_one(text: row_text)
+
+                    [
+                        valid:
+                            (column >= 1 |> WHEN {
+                                True => column <= 26
+                                __ => False
+                            })
+                            |> Bool/and(that:
+                                row_length == 1 |> WHEN {
+                                    True => is_number_text(text: row_text) |> WHEN {
+                                        True => row_number >= 0 |> WHEN {
+                                            True => row_number <= 9
+                                            __ => False
+                                        }
+                                        __ => False
+                                    }
+
+                                    __ => row_length == 2 |> WHEN {
+                                        True => is_number_text(text: row_text) |> WHEN {
+                                            True => row_text |> Text/starts_with(prefix: TEXT { 0 }) |> WHEN {
+                                                True => False
+                                                __ => row_number >= 10 |> WHEN {
+                                                    True => row_number <= 99
+                                                    __ => False
+                                                }
+                                            }
+                                            __ => False
+                                        }
+
+                                        __ => False
+                                    }
+                                }
+                            )
+                        column: column
+                        row: row_number
+                    ]
+                }
+            }
+        }
+    }
+}
+
+FUNCTION range_info(range_text) {
+    BLOCK {
+        trimmed_range: range_text |> Text/trim()
+        range_length: trimmed_range |> Text/length()
+        colon_index: find_index_or_minus_one(text: trimmed_range, search: TEXT { : })
+
+        colon_index < 1 |> WHEN {
+            True => [valid: False, start_column: 0, start_row: 0, end_column: 0, end_row: 0]
+
+            __ => colon_index >= range_length - 1 |> WHEN {
+                True => [valid: False, start_column: 0, start_row: 0, end_column: 0, end_row: 0]
+
+                __ => BLOCK {
+                    start_ref: trimmed_range |> Text/substring(start: 0, length: colon_index)
+                    end_ref:
+                        trimmed_range
+                        |> Text/substring(start: colon_index + 1, length: range_length - colon_index - 1)
+
+                    start_info: reference_info(ref_text: start_ref)
+                    end_info: reference_info(ref_text: end_ref)
+                    valid: start_info.valid |> Bool/and(that: end_info.valid)
+
+                    [
+                        valid: valid
+                        start_column: min_number(a: start_info.column, b: end_info.column)
+                        start_row: min_number(a: start_info.row, b: end_info.row)
+                        end_column: max_number(a: start_info.column, b: end_info.column)
+                        end_row: max_number(a: start_info.row, b: end_info.row)
+                    ]
+                }
+            }
+        }
+    }
+}
+
+FUNCTION stack_contains(stack, cell) {
+    stack |> List/any(item, if: item == cell)
+}
+
+FUNCTION compute_cell_number(column, row, stack) {
+    BLOCK {
+        cell: cell_name(column: column, row: row)
+
+        stack_contains(stack: stack, cell: cell) |> WHEN {
+            True => 0
+
+            __ => compute_formula_number(
+                formula_text: cell_formula(column: column, row: row)
+                stack: stack |> List/append(item: cell)
+            )
+        }
+    }
+}
+
+FUNCTION rectangle_sum(start_column, current_column, current_row, end_column, end_row, stack) {
+    current_row > end_row |> WHEN {
+        True => 0
+
+        __ => current_column > end_column |> WHEN {
+            True => rectangle_sum(
+                start_column: start_column
+                current_column: start_column
+                current_row: current_row + 1
+                end_column: end_column
+                end_row: end_row
+                stack: stack
+            )
+
+            __ =>
+                compute_cell_number(
+                    column: current_column
+                    row: current_row
+                    stack: stack
+                )
+                + rectangle_sum(
+                    start_column: start_column
+                    current_column: current_column + 1
+                    current_row: current_row
+                    end_column: end_column
+                    end_row: end_row
+                    stack: stack
+                )
+        }
+    }
+}
+
+FUNCTION rectangle_prod(start_column, current_column, current_row, end_column, end_row, stack) {
+    current_row > end_row |> WHEN {
+        True => 1
+
+        __ => current_column > end_column |> WHEN {
+            True => rectangle_prod(
+                start_column: start_column
+                current_column: start_column
+                current_row: current_row + 1
+                end_column: end_column
+                end_row: end_row
+                stack: stack
+            )
+
+            __ =>
+                compute_cell_number(
+                    column: current_column
+                    row: current_row
+                    stack: stack
+                )
+                * rectangle_prod(
+                    start_column: start_column
+                    current_column: current_column + 1
+                    current_row: current_row
+                    end_column: end_column
+                    end_row: end_row
+                    stack: stack
+                )
+        }
+    }
+}
+
+FUNCTION range_sum_value(range_text, stack) {
+    BLOCK {
+        info: range_info(range_text: range_text)
+
+        info.valid |> WHEN {
+            True => rectangle_sum(
+                start_column: info.start_column
+                current_column: info.start_column
+                current_row: info.start_row
+                end_column: info.end_column
+                end_row: info.end_row
+                stack: stack
+            )
+
+            __ => 0
+        }
+    }
+}
+
+FUNCTION range_prod_value(range_text, stack) {
+    BLOCK {
+        info: range_info(range_text: range_text)
+
+        info.valid |> WHEN {
+            True => rectangle_prod(
+                start_column: info.start_column
+                current_column: info.start_column
+                current_row: info.start_row
+                end_column: info.end_column
+                end_row: info.end_row
+                stack: stack
+            )
+
+            __ => 1
+        }
+    }
+}
+
+FUNCTION binary_args_info(args_text) {
+    BLOCK {
+        trimmed_args: args_text |> Text/trim()
+        args_length: trimmed_args |> Text/length()
+        comma_index:
+            top_level_separator_index(
+                text: trimmed_args
+                separator: TEXT { , }
+                index: 0
+                depth: 0
+            )
+
+        comma_index < 0 |> WHEN {
+            True => [valid: False, left: Text/empty(), right: Text/empty()]
+
+            __ => BLOCK {
+                left_text: trimmed_args |> Text/substring(start: 0, length: comma_index) |> Text/trim()
+                right_text:
+                    trimmed_args
+                    |> Text/substring(start: comma_index + 1, length: args_length - comma_index - 1)
+                    |> Text/trim()
+
+                second_comma_index:
+                    top_level_separator_index(
+                        text: right_text
+                        separator: TEXT { , }
+                        index: 0
+                        depth: 0
+                    )
+
+                [
+                    valid:
+                        second_comma_index < 0
+                        |> Bool/and(that: left_text |> Text/is_not_empty())
+                        |> Bool/and(that: right_text |> Text/is_not_empty())
+                    left: left_text
+                    right: right_text
+                ]
+            }
+        }
+    }
+}
+
+FUNCTION scalar_expression_value(text, stack) {
+    BLOCK {
+        trimmed_text: text |> Text/trim()
+        ref: reference_info(ref_text: trimmed_text)
+        range: range_info(range_text: trimmed_text)
+        text_length: trimmed_text |> Text/length()
+        open_paren_index: find_index_or_minus_one(text: trimmed_text, search: TEXT { ( })
+
+        trimmed_text |> Text/is_empty() |> WHEN {
+            True => 0
+
+            __ => is_number_text(text: trimmed_text) |> WHEN {
+                True => number_or_zero(text: trimmed_text)
+
+                __ => ref.valid |> WHEN {
+                    True => compute_cell_number(
+                        column: ref.column
+                        row: ref.row
+                        stack: stack
+                    )
+
+                    __ => range.valid |> WHEN {
+                        True => range_sum_value(range_text: trimmed_text, stack: stack)
+
+                        __ => open_paren_index > 0 |> WHEN {
+                            True => BLOCK {
+                                last_char:
+                                    trimmed_text
+                                    |> Text/substring(start: text_length - 1, length: 1)
+
+                                last_char == TEXT { ) } |> WHEN {
+                                    True => BLOCK {
+                                        function_name:
+                                            trimmed_text
+                                            |> Text/substring(start: 0, length: open_paren_index)
+                                            |> Text/trim()
+
+                                        args_text:
+                                            trimmed_text
+                                            |> Text/substring(
+                                                start: open_paren_index + 1
+                                                length: text_length - open_paren_index - 2
+                                            )
+
+                                        function_name |> WHEN {
+                                            TEXT { add } => BLOCK {
+                                                args: binary_args_info(args_text: args_text)
+                                                args.valid |> WHEN {
+                                                    True =>
+                                                        scalar_expression_value(text: args.left, stack: stack)
+                                                        + scalar_expression_value(text: args.right, stack: stack)
+                                                    __ => 0
+                                                }
+                                            }
+
+                                            TEXT { sub } => BLOCK {
+                                                args: binary_args_info(args_text: args_text)
+                                                args.valid |> WHEN {
+                                                    True =>
+                                                        scalar_expression_value(text: args.left, stack: stack)
+                                                        - scalar_expression_value(text: args.right, stack: stack)
+                                                    __ => 0
+                                                }
+                                            }
+
+                                            TEXT { mul } => BLOCK {
+                                                args: binary_args_info(args_text: args_text)
+                                                args.valid |> WHEN {
+                                                    True =>
+                                                        scalar_expression_value(text: args.left, stack: stack)
+                                                        * scalar_expression_value(text: args.right, stack: stack)
+                                                    __ => 0
+                                                }
+                                            }
+
+                                            TEXT { div } => BLOCK {
+                                                args: binary_args_info(args_text: args_text)
+                                                args.valid |> WHEN {
+                                                    True => BLOCK {
+                                                        divisor: scalar_expression_value(text: args.right, stack: stack)
+                                                        divisor == 0 |> WHEN {
+                                                            True => 0
+                                                            __ => scalar_expression_value(text: args.left, stack: stack) / divisor
+                                                        }
+                                                    }
+                                                    __ => 0
+                                                }
+                                            }
+
+                                            TEXT { mod } => BLOCK {
+                                                args: binary_args_info(args_text: args_text)
+                                                args.valid |> WHEN {
+                                                    True => BLOCK {
+                                                        divisor: scalar_expression_value(text: args.right, stack: stack)
+                                                        divisor == 0 |> WHEN {
+                                                            True => 0
+                                                            __ => scalar_expression_value(text: args.left, stack: stack) % divisor
+                                                        }
+                                                    }
+                                                    __ => 0
+                                                }
+                                            }
+
+                                            TEXT { sum } => sum_args(args_text: args_text, stack: stack)
+                                            TEXT { prod } => prod_args(args_text: args_text, stack: stack)
+                                            __ => 0
+                                        }
+                                    }
+
+                                    __ => 0
+                                }
+                            }
+
+                            __ => 0
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+FUNCTION sum_arg_value(arg_text, stack) {
+    BLOCK {
+        range: range_info(range_text: arg_text)
+
+        range.valid |> WHEN {
+            True => range_sum_value(range_text: arg_text, stack: stack)
+            __ => scalar_expression_value(text: arg_text, stack: stack)
+        }
+    }
+}
+
+FUNCTION prod_arg_value(arg_text, stack) {
+    BLOCK {
+        range: range_info(range_text: arg_text)
+
+        range.valid |> WHEN {
+            True => range_prod_value(range_text: arg_text, stack: stack)
+            __ => scalar_expression_value(text: arg_text, stack: stack)
+        }
+    }
+}
+
+FUNCTION sum_args(args_text, stack) {
+    BLOCK {
+        trimmed_args: args_text |> Text/trim()
+        args_length: trimmed_args |> Text/length()
+        comma_index:
+            top_level_separator_index(
+                text: trimmed_args
+                separator: TEXT { , }
+                index: 0
+                depth: 0
+            )
+
+        trimmed_args |> Text/is_empty() |> WHEN {
+            True => 0
+
+            __ => comma_index < 0 |> WHEN {
+                True => sum_arg_value(arg_text: trimmed_args, stack: stack)
+
+                __ => BLOCK {
+                    left_arg: trimmed_args |> Text/substring(start: 0, length: comma_index)
+                    right_args:
+                        trimmed_args
+                        |> Text/substring(start: comma_index + 1, length: args_length - comma_index - 1)
+
+                    sum_arg_value(arg_text: left_arg, stack: stack)
+                    + sum_args(args_text: right_args, stack: stack)
+                }
+            }
+        }
+    }
+}
+
+FUNCTION prod_args(args_text, stack) {
+    BLOCK {
+        trimmed_args: args_text |> Text/trim()
+        args_length: trimmed_args |> Text/length()
+        comma_index:
+            top_level_separator_index(
+                text: trimmed_args
+                separator: TEXT { , }
+                index: 0
+                depth: 0
+            )
+
+        trimmed_args |> Text/is_empty() |> WHEN {
+            True => 1
+
+            __ => comma_index < 0 |> WHEN {
+                True => prod_arg_value(arg_text: trimmed_args, stack: stack)
+
+                __ => BLOCK {
+                    left_arg: trimmed_args |> Text/substring(start: 0, length: comma_index)
+                    right_args:
+                        trimmed_args
+                        |> Text/substring(start: comma_index + 1, length: args_length - comma_index - 1)
+
+                    prod_arg_value(arg_text: left_arg, stack: stack)
+                    * prod_args(args_text: right_args, stack: stack)
+                }
+            }
+        }
+    }
+}
+
+FUNCTION compute_formula_number(formula_text, stack) {
     formula_text
     |> Text/starts_with(prefix: TEXT { = })
     |> WHILE {
-        False =>
-            formula_text
-            |> Text/to_number()
-            |> WHILE {
-                NaN => 0
-                number => number
-            }
+        False => number_or_zero(text: formula_text)
 
         __ => BLOCK {
             formula_length: formula_text |> Text/length()
@@ -284,11 +814,7 @@ FUNCTION compute_value(formula_text) {
                 formula_text
                 |> Text/substring(start: 1, length: formula_length - 1)
 
-            expression_value(text: expression)
-            |> WHILE {
-                NaN => 0
-                number => number
-            }
+            scalar_expression_value(text: expression, stack: stack)
         }
     }
 }
@@ -305,25 +831,46 @@ FUNCTION make_row_cells(row) {
 FUNCTION default_formula(column, row) {
     column == 1 |> WHEN {
         True => row |> WHEN {
-            1 => TEXT { 5 }
-            2 => TEXT { 10 }
-            3 => TEXT { 15 }
+            0 => TEXT { 5 }
+            1 => TEXT { 10 }
+            2 => TEXT { 15 }
             __ => Text/empty()
         }
 
         __ => column == 2 |> WHEN {
-            True => row == 1 |> WHEN {
-                True => TEXT { =add(A1, A2) }
+            True => row |> WHEN {
+                0 => TEXT { =add(A0, A1) }
+                1 => TEXT { =sub(A2, A0) }
+                2 => TEXT { =mul(A0, 3) }
                 __ => Text/empty()
             }
 
             __ => column == 3 |> WHEN {
-                True => row == 1 |> WHEN {
-                    True => TEXT { =sum(A1:A3) }
+                True => row |> WHEN {
+                    0 => TEXT { =sum(A0:A2) }
+                    1 => TEXT { =prod(1, 2, 3) }
+                    2 => TEXT { =div(A2, A0) }
                     __ => Text/empty()
                 }
 
-                __ => Text/empty()
+                __ => column == 4 |> WHEN {
+                    True => row |> WHEN {
+                        0 => TEXT { =mod(A2, 4) }
+                        1 => TEXT { =sum(A0:B2) }
+                        2 => TEXT { =A0:B2 }
+                        __ => Text/empty()
+                    }
+
+                    __ => column == 5 |> WHEN {
+                        True => row |> WHEN {
+                            0 => TEXT { note }
+                            1 => TEXT { =add(E0, 2) }
+                            __ => Text/empty()
+                        }
+
+                        __ => Text/empty()
+                    }
+                }
             }
         }
     }
@@ -477,6 +1024,21 @@ FUNCTION editing_status() {
     }
 }
 
+FUNCTION current_formula_bar_text() {
+    BLOCK {
+        focused_formula: cell_formula(column: focused_column, row: focused_row)
+
+        editing_active |> WHEN {
+            True => editing_dirty |> WHEN {
+                True => editing_text
+                __ => focused_formula
+            }
+
+            __ => focused_formula
+        }
+    }
+}
+
 FUNCTION empty_corner_box() {
     grid_cell_box(
         text: Text/empty()
@@ -490,7 +1052,10 @@ FUNCTION cell_display_text(formula_text, display_value) {
     |> Text/is_empty()
     |> WHILE {
         True => Text/empty()
-        __ => TEXT { {display_value} }
+        __ => formula_text |> Text/starts_with(prefix: TEXT { = }) |> WHEN {
+            True => TEXT { {display_value} }
+            __ => formula_text
+        }
     }
 }
 
@@ -519,7 +1084,7 @@ FUNCTION is_hovered_cell(cell) {
 FUNCTION make_cell_element(cell) {
     BLOCK {
         formula_text: cell_formula(column: cell.column, row: cell.row)
-        display_value: compute_value(formula_text: formula_text)
+        display_value: compute_cell_number(column: cell.column, row: cell.row, stack: LIST { cell_name(column: cell.column, row: cell.row) })
         is_editing: is_editing_cell(cell: cell)
         is_selected: is_selected_cell(cell: cell)
         is_hovered: is_hovered_cell(cell: cell)
@@ -797,6 +1362,35 @@ terminal: Terminal/new(
                 )
             }
 
+            BLOCK {
+                focus_text: cell_name(column: focused_column, row: focused_row)
+                formula_text: current_formula_bar_text()
+                gap: single_space()
+
+                Element/label(
+                    element: []
+
+                    style: [
+                        width: 720
+                        height: 26
+                        padding: [left: 8, right: 8]
+                        background: [color: Oklch [lightness: 0.93]]
+                        font: [color: Oklch [lightness: 0.18]]
+                    ]
+
+                    label:
+                        LIST {
+                            TEXT { Formula }
+                            gap
+                            focus_text
+                            TEXT { : }
+                            gap
+                            formula_text
+                        }
+                        |> Text/join()
+                )
+            }
+
             Element/stripe(
                 element: []
                 direction: Row
@@ -878,16 +1472,16 @@ event_ports: [
 
 edit_committed: event_ports.edit_committed
 
-focused_row: 1 |> HOLD state {
+focused_row: 0 |> HOLD state {
     event_ports.move_up |> THEN {
-        state == 1 |> WHEN {
-            True => 1
+        state == 0 |> WHEN {
+            True => 0
             False => state - 1
         }
     }
     event_ports.move_down |> THEN {
-        state == 100 |> WHEN {
-            True => 100
+        state == 99 |> WHEN {
+            True => 99
             False => state + 1
         }
     }
@@ -936,6 +1530,7 @@ editing_active: False |> HOLD state {
 
 editing_dirty: False |> HOLD state {
     event_ports.edit_started |> THEN { False }
+    event_ports.edit_selected |> THEN { False }
     event_ports.edit_text_event |> THEN { True }
     event_ports.edit_active_event |> THEN { False }
 }

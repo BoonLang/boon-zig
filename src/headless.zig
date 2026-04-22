@@ -3375,6 +3375,7 @@ pub const Session = struct {
             .subtract => .{ .number = try valueAsNumber(lhs) - try valueAsNumber(rhs) },
             .multiply => .{ .number = try valueAsNumber(lhs) * try valueAsNumber(rhs) },
             .divide => .{ .number = try valueAsNumber(lhs) / try valueAsNumber(rhs) },
+            .modulo => .{ .number = @mod(try valueAsNumber(lhs), try valueAsNumber(rhs)) },
             .equal => booleanValue(valuesEqual(lhs, rhs)),
             .not_equal => booleanValue(!valuesEqual(lhs, rhs)),
             .greater => .{ .symbol = if ((order orelse return error.UnsupportedBinaryOperator) == .gt) "True" else "False" },
@@ -8614,7 +8615,7 @@ test "cells headless session recomputes dependent cells after edit commit" {
 
     const rendered = try session.renderAlloc(std.testing.allocator);
     defer std.testing.allocator.free(rendered);
-    try std.testing.expect(std.mem.indexOf(u8, rendered, "1 7 17 32") != null);
+    try std.testing.expect(std.mem.indexOf(u8, rendered, "0 7 17 32") != null);
 
     const trace = try session.traceAlloc(std.testing.allocator);
     defer std.testing.allocator.free(trace);
@@ -8668,7 +8669,7 @@ test "cells_dynamic headless session recomputes dependent cells after edit commi
 
     const rendered = try session.renderAlloc(std.testing.allocator);
     defer std.testing.allocator.free(rendered);
-    try std.testing.expect(std.mem.indexOf(u8, rendered, "1 7 17 32") != null);
+    try std.testing.expect(std.mem.indexOf(u8, rendered, "0 7 17 32") != null);
 
     const trace = try session.traceAlloc(std.testing.allocator);
     defer std.testing.allocator.free(trace);
@@ -8695,7 +8696,7 @@ test "terminal cells headless session recomputes dependent cells after edit comm
 
     const rendered = try session.renderAlloc(std.testing.allocator);
     defer std.testing.allocator.free(rendered);
-    try std.testing.expect(std.mem.indexOf(u8, rendered, "1 7 17 32") != null);
+    try std.testing.expect(std.mem.indexOf(u8, rendered, "0 7 17 32") != null);
 }
 
 test "terminal cells commit still works after snapshot renders between edit steps" {
@@ -8724,7 +8725,7 @@ test "terminal cells commit still works after snapshot renders between edit step
     try session.pressFirstTextInputKey(std.testing.allocator, "Enter");
     const rendered = try session.snapshotAlloc(std.testing.allocator);
     defer std.testing.allocator.free(rendered);
-    try std.testing.expect(std.mem.indexOf(u8, rendered, "1 7 17 32") != null);
+    try std.testing.expect(std.mem.indexOf(u8, rendered, "0 7 17 32") != null);
 }
 
 test "terminal cells invalid formula commit degrades safely instead of crashing" {
@@ -8741,12 +8742,12 @@ test "terminal cells invalid formula commit degrades safely instead of crashing"
     defer session.deinit();
 
     try session.doubleClickLabelByText(std.testing.allocator, "15");
-    try session.setFirstTextInputValue(std.testing.allocator, "=add(A1, A2)7");
+    try session.setFirstTextInputValue(std.testing.allocator, "=add(A0, A1)7");
     try session.pressFirstTextInputKey(std.testing.allocator, "Enter");
 
     const rendered = try session.renderAlloc(std.testing.allocator);
     defer std.testing.allocator.free(rendered);
-    try std.testing.expect(std.mem.indexOf(u8, rendered, "1 5 0 30") != null);
+    try std.testing.expect(std.mem.indexOf(u8, rendered, "0 5 0 30") != null);
 }
 
 test "terminal cells_dynamic headless session recomputes dependent cells after edit commit" {
@@ -8768,7 +8769,7 @@ test "terminal cells_dynamic headless session recomputes dependent cells after e
 
     const rendered = try session.renderAlloc(std.testing.allocator);
     defer std.testing.allocator.free(rendered);
-    try std.testing.expect(std.mem.indexOf(u8, rendered, "1 7 17 32") != null);
+    try std.testing.expect(std.mem.indexOf(u8, rendered, "0 7 17 32") != null);
 }
 
 test "todo_mvc headless session adds, toggles, clears, and filters todos" {

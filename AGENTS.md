@@ -10,6 +10,14 @@
 - Prefer `zig build run -- ...` for validation commands during active iteration so the current code is used.
 - If you intentionally use `zig-out/bin/boon-zig`, state that choice and why it is safe.
 
+## Example Run Commands
+
+- After any change that affects a Boon example, include two run commands in the final response.
+- The first command should be a `cd ...` command so the user can run it from a newly opened terminal window.
+- The second command should be the direct run command for the example, for example:
+  - `cd /home/martinkavik/repos/boon-zig`
+  - `zig build run -- run examples/terminal/cells/cells.bn`
+
 ## Tooling Preference
 
 - Use Zig for repo automation, helper scripts, data extraction, and expectation updates.

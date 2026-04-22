@@ -517,7 +517,7 @@ const headless_p0_cases = [_]VerifyHeadlessCase{
     .{
         .name = "cells",
         .path = "examples/terminal/cells/cells.bn",
-        .expected = .{ .contains = "Focus A1  Hover none Ready|    |[A   ]|B   ||C   ||D   ||E   ||F   ||G   ||H   ||I   ||J   ||K   ||L   |[ 1  ][ 5  ]| 15 || 30 ||    ||    ||    ||    ||    ||    ||    ||    ||    |" },
+        .expected = .{ .contains = "Focus A0  Hover none ReadyFormula  A0 : 5|    |[A   ]|B   ||C   ||D   ||E   ||F   ||G   ||H   ||I   ||J   ||K   ||L   |[ 0  ][5   ]| 15 || 30 || 3  ||note||" },
     },
     .{
         .name = "todo_mvc",
@@ -1717,11 +1717,13 @@ fn renderTerminalDeclaredScreen(
     input_state.viewport_height = viewport.height;
     try clampTerminalViewport(input_state, snapshot);
     try writeTerminalViewport(stdout, snapshot, input_state);
+    try positionTerminalCursorForFocusedInput(allocator, runtime, stdout, input_state);
     try stdout.flush();
 }
 
 const TerminalInputState = struct {
     focused_text_input: ?usize = null,
+    focused_text_input_cursor: usize = 0,
     pending_focus_promote: bool = false,
     hovered_indices: std.ArrayList(usize) = .empty,
     last_mouse_click: ?TerminalMouseClick = null,
@@ -2171,6 +2173,81 @@ fn writeTerminalViewport(stdout: *std.Io.Writer, snapshot: []const u8, input_sta
     }
 }
 
+fn positionTerminalCursorForFocusedInput(
+    allocator: std.mem.Allocator,
+    runtime: *boon.headless.Session,
+    stdout: *std.Io.Writer,
+    input_state: *const TerminalInputState,
+) !void {
+    if (input_state.focused_text_input) |index| {
+        const regions = (try runtime.terminalHitRegionsView()) orelse {
+            try stdout.writeAll("\x1b[?25l");
+            return;
+        };
+        var region_match: ?boon.headless.TerminalHitRegion = null;
+        for (regions) |region| {
+            if (region.text_input_index == index) {
+                region_match = region;
+                break;
+            }
+        }
+        const region = region_match orelse {
+            try stdout.writeAll("\x1b[?25l");
+            return;
+        };
+
+        const current = try runtime.textInputTextAlloc(allocator, index);
+        defer allocator.free(current);
+
+        const logical_x = region.x + 1 + @min(input_state.focused_text_input_cursor, current.len);
+        const logical_y = region.y;
+        const visible_width = @max(input_state.viewport_width, 1);
+        const visible_height = @max(input_state.viewport_height, 1);
+
+        if (logical_x < input_state.view_x or logical_x >= input_state.view_x + visible_width) {
+            try stdout.writeAll("\x1b[?25l");
+            return;
+        }
+        if (logical_y < input_state.view_y or logical_y >= input_state.view_y + visible_height) {
+            try stdout.writeAll("\x1b[?25l");
+            return;
+        }
+
+        const screen_x = logical_x - input_state.view_x + 1;
+        const screen_y = logical_y - input_state.view_y + 1;
+        try stdout.writeAll("\x1b[?25h");
+        try stdout.print("\x1b[{d};{d}H", .{ screen_y, screen_x });
+        return;
+    }
+    try stdout.writeAll("\x1b[?25l");
+}
+
+fn dispatchTerminalTestKey(
+    runtime: *boon.headless.Session,
+    input_state: *TerminalInputState,
+    key: []const u8,
+) !void {
+    _ = try dispatchTerminalNamedKey(std.testing.allocator, runtime, null, input_state, key);
+}
+
+fn openFocusedCellForEdit(
+    runtime: *boon.headless.Session,
+    input_state: *TerminalInputState,
+) !void {
+    try dispatchTerminalTestKey(runtime, input_state, "Enter");
+    try promotePendingTerminalFocus(std.testing.allocator, runtime, input_state);
+}
+
+fn replaceFocusedCellText(
+    runtime: *boon.headless.Session,
+    input_state: *TerminalInputState,
+    text: []const u8,
+) !void {
+    try openFocusedCellForEdit(runtime, input_state);
+    try runtime.setFirstTextInputValue(std.testing.allocator, text);
+    try dispatchTerminalTestKey(runtime, input_state, "Enter");
+}
+
 fn scrollTerminalViewport(input_state: *TerminalInputState, delta_rows: isize) void {
     const max_y = if (input_state.content_height > input_state.viewport_height) input_state.content_height - input_state.viewport_height else 0;
     if (delta_rows < 0) {
@@ -2270,19 +2347,31 @@ fn dispatchTerminalNamedKey(
 
     if (input_state.focused_text_input) |index| {
         if (std.mem.eql(u8, key, "Space")) {
-            try appendTerminalTextInputChar(allocator, runtime, index, ' ');
+            try appendTerminalTextInputChar(allocator, runtime, input_state, index, ' ');
             return true;
         }
         if (std.mem.eql(u8, key, "Backspace")) {
-            try backspaceTerminalTextInput(allocator, runtime, index);
+            try backspaceTerminalTextInput(allocator, runtime, input_state, index);
             return true;
         }
-        if (std.mem.eql(u8, key, "Enter") or std.mem.eql(u8, key, "Escape") or std.mem.eql(u8, key, "Up") or std.mem.eql(u8, key, "Down") or std.mem.eql(u8, key, "Left") or std.mem.eql(u8, key, "Right")) {
+        if (std.mem.eql(u8, key, "Left")) {
+            if (input_state.focused_text_input_cursor > 0) input_state.focused_text_input_cursor -= 1;
+            return true;
+        }
+        if (std.mem.eql(u8, key, "Right")) {
+            const current = try runtime.textInputTextAlloc(allocator, index);
+            defer allocator.free(current);
+            if (input_state.focused_text_input_cursor < current.len) input_state.focused_text_input_cursor += 1;
+            return true;
+        }
+        if (std.mem.eql(u8, key, "Enter") or std.mem.eql(u8, key, "Escape") or std.mem.eql(u8, key, "Up") or std.mem.eql(u8, key, "Down")) {
             try runtime.pressTextInputKey(index, key);
+            try normalizeTerminalInputState(allocator, runtime, input_state);
+            try promotePendingTerminalFocus(allocator, runtime, input_state);
             return true;
         }
         if (key.len == 1 and key[0] >= 0x20 and key[0] < 0x7f) {
-            try appendTerminalTextInputChar(allocator, runtime, index, key[0]);
+            try appendTerminalTextInputChar(allocator, runtime, input_state, index, key[0]);
             return true;
         }
     }
@@ -2476,6 +2565,11 @@ fn setTerminalTextInputFocus(
                 else => return err,
             };
         }
+        const current = try runtime.textInputTextAlloc(allocator, index);
+        defer allocator.free(current);
+        input_state.focused_text_input_cursor = current.len;
+    } else {
+        input_state.focused_text_input_cursor = 0;
     }
     input_state.focused_text_input = next_focus;
 }
@@ -2506,6 +2600,7 @@ fn cycleTerminalTextInputFocus(
 fn appendTerminalTextInputChar(
     allocator: std.mem.Allocator,
     runtime: *boon.headless.Session,
+    input_state: *TerminalInputState,
     index: usize,
     byte: u8,
 ) !void {
@@ -2513,29 +2608,41 @@ fn appendTerminalTextInputChar(
     defer allocator.free(current);
     var next: std.ArrayList(u8) = .empty;
     defer next.deinit(allocator);
-    try next.appendSlice(allocator, current);
+    const cursor = @min(input_state.focused_text_input_cursor, current.len);
+    try next.appendSlice(allocator, current[0..cursor]);
     try next.append(allocator, byte);
+    try next.appendSlice(allocator, current[cursor..]);
     const text = try next.toOwnedSlice(allocator);
     defer allocator.free(text);
     try runtime.setTextInputValue(index, text);
+    input_state.focused_text_input_cursor = cursor + 1;
 }
 
 fn backspaceTerminalTextInput(
     allocator: std.mem.Allocator,
     runtime: *boon.headless.Session,
+    input_state: *TerminalInputState,
     index: usize,
 ) !void {
     const current = try runtime.textInputTextAlloc(allocator, index);
     defer allocator.free(current);
-    const next_len = if (current.len == 0) 0 else current.len - 1;
-    try runtime.setTextInputValue(index, current[0..next_len]);
+    const cursor = @min(input_state.focused_text_input_cursor, current.len);
+    if (cursor == 0) return;
+    var next: std.ArrayList(u8) = .empty;
+    defer next.deinit(allocator);
+    try next.appendSlice(allocator, current[0 .. cursor - 1]);
+    try next.appendSlice(allocator, current[cursor..]);
+    const text = try next.toOwnedSlice(allocator);
+    defer allocator.free(text);
+    try runtime.setTextInputValue(index, text);
+    input_state.focused_text_input_cursor = cursor - 1;
 }
 
 const RawTerminal = struct {
     original: std.posix.termios,
 
     fn restore(self: *const RawTerminal, io: std.Io) !void {
-        try std.Io.File.stdout().writeStreamingAll(io, "\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l");
+        try std.Io.File.stdout().writeStreamingAll(io, "\x1b[?25h\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l");
         try std.posix.tcsetattr(std.posix.STDIN_FILENO, .FLUSH, self.original);
     }
 };
@@ -3361,8 +3468,225 @@ test "terminal cells mouse move updates hover status and visible hovered cell" {
 
     const snapshot = try runtime.snapshotAlloc(std.testing.allocator);
     defer std.testing.allocator.free(snapshot);
-    try std.testing.expect(std.mem.indexOf(u8, snapshot, "Hover B1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, snapshot, "Hover B0") != null);
     try std.testing.expect(std.mem.indexOf(u8, snapshot, "* 15 *") != null);
+}
+
+test "terminal cells enter on formula cell opens editor with formula text" {
+    const source = @embedFile("../examples/terminal/cells/cells.bn");
+    const outcome = try boon.headless.runAlloc(std.testing.allocator, source, .{});
+    const session_value = switch (outcome) {
+        .ok => |session| session,
+        .err => |failure| {
+            std.debug.print("unexpected terminal cells formula edit failure: {s}\n", .{failure.message});
+            return error.UnexpectedHeadlessFailure;
+        },
+    };
+    var runtime = session_value;
+    defer runtime.deinit();
+
+    var input_state = TerminalInputState{};
+    defer input_state.deinit(std.testing.allocator);
+
+    try dispatchTerminalTestKey(&runtime, &input_state, "Right");
+    try openFocusedCellForEdit(&runtime, &input_state);
+
+    const snapshot = try runtime.snapshotAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(snapshot);
+    try std.testing.expect(std.mem.indexOf(u8, snapshot, "Editing B0") != null);
+    try std.testing.expect(std.mem.indexOf(u8, snapshot, "=add(A0, A1)") != null);
+    try std.testing.expect(std.mem.indexOf(u8, snapshot, "Formula B0 : =add(A0, A1)") != null);
+    try std.testing.expect(input_state.focused_text_input != null);
+}
+
+test "terminal cells escape exits edit mode immediately and keeps formula visible in formula bar" {
+    const source = @embedFile("../examples/terminal/cells/cells.bn");
+    const outcome = try boon.headless.runAlloc(std.testing.allocator, source, .{});
+    const session_value = switch (outcome) {
+        .ok => |session| session,
+        .err => |failure| {
+            std.debug.print("unexpected terminal cells escape failure: {s}\n", .{failure.message});
+            return error.UnexpectedHeadlessFailure;
+        },
+    };
+    var runtime = session_value;
+    defer runtime.deinit();
+
+    var input_state = TerminalInputState{};
+    defer input_state.deinit(std.testing.allocator);
+
+    try dispatchTerminalTestKey(&runtime, &input_state, "Right");
+    try openFocusedCellForEdit(&runtime, &input_state);
+    try dispatchTerminalTestKey(&runtime, &input_state, "Escape");
+
+    const snapshot = try runtime.snapshotAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(snapshot);
+    try std.testing.expect(std.mem.indexOf(u8, snapshot, "Ready") != null);
+    try std.testing.expect(std.mem.indexOf(u8, snapshot, "Editing B0") == null);
+    try std.testing.expect(std.mem.indexOf(u8, snapshot, "<=add(A0, A1)>") == null);
+    try std.testing.expect(std.mem.indexOf(u8, snapshot, "Formula B0 : =add(A0, A1)") != null);
+    try std.testing.expect(input_state.focused_text_input == null);
+}
+
+test "terminal cells can escape and reopen formula edit then modify middle character with arrows" {
+    const source = @embedFile("../examples/terminal/cells/cells.bn");
+    const outcome = try boon.headless.runAlloc(std.testing.allocator, source, .{});
+    const session_value = switch (outcome) {
+        .ok => |session| session,
+        .err => |failure| {
+            std.debug.print("unexpected terminal cells cursor edit failure: {s}\n", .{failure.message});
+            return error.UnexpectedHeadlessFailure;
+        },
+    };
+    var runtime = session_value;
+    defer runtime.deinit();
+
+    var input_state = TerminalInputState{};
+    defer input_state.deinit(std.testing.allocator);
+
+    try dispatchTerminalTestKey(&runtime, &input_state, "Right");
+    try dispatchTerminalTestKey(&runtime, &input_state, "Right");
+    try openFocusedCellForEdit(&runtime, &input_state);
+
+    const editing_snapshot = try runtime.snapshotAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(editing_snapshot);
+    try std.testing.expect(std.mem.indexOf(u8, editing_snapshot, "Editing C0") != null);
+    try std.testing.expect(std.mem.indexOf(u8, editing_snapshot, "=sum(A0:A2)") != null);
+
+    try dispatchTerminalTestKey(&runtime, &input_state, "Escape");
+    const ready_snapshot = try runtime.snapshotAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(ready_snapshot);
+    try std.testing.expect(std.mem.indexOf(u8, ready_snapshot, "Ready") != null);
+
+    try openFocusedCellForEdit(&runtime, &input_state);
+    try std.testing.expect(input_state.focused_text_input != null);
+
+    inline for (0..4) |_| {
+        try dispatchTerminalTestKey(&runtime, &input_state, "Left");
+    }
+    try dispatchTerminalTestKey(&runtime, &input_state, "Backspace");
+    try dispatchTerminalTestKey(&runtime, &input_state, "1");
+    try dispatchTerminalTestKey(&runtime, &input_state, "Enter");
+
+    const render = try runtime.renderAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(render);
+    try std.testing.expect(std.mem.indexOf(u8, render, "0 5 15 25") != null);
+
+    try openFocusedCellForEdit(&runtime, &input_state);
+    const edited_snapshot = try runtime.snapshotAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(edited_snapshot);
+    try std.testing.expect(std.mem.indexOf(u8, edited_snapshot, "=sum(A1:A2)") != null);
+}
+
+test "terminal cells support 7guis formula functions with numbers and references" {
+    const source = @embedFile("../examples/terminal/cells/cells.bn");
+    const outcome = try boon.headless.runAlloc(std.testing.allocator, source, .{});
+    const session_value = switch (outcome) {
+        .ok => |session| session,
+        .err => |failure| {
+            std.debug.print("unexpected terminal cells function-set failure: {s}\n", .{failure.message});
+            return error.UnexpectedHeadlessFailure;
+        },
+    };
+    var runtime = session_value;
+    defer runtime.deinit();
+
+    var input_state = TerminalInputState{};
+    defer input_state.deinit(std.testing.allocator);
+
+    inline for (0..3) |_| try dispatchTerminalTestKey(&runtime, &input_state, "Right");
+    try replaceFocusedCellText(&runtime, &input_state, "=sub(A2, 4)");
+    try dispatchTerminalTestKey(&runtime, &input_state, "Right");
+    try replaceFocusedCellText(&runtime, &input_state, "=mul(A1, 4)");
+    try dispatchTerminalTestKey(&runtime, &input_state, "Right");
+    try replaceFocusedCellText(&runtime, &input_state, "=mod(A2, 6)");
+    try dispatchTerminalTestKey(&runtime, &input_state, "Right");
+    try replaceFocusedCellText(&runtime, &input_state, "=prod(2, 3, 4)");
+    try dispatchTerminalTestKey(&runtime, &input_state, "Right");
+    try replaceFocusedCellText(&runtime, &input_state, "=div(A2, 5)");
+    try dispatchTerminalTestKey(&runtime, &input_state, "Right");
+    try replaceFocusedCellText(&runtime, &input_state, "=div(1, 0)");
+    try dispatchTerminalTestKey(&runtime, &input_state, "Right");
+    try replaceFocusedCellText(&runtime, &input_state, "=add(I0, 2)");
+
+    const render = try runtime.renderAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(render);
+    try std.testing.expect(std.mem.indexOf(u8, render, "0 5 15 30 11 40 3 24 3 0 2") != null);
+}
+
+test "terminal cells support text direct refs ranges invalid refs and cycles" {
+    const source = @embedFile("../examples/terminal/cells/cells.bn");
+    const outcome = try boon.headless.runAlloc(std.testing.allocator, source, .{});
+    const session_value = switch (outcome) {
+        .ok => |session| session,
+        .err => |failure| {
+            std.debug.print("unexpected terminal cells expression-rules failure: {s}\n", .{failure.message});
+            return error.UnexpectedHeadlessFailure;
+        },
+    };
+    var runtime = session_value;
+    defer runtime.deinit();
+
+    var input_state = TerminalInputState{};
+    defer input_state.deinit(std.testing.allocator);
+
+    inline for (0..3) |_| try dispatchTerminalTestKey(&runtime, &input_state, "Down");
+    try replaceFocusedCellText(&runtime, &input_state, "hello");
+    try dispatchTerminalTestKey(&runtime, &input_state, "Right");
+    try replaceFocusedCellText(&runtime, &input_state, "=A0");
+    try dispatchTerminalTestKey(&runtime, &input_state, "Right");
+    try replaceFocusedCellText(&runtime, &input_state, "=add(A3, 2)");
+    try dispatchTerminalTestKey(&runtime, &input_state, "Right");
+    try replaceFocusedCellText(&runtime, &input_state, "=B01");
+    try dispatchTerminalTestKey(&runtime, &input_state, "Right");
+    try replaceFocusedCellText(&runtime, &input_state, "=F3");
+    try dispatchTerminalTestKey(&runtime, &input_state, "Right");
+    try replaceFocusedCellText(&runtime, &input_state, "=E3");
+    try dispatchTerminalTestKey(&runtime, &input_state, "Right");
+    try replaceFocusedCellText(&runtime, &input_state, "=A0:C0");
+
+    const render = try runtime.renderAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(render);
+    try std.testing.expect(std.mem.indexOf(u8, render, "3 hello 5 2 0 0 0 50") != null);
+}
+
+test "terminal cells edit rerender scenario stays fast" {
+    const source = @embedFile("../examples/terminal/cells/cells.bn");
+    const outcome = try boon.headless.runAlloc(std.testing.allocator, source, .{});
+    const session_value = switch (outcome) {
+        .ok => |session| session,
+        .err => |failure| {
+            std.debug.print("unexpected terminal cells performance failure: {s}\n", .{failure.message});
+            return error.UnexpectedHeadlessFailure;
+        },
+    };
+    var runtime = session_value;
+    defer runtime.deinit();
+
+    var input_state = TerminalInputState{};
+    defer input_state.deinit(std.testing.allocator);
+
+    var timer = try std.time.Timer.start();
+
+    try dispatchTerminalTestKey(&runtime, &input_state, "Down");
+    try dispatchTerminalTestKey(&runtime, &input_state, "Down");
+    try openFocusedCellForEdit(&runtime, &input_state);
+    try dispatchTerminalTestKey(&runtime, &input_state, "5");
+    try dispatchTerminalTestKey(&runtime, &input_state, "Enter");
+
+    const render = try runtime.renderAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(render);
+    try std.testing.expect(std.mem.indexOf(u8, render, "2 155") != null);
+
+    const elapsed_ns = timer.read();
+    const limit_ns: u64 = switch (@import("builtin").mode) {
+        .ReleaseFast, .ReleaseSmall => 60 * std.time.ns_per_ms,
+        .ReleaseSafe => 120 * std.time.ns_per_ms,
+        .Debug => 500 * std.time.ns_per_ms,
+    };
+    try std.testing.expect(
+        elapsed_ns <= limit_ns,
+    );
 }
 
 test "executeHeadlessScriptAction applies mouse_double_click and key presses to terminal cells" {
@@ -3425,7 +3749,7 @@ test "executeHeadlessScriptAction applies mouse_double_click and key presses to 
 
     const render = try runtime.renderAlloc(std.testing.allocator);
     defer std.testing.allocator.free(render);
-    try std.testing.expect(std.mem.indexOf(u8, render, "1 7 17 32") != null);
+    try std.testing.expect(std.mem.indexOf(u8, render, "0 7 17 32") != null);
 }
 
 test "executeTerminalCommand double-click helpers focus promoted text input in terminal cells" {
@@ -3453,7 +3777,7 @@ test "executeTerminalCommand double-click helpers focus promoted text input in t
 
     const render = try runtime.renderAlloc(std.testing.allocator);
     defer std.testing.allocator.free(render);
-    try std.testing.expect(std.mem.indexOf(u8, render, "1 7 17 32") != null);
+    try std.testing.expect(std.mem.indexOf(u8, render, "0 7 17 32") != null);
 }
 
 test "executeTerminalCommand mouse-double-click opens cells editor from coordinates" {
@@ -3536,7 +3860,7 @@ test "terminal cells live-style mouse double click then type then enter commits 
 
     const render = try runtime.renderAlloc(std.testing.allocator);
     defer std.testing.allocator.free(render);
-    try std.testing.expect(std.mem.indexOf(u8, render, "1 7 17 32") != null);
+    try std.testing.expect(std.mem.indexOf(u8, render, "0 7 17 32") != null);
 }
 
 test "terminal cells arrow key moves visible selection live-style" {
@@ -3600,7 +3924,7 @@ test "terminal cells coordinate mouse double click then type then enter commits 
 
     const render = try runtime.renderAlloc(std.testing.allocator);
     defer std.testing.allocator.free(render);
-    try std.testing.expect(std.mem.indexOf(u8, render, "1 7 17 32") != null);
+    try std.testing.expect(std.mem.indexOf(u8, render, "0 7 17 32") != null);
 }
 
 test "terminal cells coordinate path still commits after snapshot between typing and enter" {
@@ -3643,7 +3967,7 @@ test "terminal cells coordinate path still commits after snapshot between typing
 
     const render = try runtime.renderAlloc(std.testing.allocator);
     defer std.testing.allocator.free(render);
-    try std.testing.expect(std.mem.indexOf(u8, render, "1 7 17 32") != null);
+    try std.testing.expect(std.mem.indexOf(u8, render, "0 7 17 32") != null);
 }
 
 fn physicalStateJsonAlloc(
