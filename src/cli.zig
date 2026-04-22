@@ -2158,6 +2158,7 @@ fn writeTerminalViewport(stdout: *std.Io.Writer, snapshot: []const u8, input_sta
     var lines = std.mem.splitScalar(u8, snapshot, '\n');
     var row_index: usize = 0;
     var printed_rows: usize = 0;
+    const colorize_cells = std.mem.startsWith(u8, snapshot, "Cells\nArrows or click move selection");
     while (lines.next()) |line| {
         if (row_index < input_state.view_y) {
             row_index += 1;
@@ -2166,10 +2167,57 @@ fn writeTerminalViewport(stdout: *std.Io.Writer, snapshot: []const u8, input_sta
         if (printed_rows >= input_state.viewport_height) break;
         const start = @min(input_state.view_x, line.len);
         const end = @min(line.len, input_state.view_x + input_state.viewport_width);
-        try stdout.writeAll(line[start..end]);
+        const visible_line = line[start..end];
+        if (colorize_cells) {
+            try writeColoredCellsViewportLine(stdout, visible_line, row_index);
+        } else {
+            try stdout.writeAll(visible_line);
+        }
         printed_rows += 1;
         row_index += 1;
         if (printed_rows < input_state.viewport_height) try stdout.writeAll("\r\n");
+    }
+}
+
+fn writeColoredCellsViewportLine(stdout: *std.Io.Writer, line: []const u8, row_index: usize) !void {
+    switch (row_index) {
+        0 => {
+            try stdout.writeAll("\x1b[1;38;5;42m");
+            try stdout.writeAll(line);
+            try stdout.writeAll("\x1b[0m");
+            return;
+        },
+        1 => {
+            try stdout.writeAll("\x1b[2;38;5;245m");
+            try stdout.writeAll(line);
+            try stdout.writeAll("\x1b[0m");
+            return;
+        },
+        2 => {
+            try stdout.writeAll("\x1b[1;38;5;81m");
+            try stdout.writeAll(line);
+            try stdout.writeAll("\x1b[0m");
+            return;
+        },
+        3 => {
+            try stdout.writeAll("\x1b[38;5;16;48;5;252m");
+            try stdout.writeAll(line);
+            try stdout.writeAll("\x1b[0m");
+            return;
+        },
+        else => {},
+    }
+
+    for (line) |char| {
+        switch (char) {
+            '|' => try stdout.writeAll("\x1b[38;5;244m|\x1b[0m"),
+            '[' => try stdout.writeAll("\x1b[1;38;5;220m[\x1b[0m"),
+            ']' => try stdout.writeAll("\x1b[1;38;5;220m]\x1b[0m"),
+            '<' => try stdout.writeAll("\x1b[1;38;5;51m<\x1b[0m"),
+            '>' => try stdout.writeAll("\x1b[1;38;5;51m>\x1b[0m"),
+            '*' => try stdout.writeAll("\x1b[1;38;5;51m*\x1b[0m"),
+            else => try stdout.writeByte(char),
+        }
     }
 }
 
@@ -3526,6 +3574,36 @@ test "terminal cells escape exits edit mode immediately and keeps formula visibl
     try std.testing.expect(std.mem.indexOf(u8, snapshot, "<=add(A0, A1)>") == null);
     try std.testing.expect(std.mem.indexOf(u8, snapshot, "Formula B0 : =add(A0, A1)") != null);
     try std.testing.expect(input_state.focused_text_input == null);
+}
+
+test "terminal cells viewport stays until focus leaves visible rows" {
+    const source = @embedFile("../examples/terminal/cells/cells.bn");
+    const outcome = try boon.headless.runAlloc(std.testing.allocator, source, .{});
+    const session_value = switch (outcome) {
+        .ok => |session| session,
+        .err => |failure| {
+            std.debug.print("unexpected terminal cells viewport failure: {s}\n", .{failure.message});
+            return error.UnexpectedHeadlessFailure;
+        },
+    };
+    var runtime = session_value;
+    defer runtime.deinit();
+
+    var input_state = TerminalInputState{};
+    defer input_state.deinit(std.testing.allocator);
+
+    inline for (0..2) |_| try dispatchTerminalTestKey(&runtime, &input_state, "Down");
+    const first_snapshot = try runtime.snapshotAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(first_snapshot);
+    try std.testing.expect(std.mem.indexOf(u8, first_snapshot, "[ 0  ][5   ]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, first_snapshot, "Focus A2") != null);
+
+    inline for (0..14) |_| try dispatchTerminalTestKey(&runtime, &input_state, "Down");
+    const second_snapshot = try runtime.snapshotAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(second_snapshot);
+    try std.testing.expect(std.mem.indexOf(u8, second_snapshot, "Focus A16") != null);
+    try std.testing.expect(std.mem.indexOf(u8, second_snapshot, "[ 1  ||10") != null);
+    try std.testing.expect(std.mem.indexOf(u8, second_snapshot, "[ 0  ][5   ]") == null);
 }
 
 test "terminal cells can escape and reopen formula edit then modify middle character with arrows" {

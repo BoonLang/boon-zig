@@ -66,37 +66,17 @@ FUNCTION max_column_start() {
     total_columns - visible_column_count + 1
 }
 
-FUNCTION viewport_row_start() {
-    focused_row <= 2 |> WHEN {
-        True => 0
-        __ => focused_row >= max_row_start() + 2 |> WHEN {
-            True => max_row_start()
-            __ => focused_row - 2
-        }
-    }
-}
-
-FUNCTION viewport_column_start() {
-    focused_column <= 3 |> WHEN {
-        True => 1
-        __ => focused_column >= max_column_start() + 2 |> WHEN {
-            True => max_column_start()
-            __ => focused_column - 2
-        }
-    }
-}
-
 FUNCTION visible_row_numbers() {
     List/range(
-        from: viewport_row_start()
-        to: viewport_row_start() + visible_row_count - 1
+        from: viewport_row_start
+        to: viewport_row_start + visible_row_count - 1
     )
 }
 
 FUNCTION visible_columns() {
     List/range(
-        from: viewport_column_start()
-        to: viewport_column_start() + visible_column_count - 1
+        from: viewport_column_start
+        to: viewport_column_start + visible_column_count - 1
     )
 }
 
@@ -1516,6 +1496,108 @@ hovered_column: 0 |> HOLD state {
 
 hovered_active: False |> HOLD state {
     event_ports.hovered_cell.hovered
+}
+
+viewport_row_start: 0 |> HOLD state {
+    event_ports.move_up |> THEN {
+        focused_row == 0 |> WHEN {
+            True => state
+            __ => focused_row - 1 < state |> WHEN {
+                True => state == 0 |> WHEN {
+                    True => 0
+                    __ => state - 1
+                }
+                __ => state
+            }
+        }
+    }
+    event_ports.move_down |> THEN {
+        focused_row == 99 |> WHEN {
+            True => state
+            __ => focused_row + 1 >= state + visible_row_count |> WHEN {
+                True => state >= max_row_start() |> WHEN {
+                    True => max_row_start()
+                    __ => state + 1
+                }
+                __ => state
+            }
+        }
+    }
+    event_ports.select_cell.row |> THEN {
+        event_ports.select_cell.row < state |> WHEN {
+            True => event_ports.select_cell.row
+            __ => event_ports.select_cell.row >= state + visible_row_count |> WHEN {
+                True => event_ports.select_cell.row - visible_row_count + 1 > max_row_start() |> WHEN {
+                    True => max_row_start()
+                    __ => event_ports.select_cell.row - visible_row_count + 1
+                }
+                __ => state
+            }
+        }
+    }
+    event_ports.edit_started.row |> THEN {
+        event_ports.edit_started.row < state |> WHEN {
+            True => event_ports.edit_started.row
+            __ => event_ports.edit_started.row >= state + visible_row_count |> WHEN {
+                True => event_ports.edit_started.row - visible_row_count + 1 > max_row_start() |> WHEN {
+                    True => max_row_start()
+                    __ => event_ports.edit_started.row - visible_row_count + 1
+                }
+                __ => state
+            }
+        }
+    }
+}
+
+viewport_column_start: 1 |> HOLD state {
+    event_ports.move_left |> THEN {
+        focused_column == 1 |> WHEN {
+            True => state
+            __ => focused_column - 1 < state |> WHEN {
+                True => state == 1 |> WHEN {
+                    True => 1
+                    __ => state - 1
+                }
+                __ => state
+            }
+        }
+    }
+    event_ports.move_right |> THEN {
+        focused_column == 26 |> WHEN {
+            True => state
+            __ => focused_column + 1 >= state + visible_column_count |> WHEN {
+                True => state >= max_column_start() |> WHEN {
+                    True => max_column_start()
+                    __ => state + 1
+                }
+                __ => state
+            }
+        }
+    }
+    event_ports.select_cell.column |> THEN {
+        event_ports.select_cell.column < state |> WHEN {
+            True => event_ports.select_cell.column
+            __ => event_ports.select_cell.column >= state + visible_column_count |> WHEN {
+                True => event_ports.select_cell.column - visible_column_count + 1 > max_column_start() |> WHEN {
+                    True => max_column_start()
+                    __ => event_ports.select_cell.column - visible_column_count + 1
+                }
+                __ => state
+            }
+        }
+    }
+    event_ports.edit_started.column |> THEN {
+        event_ports.edit_started.column < state |> WHEN {
+            True => event_ports.edit_started.column
+            __ => event_ports.edit_started.column >= state + visible_column_count |> WHEN {
+                True => event_ports.edit_started.column - visible_column_count + 1 > max_column_start() |> WHEN {
+                    True => max_column_start()
+                    __ => event_ports.edit_started.column - visible_column_count + 1
+                }
+                __ => state
+            }
+        }
+    }
 }
 
 editing_text: Text/empty() |> HOLD state {
