@@ -9,6 +9,8 @@ pub const Options = struct {
     virtual_time_ms: u64 = 0,
     state_file_path: ?[]const u8 = null,
     clear_state: bool = false,
+    terminal_columns: usize = 80,
+    terminal_rows: usize = 24,
 };
 
 pub const Outcome = union(enum) {
@@ -35,6 +37,16 @@ const RecordField = struct {
 const ScopedNodeKey = struct {
     node_id: flow_ir.NodeId,
     scope_id: u64,
+};
+
+const CachedEvalEntry = struct {
+    value: Value,
+    deps: []ScopedNodeKey,
+};
+
+const EvalFrame = struct {
+    parent: ?*EvalFrame,
+    deps: std.ArrayListUnmanaged(ScopedNodeKey) = .empty,
 };
 
 const ScopedNodeValue = struct {
@@ -373,8 +385,9 @@ pub const Session = struct {
     link_key_values: []Value = &.{},
     link_key_inited: []bool = &.{},
     scoped_link_key_values: std.AutoHashMapUnmanaged(ScopedNodeKey, Value) = .empty,
-    eval_cache: std.AutoHashMapUnmanaged(ScopedNodeKey, Value) = .empty,
+    eval_cache: std.AutoHashMapUnmanaged(ScopedNodeKey, CachedEvalEntry) = .empty,
     cached_terminal_contract: ?*TerminalContract = null,
+    cached_terminal_contract_deps: ?[]ScopedNodeKey = null,
     cached_terminal_hit_regions: ?[]TerminalHitRegion = null,
     cached_button_links: ?[]ControlEventRef = null,
     cached_slider_links: ?[]ControlEventRef = null,
@@ -385,6 +398,10 @@ pub const Session = struct {
     cached_label_double_click_links: ?[]ControlEventRef = null,
     cached_hover_links: ?[]ControlEventRef = null,
     cached_select_links: ?[]ControlEventRef = null,
+    cached_text_inputs: ?[]*TextInputValue = null,
+    current_eval_frame: ?*EvalFrame = null,
+    terminal_columns: usize = 80,
+    terminal_rows: usize = 24,
     list_values: []Value = &.{},
     list_inited: []bool = &.{},
     list_remove_tombstones: [][]Value = &.{},
@@ -420,15 +437,27 @@ pub const Session = struct {
         self.scoped_hold_values.deinit(self.arena.allocator());
         self.scoped_link_values.deinit(self.arena.allocator());
         self.scoped_link_key_values.deinit(self.arena.allocator());
-        self.eval_cache.deinit(self.arena.allocator());
+        self.clearEvalCache();
+        self.eval_cache.deinit(self.backing_allocator);
+        if (self.cached_terminal_contract_deps) |deps| self.backing_allocator.free(deps);
         self.memo_arena.deinit();
         self.flow.deinit();
         self.arena.deinit();
     }
 
-    fn invalidateEvalCache(self: *Session) void {
+    fn clearEvalCache(self: *Session) void {
+        var iterator = self.eval_cache.iterator();
+        while (iterator.next()) |entry| {
+            self.backing_allocator.free(entry.value_ptr.deps);
+        }
         self.eval_cache.clearRetainingCapacity();
+    }
+
+    fn invalidateEvalCache(self: *Session) void {
+        self.clearEvalCache();
+        if (self.cached_terminal_contract_deps) |deps| self.backing_allocator.free(deps);
         self.cached_terminal_contract = null;
+        self.cached_terminal_contract_deps = null;
         self.cached_terminal_hit_regions = null;
         self.cached_button_links = null;
         self.cached_slider_links = null;
@@ -439,8 +468,7 @@ pub const Session = struct {
         self.cached_label_double_click_links = null;
         self.cached_hover_links = null;
         self.cached_select_links = null;
-        self.memo_arena.deinit();
-        self.memo_arena = std.heap.ArenaAllocator.init(self.backing_allocator);
+        self.cached_text_inputs = null;
     }
 
     fn flushPendingQueue(self: *Session) !void {
@@ -654,8 +682,19 @@ pub const Session = struct {
             else => return error.ExpectedTerminalRoot,
         };
 
+        var frame = EvalFrame{ .parent = self.current_eval_frame };
+        self.current_eval_frame = &frame;
+        defer {
+            self.current_eval_frame = frame.parent;
+            frame.deps.deinit(self.backing_allocator);
+        }
+
         const contract = try self.memo_arena.allocator().create(TerminalContract);
         contract.* = try terminalContractFromValue(self, self.memo_arena.allocator(), terminal);
+        const deps = try self.backing_allocator.alloc(ScopedNodeKey, frame.deps.items.len);
+        @memcpy(deps, frame.deps.items);
+        if (self.cached_terminal_contract_deps) |old_deps| self.backing_allocator.free(old_deps);
+        self.cached_terminal_contract_deps = deps;
         self.cached_terminal_contract = contract;
         return contract;
     }
@@ -720,12 +759,8 @@ pub const Session = struct {
     }
 
     pub fn textInputCountAlloc(self: *Session, allocator: std.mem.Allocator) !usize {
-        try self.flushPendingQueue();
-        const value = try self.interactionRootValue();
-        var inputs: std.ArrayList(*TextInputValue) = .empty;
-        defer inputs.deinit(allocator);
-        try collectTextInputValues(self, &inputs, allocator, value);
-        return inputs.items.len;
+        _ = allocator;
+        return (try self.textInputValuesView()).len;
     }
 
     pub fn textInputTextAlloc(self: *Session, allocator: std.mem.Allocator, index: usize) ![]u8 {
@@ -1215,9 +1250,9 @@ pub const Session = struct {
                         if (self.sum_inited[index]) {
                             try self.logf("restore sum n{d} = {d}", .{ index, self.sum_values[index] });
                         } else if (try self.initialNumericValue(call.positional[0])) |value| {
-                            self.invalidateEvalCache();
                             self.sum_values[index] = value;
                             self.sum_inited[index] = true;
+                            self.invalidateEvalCacheForDependency(.{ .node_id = index, .scope_id = 0 });
                             try self.logf("init sum n{d} = {d}", .{ index, value });
                         } else {
                             try self.logf("init sum n{d} = <empty>", .{index});
@@ -2325,9 +2360,9 @@ pub const Session = struct {
                 }
                 if (std.mem.eql(u8, call.path, "Math/sum")) {
                     const value = try valueAsNumber(try valueFromPulsePayload(self, self.arena.allocator(), pulse.payload, pulse.scope));
-                    self.invalidateEvalCache();
                     self.sum_values[subscriber] += value;
                     self.sum_inited[subscriber] = true;
+                    self.invalidateEvalCacheForDependency(.{ .node_id = subscriber, .scope_id = 0 });
                     try self.logf("sum n{d} += {d} -> {d}", .{
                         subscriber,
                         value,
@@ -2344,8 +2379,8 @@ pub const Session = struct {
                 if (std.mem.eql(u8, call.path, "Router/go_to") and call.positional.len != 0) {
                     const route = try self.evalNode(self.arena.allocator(), call.positional[0], null);
                     if (route != .none) {
-                        self.invalidateEvalCache();
                         self.route_value = route;
+                        self.invalidateEvalCacheForDependency(.{ .node_id = subscriber, .scope_id = 0 });
                         try self.logf("router_go_to n{d} -> {s}", .{ subscriber, try valueAsText(route) });
                         try self.queue.append(self.arena.allocator(), .{ .source = subscriber, .payload = .{ .node = subscriber } });
                     }
@@ -2654,6 +2689,88 @@ pub const Session = struct {
         };
     }
 
+    fn addFrameDependency(self: *Session, frame: *EvalFrame, dep: ScopedNodeKey) !void {
+        for (frame.deps.items) |existing| {
+            if (existing.node_id == dep.node_id and existing.scope_id == dep.scope_id) return;
+        }
+        try frame.deps.append(self.backing_allocator, dep);
+    }
+
+    fn mergeCachedDependencies(self: *Session, deps: []const ScopedNodeKey) !void {
+        const frame = self.current_eval_frame orelse return;
+        for (deps) |dep| try self.addFrameDependency(frame, dep);
+    }
+
+    fn recordStateDependency(self: *Session, dep: ScopedNodeKey) !void {
+        const frame = self.current_eval_frame orelse return;
+        try self.addFrameDependency(frame, dep);
+    }
+
+    fn scopedStateKey(self: *Session, node_id: flow_ir.NodeId, scope: ?*const EvalScope) ScopedNodeKey {
+        if (self.scopedNodeKey(node_id, scope)) |key| return key;
+        return .{ .node_id = node_id, .scope_id = 0 };
+    }
+
+    fn recordLinkDependencies(self: *Session, link: flow_ir.NodeId, scope: ?*const EvalScope, include_key: bool) !void {
+        try self.recordStateDependency(self.scopedStateKey(link, scope));
+        if (include_key) try self.recordStateDependency(self.scopedStateKey(link, scope));
+    }
+
+    fn invalidateEvalCacheForDependency(self: *Session, dep: ScopedNodeKey) void {
+        if (self.cached_terminal_contract_deps) |deps| {
+            for (deps) |cached_dep| {
+                if (cached_dep.node_id == dep.node_id and cached_dep.scope_id == dep.scope_id) {
+                    self.backing_allocator.free(deps);
+                    self.cached_terminal_contract_deps = null;
+                    self.cached_terminal_contract = null;
+                    break;
+                }
+            }
+        }
+        self.cached_terminal_hit_regions = null;
+        self.cached_button_links = null;
+        self.cached_slider_links = null;
+        self.cached_text_input_links = null;
+        self.cached_text_input_key_links = null;
+        self.cached_text_input_blur_links = null;
+        self.cached_text_input_focus_links = null;
+        self.cached_label_double_click_links = null;
+        self.cached_hover_links = null;
+        self.cached_select_links = null;
+        self.cached_text_inputs = null;
+
+        var keys: std.ArrayList(ScopedNodeKey) = .empty;
+        defer keys.deinit(self.backing_allocator);
+
+        var iterator = self.eval_cache.iterator();
+        while (iterator.next()) |entry| {
+            const key = entry.key_ptr.*;
+            const cached = entry.value_ptr.*;
+            if (key.node_id == dep.node_id and key.scope_id == dep.scope_id) {
+                keys.append(self.backing_allocator, key) catch {
+                    self.invalidateEvalCache();
+                    return;
+                };
+                continue;
+            }
+            for (cached.deps) |cached_dep| {
+                if (cached_dep.node_id == dep.node_id and cached_dep.scope_id == dep.scope_id) {
+                    keys.append(self.backing_allocator, key) catch {
+                        self.invalidateEvalCache();
+                        return;
+                    };
+                    break;
+                }
+            }
+        }
+
+        for (keys.items) |key| {
+            if (self.eval_cache.fetchRemove(key)) |removed| {
+                self.backing_allocator.free(removed.value.deps);
+            }
+        }
+    }
+
     fn isTopLevelBindingNode(self: *Session, node_id: flow_ir.NodeId) bool {
         for (self.flow.bindings) |binding| {
             if (binding.node == node_id) return true;
@@ -2690,7 +2807,7 @@ pub const Session = struct {
     }
 
     fn setLinkValue(self: *Session, node_id: flow_ir.NodeId, scope: ?*const EvalScope, value: Value) !void {
-        self.invalidateEvalCache();
+        self.invalidateEvalCacheForDependency(self.scopedStateKey(node_id, scope));
         if (self.scopedNodeKey(node_id, scope)) |key| {
             try self.scoped_link_values.put(self.arena.allocator(), key, value);
             return;
@@ -2705,7 +2822,7 @@ pub const Session = struct {
     }
 
     fn setLinkKeyValue(self: *Session, node_id: flow_ir.NodeId, scope: ?*const EvalScope, value: Value) !void {
-        self.invalidateEvalCache();
+        self.invalidateEvalCacheForDependency(self.scopedStateKey(node_id, scope));
         if (self.scopedNodeKey(node_id, scope)) |key| {
             try self.scoped_link_key_values.put(self.arena.allocator(), key, value);
             return;
@@ -2720,7 +2837,7 @@ pub const Session = struct {
     }
 
     fn setLatestPayload(self: *Session, node_id: flow_ir.NodeId, scope: ?*const EvalScope, payload: PulsePayload) !void {
-        self.invalidateEvalCache();
+        self.invalidateEvalCacheForDependency(self.scopedStateKey(node_id, scope));
         if (self.scopedNodeKey(node_id, scope)) |key| {
             try self.scoped_latest_values.put(self.arena.allocator(), key, payload);
             return;
@@ -2734,7 +2851,7 @@ pub const Session = struct {
     }
 
     fn setHoldValue(self: *Session, node_id: flow_ir.NodeId, scope: ?*const EvalScope, value: Value) !void {
-        self.invalidateEvalCache();
+        self.invalidateEvalCacheForDependency(self.scopedStateKey(node_id, scope));
         if (self.scopedNodeKey(node_id, scope)) |key| {
             try self.scoped_hold_values.put(self.arena.allocator(), key, value);
             return;
@@ -2744,20 +2861,48 @@ pub const Session = struct {
     }
 
     fn currentTextInputValue(self: *Session, index: usize) anyerror!Value {
+        const inputs = try self.textInputValuesView();
+        if (index >= inputs.len) return error.InvalidTextInputIndex;
+        return inputs[index].text;
+    }
+
+    fn textInputValuesView(self: *Session) anyerror![]*TextInputValue {
+        try self.flushPendingQueue();
+        if (self.cached_text_inputs) |inputs| return inputs;
+
         const value = try self.interactionRootValue();
         var inputs: std.ArrayList(*TextInputValue) = .empty;
-        defer inputs.deinit(self.arena.allocator());
-        try collectTextInputValues(self, &inputs, self.arena.allocator(), value);
-        if (index >= inputs.items.len) return error.InvalidTextInputIndex;
-        return inputs.items[index].text;
+        defer inputs.deinit(self.memo_arena.allocator());
+        try collectTextInputValues(self, &inputs, self.memo_arena.allocator(), value);
+        const owned = try inputs.toOwnedSlice(self.memo_arena.allocator());
+        self.cached_text_inputs = owned;
+        return owned;
     }
 
     fn evalNode(self: *Session, allocator: std.mem.Allocator, node_id: flow_ir.NodeId, scope: ?*const EvalScope) anyerror!Value {
         const cache_key = self.evalCacheKey(node_id, scope);
-        if (self.eval_cache.get(cache_key)) |cached| return cached;
+        if (self.eval_cache.get(cache_key)) |cached| {
+            try self.mergeCachedDependencies(cached.deps);
+            return cached.value;
+        }
+
+        var frame = EvalFrame{ .parent = self.current_eval_frame };
+        self.current_eval_frame = &frame;
+        defer {
+            self.current_eval_frame = frame.parent;
+            frame.deps.deinit(self.backing_allocator);
+        }
 
         const value = try self.evalNodeUncached(allocator, node_id, scope);
-        try self.eval_cache.put(self.arena.allocator(), cache_key, value);
+        const deps = try self.backing_allocator.alloc(ScopedNodeKey, frame.deps.items.len);
+        @memcpy(deps, frame.deps.items);
+        if (frame.parent) |parent| {
+            for (frame.deps.items) |dep| try self.addFrameDependency(parent, dep);
+        }
+        try self.eval_cache.put(self.backing_allocator, cache_key, .{
+            .value = value,
+            .deps = deps,
+        });
         return value;
     }
 
@@ -2772,7 +2917,10 @@ pub const Session = struct {
                 .pass_ref, .passed_ref => if (scope) |frame| frame.passed orelse .none else .none,
                 else => .none,
             },
-            .link_port => self.getLinkValue(node_id, scope) orelse .{ .link = node_id },
+            .link_port => blk: {
+                try self.recordStateDependency(self.scopedStateKey(node_id, scope));
+                break :blk self.getLinkValue(node_id, scope) orelse .{ .link = node_id };
+            },
             .binding_ref => |binding_id| try self.evalNode(allocator, self.flow.bindings[binding_id].node, null),
             .text => |parts| try self.evalText(allocator, parts, scope),
             .list => |list| try self.evalList(allocator, list.items, scope),
@@ -2783,6 +2931,7 @@ pub const Session = struct {
             .binary => |binary| try self.evalBinary(allocator, binary, scope),
             .latest => |latest| blk: {
                 const latest_scope = if (self.nodeNeedsScope(node_id)) scope else null;
+                try self.recordStateDependency(self.scopedStateKey(node_id, latest_scope));
                 if (self.getLatestPayload(node_id, latest_scope)) |current| break :blk switch (current) {
                     .node => |current_node| try self.evalNode(allocator, current_node, scope),
                     .value => |current_value| current_value,
@@ -2793,6 +2942,7 @@ pub const Session = struct {
             .then_value => |then_value| try self.evalNode(allocator, then_value.value, scope),
             .hold => |hold| blk: {
                 const hold_scope = self.holdStorageScope(node_id, hold, scope);
+                try self.recordStateDependency(self.scopedStateKey(node_id, hold_scope));
                 if (self.getHoldValue(node_id, hold_scope)) |value| break :blk value;
                 break :blk try self.evalNode(allocator, hold.initial, hold_scope);
             },
@@ -2923,20 +3073,29 @@ pub const Session = struct {
                     .scoped_node => |deferred| if (!self.nodeNeedsScope(deferred.node_id) and self.nodeNeedsDeferredField(deferred.node_id)) blk2: {
                         const resolved = try self.evalNode(allocator, deferred.node_id, canonicalControlScope(deferred.scope));
                         break :blk2 switch (resolved) {
-                            .link => |link| self.getLinkValue(link, scope) orelse resolved,
+                            .link => |link| link_blk: {
+                                try self.recordLinkDependencies(link, scope, false);
+                                break :link_blk self.getLinkValue(link, scope) orelse resolved;
+                            },
                             else => resolved,
                         };
                     } else blk2: {
                         const resolved = try self.materializeValue(allocator, field_value);
                         break :blk2 switch (resolved) {
-                            .link => |link| self.getLinkValue(link, scope) orelse resolved,
+                            .link => |link| link_blk: {
+                                try self.recordLinkDependencies(link, scope, false);
+                                break :link_blk self.getLinkValue(link, scope) orelse resolved;
+                            },
                             else => resolved,
                         };
                     },
                     else => blk2: {
                         const resolved = try self.materializeValue(allocator, field_value);
                         break :blk2 switch (resolved) {
-                            .link => |link| self.getLinkValue(link, scope) orelse resolved,
+                            .link => |link| link_blk: {
+                                try self.recordLinkDependencies(link, scope, false);
+                                break :link_blk self.getLinkValue(link, scope) orelse resolved;
+                            },
                             else => resolved,
                         };
                     },
@@ -2949,7 +3108,10 @@ pub const Session = struct {
             .stripe => |stripe| blk: {
                 if (std.mem.eql(u8, access.field, "hovered")) {
                     break :blk if (stripe.hovered_link) |link|
-                        self.getLinkValue(link, stripe.event_scope orelse scope) orelse .{ .link = link }
+                        hovered_blk: {
+                            try self.recordLinkDependencies(link, stripe.event_scope orelse scope, false);
+                            break :hovered_blk self.getLinkValue(link, stripe.event_scope orelse scope) orelse .{ .link = link };
+                        }
                     else
                         .none;
                 }
@@ -2962,7 +3124,10 @@ pub const Session = struct {
                 if (std.mem.eql(u8, access.field, "hovered")) {
                     break :blk switch (target) {
                         .button => |button| if (button.hovered_link) |link|
-                            self.getLinkValue(link, button.event_scope orelse scope) orelse .{ .link = link }
+                            hovered_blk: {
+                                try self.recordLinkDependencies(link, button.event_scope orelse scope, false);
+                                break :hovered_blk self.getLinkValue(link, button.event_scope orelse scope) orelse .{ .link = link };
+                            }
                         else
                             .none,
                         else => error.UnsupportedFieldAccess,
@@ -2972,24 +3137,28 @@ pub const Session = struct {
             },
             .link => |link| blk: {
                 if (std.mem.eql(u8, access.field, "text")) {
+                    try self.recordLinkDependencies(link, scope, false);
                     if (self.getLinkValue(link, scope)) |link_value| {
                         if (recordFieldFromValue(link_value, "text")) |field_value| break :blk field_value;
                     }
                     break :blk self.getLinkValue(link, scope) orelse .{ .text = "" };
                 }
                 if (std.mem.eql(u8, access.field, "value")) {
+                    try self.recordLinkDependencies(link, scope, false);
                     if (self.getLinkValue(link, scope)) |link_value| {
                         if (recordFieldFromValue(link_value, "value")) |field_value| break :blk field_value;
                     }
                     break :blk self.getLinkValue(link, scope) orelse .none;
                 }
                 if (std.mem.eql(u8, access.field, "key")) {
+                    try self.recordLinkDependencies(link, scope, true);
                     if (self.getLinkValue(link, scope)) |link_value| {
                         if (recordFieldFromValue(link_value, "key")) |field_value| break :blk field_value;
                     }
                     break :blk self.getLinkKeyValue(link, scope) orelse .none;
                 }
                 if (std.mem.eql(u8, access.field, "event")) {
+                    try self.recordLinkDependencies(link, scope, true);
                     const link_value = self.getLinkValue(link, scope);
                     const key_value = self.getLinkKeyValue(link, scope);
                     const change_fields = try allocator.alloc(RecordField, 2);
@@ -3025,6 +3194,7 @@ pub const Session = struct {
                     };
                     break :blk .{ .record = fields };
                 }
+                try self.recordLinkDependencies(link, scope, false);
                 if (self.getLinkValue(link, scope)) |link_value| {
                     if (recordFieldFromValue(link_value, access.field)) |field_value| break :blk field_value;
                 }
@@ -3281,10 +3451,18 @@ pub const Session = struct {
             }
             return error.MissingDurationArg;
         }
+        if (std.mem.eql(u8, call.path, "Terminal/columns")) {
+            return .{ .number = @floatFromInt(self.terminal_columns) };
+        }
+        if (std.mem.eql(u8, call.path, "Terminal/rows")) {
+            return .{ .number = @floatFromInt(self.terminal_rows) };
+        }
         if (std.mem.eql(u8, call.path, "Router/route")) {
+            try self.recordStateDependency(.{ .node_id = node_id, .scope_id = 0 });
             return self.route_value;
         }
         if (std.mem.eql(u8, call.path, "Router/go_to")) {
+            try self.recordStateDependency(.{ .node_id = node_id, .scope_id = 0 });
             return self.route_value;
         }
         if (std.mem.eql(u8, call.path, "Theme/geometry")) {
@@ -3643,6 +3821,7 @@ pub const Session = struct {
             return .{ .slider = slider };
         }
         if (std.mem.eql(u8, call.path, "Math/sum")) {
+            try self.recordStateDependency(.{ .node_id = node_id, .scope_id = 0 });
             if (!self.sum_inited[node_id]) return .none;
             return .{ .number = self.sum_values[node_id] };
         }
@@ -3668,6 +3847,7 @@ pub const Session = struct {
             return try self.evalNode(allocator, call.positional[0], scope);
         }
         if (std.mem.eql(u8, call.path, "List/append")) {
+            try self.recordStateDependency(.{ .node_id = node_id, .scope_id = 0 });
             if (!self.list_inited[node_id]) {
                 const base_node = if (call.positional.len != 0) call.positional[0] else return error.MissingArgument;
                 const base_value = try self.evalNode(allocator, base_node, scope);
@@ -3688,6 +3868,7 @@ pub const Session = struct {
             return self.list_values[node_id];
         }
         if (std.mem.eql(u8, call.path, "List/clear")) {
+            try self.recordStateDependency(.{ .node_id = node_id, .scope_id = 0 });
             if (!self.list_inited[node_id]) {
                 const base_node = if (call.positional.len != 0) call.positional[0] else return error.MissingArgument;
                 return try self.evalNode(allocator, base_node, scope);
@@ -3695,6 +3876,7 @@ pub const Session = struct {
             return self.list_values[node_id];
         }
         if (std.mem.eql(u8, call.path, "List/remove")) {
+            try self.recordStateDependency(.{ .node_id = node_id, .scope_id = 0 });
             if (!self.list_inited[node_id]) {
                 const base_node = if (call.positional.len != 0) call.positional[0] else return error.MissingArgument;
                 const base_value = try self.evalNode(allocator, base_node, scope);
@@ -3703,6 +3885,7 @@ pub const Session = struct {
             return self.list_values[node_id];
         }
         if (std.mem.eql(u8, call.path, "List/remove_last")) {
+            try self.recordStateDependency(.{ .node_id = node_id, .scope_id = 0 });
             if (!self.list_inited[node_id]) {
                 const base_node = if (call.positional.len != 0) call.positional[0] else return error.MissingArgument;
                 return try self.evalNode(allocator, base_node, scope);
@@ -3854,6 +4037,7 @@ pub const Session = struct {
         }
         if (std.mem.eql(u8, call.path, "Stream/pulses")) return .none;
         if (std.mem.eql(u8, call.path, "Stream/skip")) {
+            try self.recordStateDependency(.{ .node_id = node_id, .scope_id = 0 });
             if (!self.skip_inited[node_id] and scope != null) {
                 try self.initSkipNode(allocator, node_id, call, scope);
                 if (call.positional.len != 0) {
@@ -4558,7 +4742,7 @@ pub const Session = struct {
             if (limit == 0) {
                 self.skip_values[node_id] = value;
                 self.skip_inited[node_id] = true;
-                self.invalidateEvalCache();
+                self.invalidateEvalCacheForDependency(.{ .node_id = node_id, .scope_id = 0 });
             } else {
                 self.skip_seen[node_id] = 1;
             }
@@ -4576,7 +4760,7 @@ pub const Session = struct {
 
         self.skip_values[node_id] = try valueFromPulsePayload(self, self.arena.allocator(), payload, scope);
         self.skip_inited[node_id] = true;
-        self.invalidateEvalCache();
+        self.invalidateEvalCacheForDependency(.{ .node_id = node_id, .scope_id = 0 });
         try self.logf("skip n{d} emitted", .{node_id});
         try self.queue.append(self.arena.allocator(), .{ .source = node_id, .payload = .{ .node = node_id } });
     }
@@ -4586,7 +4770,7 @@ pub const Session = struct {
         const base = try self.evalNode(allocator, call.positional[0], null);
         self.list_values[node_id] = try cloneListValue(self.arena.allocator(), base);
         self.list_inited[node_id] = true;
-        self.invalidateEvalCache();
+        self.invalidateEvalCacheForDependency(.{ .node_id = node_id, .scope_id = 0 });
         try self.logf("init list_append n{d}", .{node_id});
     }
 
@@ -4595,7 +4779,7 @@ pub const Session = struct {
         const base = try self.evalNode(allocator, call.positional[0], null);
         self.list_values[node_id] = try cloneListValue(self.arena.allocator(), base);
         self.list_inited[node_id] = true;
-        self.invalidateEvalCache();
+        self.invalidateEvalCacheForDependency(.{ .node_id = node_id, .scope_id = 0 });
         try self.logf("init list_clear n{d}", .{node_id});
     }
 
@@ -4604,7 +4788,7 @@ pub const Session = struct {
         const base = try self.evalNode(allocator, call.positional[0], null);
         self.list_values[node_id] = try self.filterRemovedItems(self.arena.allocator(), base, self.list_remove_tombstones[node_id]);
         self.list_inited[node_id] = true;
-        self.invalidateEvalCache();
+        self.invalidateEvalCacheForDependency(.{ .node_id = node_id, .scope_id = 0 });
         try self.logf("init list_remove n{d}", .{node_id});
     }
 
@@ -4613,7 +4797,7 @@ pub const Session = struct {
         const base = try self.evalNode(allocator, call.positional[0], null);
         self.list_values[node_id] = try cloneListValue(self.arena.allocator(), base);
         self.list_inited[node_id] = true;
-        self.invalidateEvalCache();
+        self.invalidateEvalCacheForDependency(.{ .node_id = node_id, .scope_id = 0 });
         try self.logf("init list_remove_last n{d}", .{node_id});
     }
 
@@ -4624,7 +4808,7 @@ pub const Session = struct {
             const base = try self.evalNode(self.arena.allocator(), call.positional[0], null);
             self.list_values[node_id] = try cloneListValue(self.arena.allocator(), base);
             self.list_inited[node_id] = true;
-            self.invalidateEvalCache();
+            self.invalidateEvalCacheForDependency(.{ .node_id = node_id, .scope_id = 0 });
             try self.logf("list_append n{d} mirror", .{node_id});
             try self.queue.append(self.arena.allocator(), .{ .source = node_id, .payload = .{ .node = node_id } });
             return;
@@ -4644,7 +4828,7 @@ pub const Session = struct {
         next[current.len] = item;
         self.list_values[node_id] = .{ .list = next };
         self.list_inited[node_id] = true;
-        self.invalidateEvalCache();
+        self.invalidateEvalCacheForDependency(.{ .node_id = node_id, .scope_id = 0 });
         try self.logf("list_append n{d} len={d}", .{ node_id, next.len });
         try self.queue.append(self.arena.allocator(), .{ .source = node_id, .payload = .{ .node = node_id } });
     }
@@ -4657,7 +4841,7 @@ pub const Session = struct {
             const base = try self.evalNode(self.arena.allocator(), call.positional[0], null);
             self.list_values[node_id] = try cloneListValue(self.arena.allocator(), base);
             self.list_inited[node_id] = true;
-            self.invalidateEvalCache();
+            self.invalidateEvalCacheForDependency(.{ .node_id = node_id, .scope_id = 0 });
             try self.logf("list_clear n{d} mirror", .{node_id});
             try self.queue.append(self.arena.allocator(), .{ .source = node_id, .payload = .{ .node = node_id } });
             return;
@@ -4665,7 +4849,7 @@ pub const Session = struct {
         if (try self.valueTriggerSource(on_node) != source) return;
         self.list_values[node_id] = .{ .list = &.{} };
         self.list_inited[node_id] = true;
-        self.invalidateEvalCache();
+        self.invalidateEvalCacheForDependency(.{ .node_id = node_id, .scope_id = 0 });
         try self.logf("list_clear n{d} cleared", .{node_id});
         try self.queue.append(self.arena.allocator(), .{ .source = node_id, .payload = .{ .node = node_id } });
     }
@@ -4684,7 +4868,7 @@ pub const Session = struct {
             const base = try self.evalNode(self.arena.allocator(), base_node, null);
             self.list_values[node_id] = try self.filterRemovedItems(self.arena.allocator(), base, self.list_remove_tombstones[node_id]);
             self.list_inited[node_id] = true;
-            self.invalidateEvalCache();
+            self.invalidateEvalCacheForDependency(.{ .node_id = node_id, .scope_id = 0 });
             try self.logf("list_remove n{d} mirror len={d}", .{ node_id, (try listItemsFromValue(self.list_values[node_id])).len });
             try self.queue.append(self.arena.allocator(), .{ .source = node_id, .payload = .{ .node = node_id } });
             return;
@@ -4696,7 +4880,7 @@ pub const Session = struct {
             const base = try self.evalNode(self.arena.allocator(), base_node, null);
             self.list_values[node_id] = try self.filterRemovedItems(self.arena.allocator(), base, self.list_remove_tombstones[node_id]);
             self.list_inited[node_id] = true;
-            self.invalidateEvalCache();
+            self.invalidateEvalCacheForDependency(.{ .node_id = node_id, .scope_id = 0 });
             break :blk try listItemsFromValue(self.list_values[node_id]);
         };
 
@@ -4722,7 +4906,7 @@ pub const Session = struct {
         );
         self.list_values[node_id] = .{ .list = try kept.toOwnedSlice(self.arena.allocator()) };
         self.list_inited[node_id] = true;
-        self.invalidateEvalCache();
+        self.invalidateEvalCacheForDependency(.{ .node_id = node_id, .scope_id = 0 });
         try self.logf("list_remove n{d} removed={d} len={d}", .{ node_id, removed.items.len, kept.items.len });
         try self.queue.append(self.arena.allocator(), .{ .source = node_id, .payload = .{ .node = node_id } });
     }
@@ -4737,7 +4921,7 @@ pub const Session = struct {
             const base = try self.evalNode(self.arena.allocator(), base_node, null);
             self.list_values[node_id] = try cloneListValue(self.arena.allocator(), base);
             self.list_inited[node_id] = true;
-            self.invalidateEvalCache();
+            self.invalidateEvalCacheForDependency(.{ .node_id = node_id, .scope_id = 0 });
             try self.logf("list_remove_last n{d} mirror", .{node_id});
             try self.queue.append(self.arena.allocator(), .{ .source = node_id, .payload = .{ .node = node_id } });
             return;
@@ -4750,7 +4934,7 @@ pub const Session = struct {
             const base = try self.evalNode(self.arena.allocator(), base_node, null);
             self.list_values[node_id] = try cloneListValue(self.arena.allocator(), base);
             self.list_inited[node_id] = true;
-            self.invalidateEvalCache();
+            self.invalidateEvalCacheForDependency(.{ .node_id = node_id, .scope_id = 0 });
             break :blk try listItemsFromValue(self.list_values[node_id]);
         };
 
@@ -4760,7 +4944,7 @@ pub const Session = struct {
         @memcpy(next, current[0 .. current.len - 1]);
         self.list_values[node_id] = .{ .list = next };
         self.list_inited[node_id] = true;
-        self.invalidateEvalCache();
+        self.invalidateEvalCacheForDependency(.{ .node_id = node_id, .scope_id = 0 });
         try self.logf("list_remove_last n{d} len={d}", .{ node_id, next.len });
         try self.queue.append(self.arena.allocator(), .{ .source = node_id, .payload = .{ .node = node_id } });
     }
@@ -5151,6 +5335,8 @@ pub fn runAlloc(allocator: std.mem.Allocator, source: []const u8, options: Optio
         .trace_enabled = options.trace,
         .state_file_path = if (options.state_file_path) |path| try arena.allocator().dupe(u8, path) else null,
         .clear_state = options.clear_state,
+        .terminal_columns = options.terminal_columns,
+        .terminal_rows = options.terminal_rows,
     };
     try session.init();
     if (options.virtual_time_ms != 0) try session.advanceTime(options.virtual_time_ms);
@@ -5336,25 +5522,77 @@ fn withLocalBinding(allocator: std.mem.Allocator, parent: ?*const EvalScope, nam
     };
 }
 
+fn cloneCapturedValue(allocator: std.mem.Allocator, value: Value) anyerror!Value {
+    return switch (value) {
+        .text => |text| .{ .text = try allocator.dupe(u8, text) },
+        .symbol => |text| .{ .symbol = try allocator.dupe(u8, text) },
+        .list => |items| blk: {
+            const copy = try allocator.alloc(Value, items.len);
+            for (items, 0..) |item, index| copy[index] = try cloneCapturedValue(allocator, item);
+            break :blk .{ .list = copy };
+        },
+        .record => |fields| blk: {
+            const copy = try allocator.alloc(RecordField, fields.len);
+            for (fields, 0..) |field, index| {
+                copy[index] = .{
+                    .name = try allocator.dupe(u8, field.name),
+                    .value = try cloneCapturedValue(allocator, field.value),
+                };
+            }
+            break :blk .{ .record = copy };
+        },
+        else => value,
+    };
+}
+
 fn captureScope(allocator: std.mem.Allocator, scope: ?*const EvalScope) !?*const EvalScope {
     const frame = scope orelse return null;
     const copy = try allocator.create(EvalScope);
     const bindings = try allocator.alloc(RecordField, frame.bindings.len);
-    @memcpy(bindings, frame.bindings);
+    for (frame.bindings, 0..) |binding, index| {
+        bindings[index] = .{
+            .name = try allocator.dupe(u8, binding.name),
+            .value = try cloneCapturedValue(allocator, binding.value),
+        };
+    }
     copy.* = .{
         .bindings = bindings,
         .parent = try captureScope(allocator, frame.parent),
-        .passed = frame.passed,
+        .passed = if (frame.passed) |passed| try cloneCapturedValue(allocator, passed) else null,
         .id = frame.id,
         .transparent_state_scope = frame.transparent_state_scope,
     };
     return copy;
 }
 
+fn destroyCapturedValue(allocator: std.mem.Allocator, value: Value) void {
+    switch (value) {
+        .text => |text| allocator.free(text),
+        .symbol => |text| allocator.free(text),
+        .list => |items| {
+            for (items) |item| destroyCapturedValue(allocator, item);
+            allocator.free(items);
+        },
+        .record => |fields| {
+            for (fields) |field| {
+                allocator.free(field.name);
+                destroyCapturedValue(allocator, field.value);
+            }
+            allocator.free(fields);
+        },
+        else => {},
+    }
+}
+
 fn destroyCapturedScope(allocator: std.mem.Allocator, scope: ?*const EvalScope) void {
     const frame = scope orelse return;
     destroyCapturedScope(allocator, frame.parent);
+    for (frame.bindings) |binding| {
+        allocator.free(binding.name);
+        destroyCapturedValue(allocator, binding.value);
+    }
     allocator.free(frame.bindings);
+    if (frame.passed) |passed| destroyCapturedValue(allocator, passed);
     allocator.destroy(frame);
 }
 
@@ -7606,6 +7844,36 @@ test "pong terminal root exposes root element bindings" {
     const rendered = try session.renderAlloc(std.testing.allocator);
     defer std.testing.allocator.free(rendered);
     try std.testing.expect(std.mem.indexOf(u8, rendered, "Rally") != null);
+}
+
+test "terminal dimension builtins reflect configured viewport" {
+    const source =
+        \\terminal: Terminal/new(
+        \\    root: Element/label(
+        \\        element: []
+        \\        style: []
+        \\        label: TEXT { {Terminal/columns()}x{Terminal/rows()} }
+        \\    )
+        \\    loop: None
+        \\)
+    ;
+    const outcome = try runAlloc(std.testing.allocator, source, .{
+        .terminal_columns = 91,
+        .terminal_rows = 33,
+    });
+    const session_value = switch (outcome) {
+        .ok => |session| session,
+        .err => |failure| {
+            std.debug.print("unexpected terminal dimension failure: {s}\n", .{failure.message});
+            return error.UnexpectedHeadlessFailure;
+        },
+    };
+    var session = session_value;
+    defer session.deinit();
+
+    const snapshot = try session.snapshotAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(snapshot);
+    try std.testing.expectEqualStrings("91x33", snapshot);
 }
 
 test "nested store hold field exposes sibling derived value through headless runtime" {

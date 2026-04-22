@@ -4,8 +4,59 @@
 
 total_rows: 100
 total_columns: 26
-visible_row_count: 7
-visible_column_count: 5
+max_visible_row_count: 16
+max_visible_column_count: 12
+
+visible_row_count: BLOCK {
+    available_rows: Terminal/rows() - 8
+
+    available_rows < 1 |> WHEN {
+        True => 1
+        __ => available_rows > max_visible_row_count |> WHEN {
+            True => max_visible_row_count
+            __ => available_rows
+        }
+    }
+}
+
+visible_column_count: BLOCK {
+    terminal_columns: Terminal/columns()
+
+    terminal_columns >= 78 |> WHEN {
+        True => 12
+        __ => terminal_columns >= 72 |> WHEN {
+            True => 11
+            __ => terminal_columns >= 66 |> WHEN {
+                True => 10
+                __ => terminal_columns >= 60 |> WHEN {
+                    True => 9
+                    __ => terminal_columns >= 54 |> WHEN {
+                        True => 8
+                        __ => terminal_columns >= 48 |> WHEN {
+                            True => 7
+                            __ => terminal_columns >= 42 |> WHEN {
+                                True => 6
+                                __ => terminal_columns >= 36 |> WHEN {
+                                    True => 5
+                                    __ => terminal_columns >= 30 |> WHEN {
+                                        True => 4
+                                        __ => terminal_columns >= 24 |> WHEN {
+                                            True => 3
+                                            __ => terminal_columns >= 18 |> WHEN {
+                                                True => 2
+                                                __ => 1
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 FUNCTION max_row_start() {
     total_rows - visible_row_count + 1
@@ -375,7 +426,10 @@ FUNCTION grid_cell_box(text, is_selected, is_hovered) {
         content: grid_cell_content(text: text)
 
         is_selected |> WHEN {
-            True => box_text(left: TEXT { [ }, content: content, right: TEXT { ] })
+            True => is_hovered |> WHEN {
+                True => box_text(left: TEXT { < }, content: content, right: TEXT { > })
+                False => box_text(left: TEXT { [ }, content: content, right: TEXT { ] })
+            }
 
             False => is_hovered |> WHEN {
                 True => box_text(left: TEXT { * }, content: content, right: TEXT { * })
@@ -393,6 +447,33 @@ FUNCTION row_label_box(row_number, is_selected) {
             True => box_text(left: TEXT { [ }, content: content, right: TEXT { ] })
             False => box_text(left: TEXT { | }, content: content, right: TEXT { | })
         }
+    }
+}
+
+FUNCTION cell_name(column, row) {
+    BLOCK {
+        column_text: column_header(column_index: column)
+        TEXT { {column_text}{row} }
+    }
+}
+
+FUNCTION pointer_status() {
+    hovered_active |> WHEN {
+        True => BLOCK {
+            hovered_text: cell_name(column: hovered_column, row: hovered_row)
+            TEXT { Hover {hovered_text} }
+        }
+        False => TEXT { Hover none }
+    }
+}
+
+FUNCTION editing_status() {
+    editing_active |> WHEN {
+        True => BLOCK {
+            editing_cell: cell_name(column: focused_column, row: focused_row)
+            TEXT { Editing {editing_cell} }
+        }
+        False => TEXT { Ready }
     }
 }
 
@@ -700,6 +781,21 @@ terminal: Terminal/new(
                 style: []
                 label: TEXT { Arrows or click move selection, Enter edits, double-click edits, hover highlights }
             )
+
+            BLOCK {
+                focus_text: cell_name(column: focused_column, row: focused_row)
+                hover_text: pointer_status()
+                mode_text: editing_status()
+                gap: single_space()
+
+                Element/label(
+                    element: []
+                    style: []
+                    label: TEXT {
+                        Focus {focus_text}{gap}{hover_text}{gap}{mode_text}
+                    }
+                )
+            }
 
             Element/stripe(
                 element: []

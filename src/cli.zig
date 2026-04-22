@@ -517,7 +517,7 @@ const headless_p0_cases = [_]VerifyHeadlessCase{
     .{
         .name = "cells",
         .path = "examples/terminal/cells/cells.bn",
-        .expected = .{ .contains = "|    |[A   ]|B   ||C   ||D   ||E   |[ 1  ][ 5  ]| 15 || 30 ||    ||    |" },
+        .expected = .{ .contains = "Focus A1  Hover none Ready|    |[A   ]|B   ||C   ||D   ||E   ||F   ||G   ||H   ||I   ||J   ||K   ||L   |[ 1  ][ 5  ]| 15 || 30 ||    ||    ||    ||    ||    ||    ||    ||    ||    |" },
     },
     .{
         .name = "todo_mvc",
@@ -1211,6 +1211,8 @@ fn runHeadless(
         .virtual_time_ms = args.virtual_time_ms,
         .state_file_path = state_file_path,
         .clear_state = args.clear_state,
+        .terminal_columns = 80,
+        .terminal_rows = 24,
     });
     switch (outcome) {
         .ok => |session| {
@@ -1586,6 +1588,8 @@ fn runTerminal(
     const outcome = try boon.headless.runAlloc(allocator, source, .{
         .trace = args.trace,
         .virtual_time_ms = args.virtual_time_ms,
+        .terminal_columns = terminalViewport().width,
+        .terminal_rows = terminalViewport().height,
     });
     switch (outcome) {
         .ok => |session| {
@@ -3318,6 +3322,47 @@ test "executeHeadlessScriptAction applies mouse_move to hover terminal app" {
     const render = try runtime.renderAlloc(std.testing.allocator);
     defer std.testing.allocator.free(render);
     try std.testing.expect(std.mem.indexOf(u8, render, "×") != null);
+}
+
+test "terminal cells mouse move updates hover status and visible hovered cell" {
+    const source = @embedFile("../examples/terminal/cells/cells.bn");
+    const outcome = try boon.headless.runAlloc(std.testing.allocator, source, .{});
+    const session_value = switch (outcome) {
+        .ok => |session| session,
+        .err => |failure| {
+            std.debug.print("unexpected terminal cells hover failure: {s}\n", .{failure.message});
+            return error.UnexpectedHeadlessFailure;
+        },
+    };
+    var runtime = session_value;
+    defer runtime.deinit();
+
+    const regions = (try runtime.terminalHitRegionsAlloc(std.testing.allocator)).?;
+    defer std.testing.allocator.free(regions);
+
+    var target_region: ?boon.headless.TerminalHitRegion = null;
+    for (regions) |region| {
+        if (region.button_index != null and region.y > 0 and region.x > 10) {
+            target_region = region;
+            break;
+        }
+    }
+    try std.testing.expect(target_region != null);
+
+    var input_state = TerminalInputState{};
+    defer input_state.deinit(std.testing.allocator);
+    const region = target_region.?;
+    try handleTerminalMouseEvent(std.testing.allocator, &runtime, &input_state, .{
+        .x = region.x,
+        .y = region.y,
+        .button = .left,
+        .is_motion = true,
+    });
+
+    const snapshot = try runtime.snapshotAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(snapshot);
+    try std.testing.expect(std.mem.indexOf(u8, snapshot, "Hover B1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, snapshot, "* 15 *") != null);
 }
 
 test "executeHeadlessScriptAction applies mouse_double_click and key presses to terminal cells" {
