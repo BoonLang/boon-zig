@@ -80,25 +80,37 @@ FUNCTION visible_columns() {
     )
 }
 
-FUNCTION matching_overrides(column, row) {
-    overrides |> List/retain(item, if: item.row == row |> WHEN {
-        True => item.column == column
-        __ => False
-    })
+FUNCTION latest_override_info(column, row, index) {
+    index < 1 |> WHEN {
+        True => [found: False, text: Text/empty()]
+
+        __ => BLOCK {
+            item: overrides |> List/get(index: index)
+
+            item.row == row |> WHEN {
+                True => item.column == column |> WHEN {
+                    True => [found: True, text: item.text]
+                    __ => latest_override_info(column: column, row: row, index: index - 1)
+                }
+
+                __ => latest_override_info(column: column, row: row, index: index - 1)
+            }
+        }
+    }
 }
 
 FUNCTION cell_formula(column, row) {
     BLOCK {
-        matches: matching_overrides(column: column, row: row)
-        match_count: matches |> List/count()
+        latest_override:
+            latest_override_info(
+                column: column
+                row: row
+                index: overrides |> List/count()
+            )
 
-        match_count == 0 |> WHEN {
-            True => default_formula(column: column, row: row)
-
-            __ => BLOCK {
-                latest_match: matches |> List/get(index: match_count)
-                latest_match.text
-            }
+        latest_override.found |> WHEN {
+            True => latest_override.text
+            __ => default_formula(column: column, row: row)
         }
     }
 }
@@ -409,20 +421,24 @@ FUNCTION range_info(range_text) {
     }
 }
 
-FUNCTION stack_contains(stack, cell) {
-    stack |> List/any(item, if: item == cell)
+FUNCTION cell_stack_key(column, row) {
+    row * 100 + column
+}
+
+FUNCTION stack_contains(stack, cell_key) {
+    stack |> List/any(item, if: item == cell_key)
 }
 
 FUNCTION compute_cell_number(column, row, stack) {
     BLOCK {
-        cell: cell_name(column: column, row: row)
+        cell_key: cell_stack_key(column: column, row: row)
 
-        stack_contains(stack: stack, cell: cell) |> WHEN {
+        stack_contains(stack: stack, cell_key: cell_key) |> WHEN {
             True => 0
 
             __ => compute_formula_number(
                 formula_text: cell_formula(column: column, row: row)
-                stack: stack |> List/append(item: cell)
+                stack: stack |> List/append(item: cell_key)
             )
         }
     }
@@ -799,15 +815,6 @@ FUNCTION compute_formula_number(formula_text, stack) {
     }
 }
 
-FUNCTION make_cell(column, row) {
-    [column: column, row: row]
-}
-
-FUNCTION make_row_cells(row) {
-    visible_columns()
-    |> List/map(column, new: make_cell(column: column, row: row))
-}
-
 FUNCTION default_formula(column, row) {
     column == 1 |> WHEN {
         True => row |> WHEN {
@@ -856,10 +863,10 @@ FUNCTION default_formula(column, row) {
     }
 }
 
-FUNCTION is_editing_cell(cell) {
+FUNCTION is_editing_cell(column, row) {
     editing_active |> WHEN {
-        True => focused_row == cell.row |> WHEN {
-            True => focused_column == cell.column
+        True => focused_row == row |> WHEN {
+            True => focused_column == column
             __ => False
         }
 
@@ -918,34 +925,28 @@ FUNCTION clip_text(text, max_length) {
     }
 }
 
+FUNCTION fixed_cell_char(text, text_length, index) {
+    index < text_length |> WHEN {
+        True => text |> Text/substring(start: index, length: 1)
+        False => single_space()
+    }
+}
+
 FUNCTION grid_cell_content(text) {
     BLOCK {
         content_width: 4
 
         clipped_text: clip_text(text: text, max_length: content_width)
         clipped_length: clipped_text |> Text/length()
+        char_0: fixed_cell_char(text: clipped_text, text_length: clipped_length, index: 0)
+        char_1: fixed_cell_char(text: clipped_text, text_length: clipped_length, index: 1)
+        char_2: fixed_cell_char(text: clipped_text, text_length: clipped_length, index: 2)
+        char_3: fixed_cell_char(text: clipped_text, text_length: clipped_length, index: 3)
 
-        List/range(from: 1, to: content_width)
-        |> List/map(
-            slot
-
-            new:
-                slot <= clipped_length |> WHEN {
-                    True => clipped_text |> Text/substring(start: slot - 1, length: 1)
-                    False => single_space()
-                }
-        )
-        |> Text/join()
+        TEXT {
+            {char_0}{char_1}{char_2}{char_3}
+        }
     }
-}
-
-FUNCTION box_text(left, content, right) {
-    LIST {
-        left
-        content
-        right
-    }
-    |> Text/join()
 }
 
 FUNCTION grid_cell_box(text, is_selected, is_hovered) {
@@ -954,13 +955,13 @@ FUNCTION grid_cell_box(text, is_selected, is_hovered) {
 
         is_selected |> WHEN {
             True => is_hovered |> WHEN {
-                True => box_text(left: TEXT { < }, content: content, right: TEXT { > })
-                False => box_text(left: TEXT { [ }, content: content, right: TEXT { ] })
+                True => TEXT { <{content}> }
+                False => TEXT { [{content}] }
             }
 
             False => is_hovered |> WHEN {
-                True => box_text(left: TEXT { * }, content: content, right: TEXT { * })
-                False => box_text(left: TEXT { | }, content: content, right: TEXT { | })
+                True => TEXT { *{content}* }
+                False => TEXT { |{content}| }
             }
         }
     }
@@ -971,8 +972,8 @@ FUNCTION row_label_box(row_number, is_selected) {
         row_text: TEXT { {row_number} }
         content: grid_cell_content(text: row_text)
         is_selected |> WHEN {
-            True => box_text(left: TEXT { [ }, content: content, right: TEXT { ] })
-            False => box_text(left: TEXT { | }, content: content, right: TEXT { | })
+            True => TEXT { [{content}] }
+            False => TEXT { |{content}| }
         }
     }
 }
@@ -1039,9 +1040,9 @@ FUNCTION cell_display_text(formula_text, display_value) {
     }
 }
 
-FUNCTION is_selected_cell(cell) {
-    focused_row == cell.row |> WHEN {
-        True => focused_column == cell.column
+FUNCTION is_selected_cell(column, row) {
+    focused_row == row |> WHEN {
+        True => focused_column == column
         __ => False
     }
 }
@@ -1050,10 +1051,10 @@ FUNCTION is_selected_row(row_number) {
     focused_row == row_number
 }
 
-FUNCTION is_hovered_cell(cell) {
+FUNCTION is_hovered_cell(column, row) {
     hovered_active |> WHEN {
-        True => hovered_row == cell.row |> WHEN {
-            True => hovered_column == cell.column
+        True => hovered_row == row |> WHEN {
+            True => hovered_column == column
             __ => False
         }
 
@@ -1061,13 +1062,16 @@ FUNCTION is_hovered_cell(cell) {
     }
 }
 
-FUNCTION make_cell_element(cell) {
+FUNCTION make_cell_element(column, row) {
     BLOCK {
-        formula_text: cell_formula(column: cell.column, row: cell.row)
-        display_value: compute_cell_number(column: cell.column, row: cell.row, stack: LIST { cell_name(column: cell.column, row: cell.row) })
-        is_editing: is_editing_cell(cell: cell)
-        is_selected: is_selected_cell(cell: cell)
-        is_hovered: is_hovered_cell(cell: cell)
+        formula_text: cell_formula(column: column, row: row)
+        display_value: formula_text |> Text/starts_with(prefix: TEXT { = }) |> WHEN {
+            True => compute_cell_number(column: column, row: row, stack: LIST { cell_stack_key(column: column, row: row) })
+            __ => 0
+        }
+        is_editing: is_editing_cell(column: column, row: row)
+        is_selected: is_selected_cell(column: column, row: row)
+        is_hovered: is_hovered_cell(column: column, row: row)
         display_container: [event: [hovered: LINK]]
         display_element: [event: [click: LINK, double_click: LINK]]
         editing_element: [event: [change: LINK, key_down: LINK, blur: LINK]]
@@ -1076,8 +1080,8 @@ FUNCTION make_cell_element(cell) {
             display_element.event.click
             |> THEN {
                 [
-                    row: cell.row
-                    column: cell.column
+                    row: row
+                    column: column
                 ]
             }
             |> LINK { event_ports.select_cell }
@@ -1086,8 +1090,8 @@ FUNCTION make_cell_element(cell) {
             display_element.event.double_click
             |> THEN {
                 [
-                    row: cell.row
-                    column: cell.column
+                    row: row
+                    column: column
                 ]
             }
             |> LINK { event_ports.edit_started }
@@ -1095,11 +1099,11 @@ FUNCTION make_cell_element(cell) {
         edit_selected_again_link:
             display_element.event.click
             |> THEN {
-                focused_row == cell.row |> WHEN {
-                    True => focused_column == cell.column |> WHEN {
+                focused_row == row |> WHEN {
+                    True => focused_column == column |> WHEN {
                         True => [
-                            row: cell.row
-                            column: cell.column
+                            row: row
+                            column: column
                         ]
                         __ => SKIP
                     }
@@ -1113,67 +1117,52 @@ FUNCTION make_cell_element(cell) {
             |> THEN { editing_element.event.change.text }
             |> LINK { event_ports.edit_text_event }
 
-        edit_committed_link:
+        edit_transition_link:
             editing_element.event.key_down.key
             |> WHEN {
                 Enter => [
-                    row: cell.row
-                    column: cell.column
-                    text: editing_element.event.key_down.text
+                    commit: True
+                    row: row
+                    column: column
+                    committed_text: editing_element.event.key_down.text
+                    active: False
+                    text: Text/empty()
+                    dirty: False
                 ]
-
+                Escape => [
+                    commit: False
+                    row: row
+                    column: column
+                    committed_text: Text/empty()
+                    active: False
+                    text: Text/empty()
+                    dirty: False
+                ]
                 __ => SKIP
             }
-            |> LINK { event_ports.edit_committed }
-
-        edit_commit_active_reset_link:
-            editing_element.event.key_down.key
-            |> WHEN {
-                Enter => False
-                __ => SKIP
-            }
-            |> LINK { event_ports.edit_active_event }
-
-        edit_commit_text_reset_link:
-            editing_element.event.key_down.key
-            |> WHEN {
-                Enter => Text/empty()
-                __ => SKIP
-            }
-            |> LINK { event_ports.edit_text_event }
-
-        edit_cancelled_link:
-            editing_element.event.key_down.key
-            |> WHEN {
-                Escape => False
-                __ => SKIP
-            }
-            |> LINK { event_ports.edit_active_event }
-
-        edit_cancel_text_reset_link:
-            editing_element.event.key_down.key
-            |> WHEN {
-                Escape => Text/empty()
-                __ => SKIP
-            }
-            |> LINK { event_ports.edit_text_event }
+            |> LINK { event_ports.edit_transition }
 
         edit_blurred_link:
             editing_element.event.blur
-            |> THEN { False }
-            |> LINK { event_ports.edit_active_event }
-
-        edit_blur_text_reset_link:
-            editing_element.event.blur
-            |> THEN { Text/empty() }
-            |> LINK { event_ports.edit_text_event }
+            |> THEN {
+                [
+                    commit: False
+                    row: row
+                    column: column
+                    committed_text: Text/empty()
+                    active: False
+                    text: Text/empty()
+                    dirty: False
+                ]
+            }
+            |> LINK { event_ports.edit_transition }
 
         hovered_cell_link:
             display_container.event.hovered
             |> THEN {
                 [
-                    row: cell.row
-                    column: cell.column
+                    row: row
+                    column: column
                     hovered: display_container.event.hovered
                 ]
             }
@@ -1228,11 +1217,7 @@ FUNCTION make_cell_element(cell) {
     }
 }
 
-FUNCTION make_row_elements(row_cells) {
-    row_cells |> List/map(cell, new: make_cell_element(cell: cell))
-}
-
-FUNCTION make_row(row_number, row_cells) {
+FUNCTION make_row(row_number, visible_columns_list) {
     Element/stripe(
         element: []
         direction: Row
@@ -1261,177 +1246,179 @@ FUNCTION make_row(row_number, row_cells) {
                 direction: Row
                 gap: 0
                 style: []
-                items: make_row_elements(row_cells: row_cells)
+                items: visible_columns_list |> List/map(column, new: make_cell_element(column: column, row: row_number))
             )
         }
     )
 }
 
 terminal: Terminal/new(
-    root: Element/stripe(
-        element: [
-            terminal: [
-                bindings: LIST {
-                    [
-                        keys: LIST { TEXT { Up } }
-                        link: event_ports.move_up
-                        when: editing_active |> Bool/not()
-                        label: TEXT { move up }
-                    ]
-                    [
-                        keys: LIST { TEXT { Down } }
-                        link: event_ports.move_down
-                        when: editing_active |> Bool/not()
-                        label: TEXT { move down }
-                    ]
-                    [
-                        keys: LIST { TEXT { Left } }
-                        link: event_ports.move_left
-                        when: editing_active |> Bool/not()
-                        label: TEXT { move left }
-                    ]
-                    [
-                        keys: LIST { TEXT { Right } }
-                        link: event_ports.move_right
-                        when: editing_active |> Bool/not()
-                        label: TEXT { move right }
-                    ]
-                    [
-                        keys: LIST { TEXT { Enter } }
-                        link: event_ports.edit_selected
-                        when: editing_active |> Bool/not()
-                        label: TEXT { edit }
-                    ]
-                }
+    root: BLOCK {
+        visible_columns_list: visible_columns()
+        visible_row_numbers_list: visible_row_numbers()
+
+        Element/stripe(
+            element: [
+                terminal: [
+                    bindings: LIST {
+                        [
+                            keys: LIST { TEXT { Up } }
+                            link: event_ports.move_up
+                            when: editing_active |> Bool/not()
+                            label: TEXT { move up }
+                        ]
+                        [
+                            keys: LIST { TEXT { Down } }
+                            link: event_ports.move_down
+                            when: editing_active |> Bool/not()
+                            label: TEXT { move down }
+                        ]
+                        [
+                            keys: LIST { TEXT { Left } }
+                            link: event_ports.move_left
+                            when: editing_active |> Bool/not()
+                            label: TEXT { move left }
+                        ]
+                        [
+                            keys: LIST { TEXT { Right } }
+                            link: event_ports.move_right
+                            when: editing_active |> Bool/not()
+                            label: TEXT { move right }
+                        ]
+                        [
+                            keys: LIST { TEXT { Enter } }
+                            link: event_ports.edit_selected
+                            when: editing_active |> Bool/not()
+                            label: TEXT { edit }
+                        ]
+                    }
+                ]
             ]
-        ]
-        direction: Column
-        gap: 0
+            direction: Column
+            gap: 0
 
-        style: [
-            padding: 20
-            background: [color: Oklch [lightness: 0.97]]
-            font: [color: Oklch [lightness: 0.12]]
-        ]
+            style: [
+                padding: 20
+                background: [color: Oklch [lightness: 0.97]]
+                font: [color: Oklch [lightness: 0.12]]
+            ]
 
-        items: LIST {
-            Element/label(
-                element: []
-                style: [font: [size: 22, weight: Bold, color: Oklch [lightness: 0.18]]]
-                label: TEXT { Cells }
-            )
-
-            Element/label(
-                element: []
-                style: []
-                label: TEXT { Arrows or click move selection, Enter edits, double-click edits, hover highlights }
-            )
-
-            BLOCK {
-                focus_text: cell_name(column: focused_column, row: focused_row)
-                hover_text: pointer_status()
-                mode_text: editing_status()
-                gap: single_space()
+            items: LIST {
+                Element/label(
+                    element: []
+                    style: [font: [size: 22, weight: Bold, color: Oklch [lightness: 0.18]]]
+                    label: TEXT { Cells }
+                )
 
                 Element/label(
                     element: []
                     style: []
-                    label: TEXT {
-                        Focus {focus_text}{gap}{hover_text}{gap}{mode_text}
-                    }
+                    label: TEXT { Arrows or click move selection, Enter edits, double-click edits, hover highlights }
                 )
-            }
 
-            BLOCK {
-                focus_text: cell_name(column: focused_column, row: focused_row)
-                formula_text: current_formula_bar_text()
-                gap: single_space()
+                BLOCK {
+                    focus_text: cell_name(column: focused_column, row: focused_row)
+                    hover_text: pointer_status()
+                    mode_text: editing_status()
+                    gap: single_space()
 
-                Element/label(
-                    element: []
-
-                    style: [
-                        width: 720
-                        height: 26
-                        padding: [left: 8, right: 8]
-                        background: [color: Oklch [lightness: 0.93]]
-                        font: [color: Oklch [lightness: 0.18]]
-                    ]
-
-                    label:
-                        LIST {
-                            TEXT { Formula }
-                            gap
-                            focus_text
-                            TEXT { : }
-                            gap
-                            formula_text
+                    Element/label(
+                        element: []
+                        style: []
+                        label: TEXT {
+                            Focus {focus_text}{gap}{hover_text}{gap}{mode_text}
                         }
-                        |> Text/join()
-                )
-            }
+                    )
+                }
 
-            Element/stripe(
-                element: []
-                direction: Row
-                gap: 0
-                style: []
+                BLOCK {
+                    focus_text: cell_name(column: focused_column, row: focused_row)
+                    formula_text: current_formula_bar_text()
+                    gap: single_space()
 
-                items: LIST {
                     Element/label(
                         element: []
 
-                style: [
-                    width: 48
-                    height: 26
-                    background: [color: Oklch [lightness: 0.92]]
-                ]
+                        style: [
+                            width: 720
+                            height: 26
+                            padding: [left: 8, right: 8]
+                            background: [color: Oklch [lightness: 0.93]]
+                            font: [color: Oklch [lightness: 0.18]]
+                        ]
 
-                        label: empty_corner_box()
-                    )
-
-                    Element/stripe(
-                        element: []
-                        direction: Row
-                        gap: 0
-                        style: []
-
-                        items: visible_columns() |> List/map(column, new: Element/label(
-                            element: []
-
-                            style: [
-                                width: 48
-                                height: 26
-                                background: [color: Oklch [lightness: 0.92]]
-                                font: [weight: Bold, color: Oklch [lightness: 0.22]]
-                            ]
-
-                            label: grid_cell_box(
-                                text: column_header(column_index: column)
-                                is_selected: focused_column == column
-                                is_hovered: False
-                            )
-                        ))
+                        label:
+                            LIST {
+                                TEXT { Formula }
+                                gap
+                                focus_text
+                                TEXT { : }
+                                gap
+                                formula_text
+                            }
+                            |> Text/join()
                     )
                 }
-            )
 
-            Element/stripe(
-                element: []
-                direction: Column
-                gap: 0
-                style: [height: 500]
+                Element/stripe(
+                    element: []
+                    direction: Row
+                    gap: 0
+                    style: []
 
-                items: visible_row_numbers() |> List/map(
-                    row_number
-                    new: make_row(
-                        row_number: row_number
-                        row_cells: make_row_cells(row: row_number)
+                    items: LIST {
+                        Element/label(
+                            element: []
+
+                    style: [
+                        width: 48
+                        height: 26
+                        background: [color: Oklch [lightness: 0.92]]
+                    ]
+
+                            label: empty_corner_box()
+                        )
+
+                        Element/stripe(
+                            element: []
+                            direction: Row
+                            gap: 0
+                            style: []
+
+                            items: visible_columns_list |> List/map(column, new: Element/label(
+                                element: []
+
+                                style: [
+                                    width: 48
+                                    height: 26
+                                    background: [color: Oklch [lightness: 0.92]]
+                                    font: [weight: Bold, color: Oklch [lightness: 0.22]]
+                                ]
+
+                                label: grid_cell_box(
+                                    text: column_header(column_index: column)
+                                    is_selected: focused_column == column
+                                    is_hovered: False
+                                )
+                            ))
+                        )
+                    }
+                )
+
+                Element/stripe(
+                    element: []
+                    direction: Column
+                    gap: 0
+                    style: [height: 500]
+
+                    items: visible_row_numbers_list |> List/map(
+                        row_number
+                        new: make_row(row_number: row_number, visible_columns_list: visible_columns_list)
                     )
                 )
-            )
-        }
-    )
+            }
+        )
+    }
 
     loop: None
 )
@@ -1446,11 +1433,8 @@ event_ports: [
     edit_started: LINK
     hovered_cell: LINK
     edit_text_event: LINK
-    edit_active_event: LINK
-    edit_committed: LINK
+    edit_transition: LINK
 ]
-
-edit_committed: event_ports.edit_committed
 
 focused_row: 0 |> HOLD state {
     event_ports.move_up |> THEN {
@@ -1602,50 +1586,58 @@ viewport_column_start: 1 |> HOLD state {
 
 editing_text: Text/empty() |> HOLD state {
     event_ports.edit_text_event
+    event_ports.edit_transition.text
 }
 
 editing_active: False |> HOLD state {
     event_ports.edit_started |> THEN { True }
     event_ports.edit_selected |> THEN { True }
-    event_ports.edit_active_event
+    event_ports.edit_transition.active
 }
 
 editing_dirty: False |> HOLD state {
     event_ports.edit_started |> THEN { False }
     event_ports.edit_selected |> THEN { False }
     event_ports.edit_text_event |> THEN { True }
-    event_ports.edit_active_event |> THEN { False }
+    event_ports.edit_transition.dirty
 }
 
 overrides: LIST {} |> HOLD state {
-    edit_committed |> THEN {
-        BLOCK {
-            trimmed_state: state |> List/retain(item, if: item.row == edit_committed.row
-            |> WHEN {
-                True => item.column == edit_committed.column |> WHEN {
-                    True => False
-                    __ => True
-                }
+    event_ports.edit_transition.commit |> WHEN {
+        True => event_ports.edit_transition |> THEN {
+            BLOCK {
+                trimmed_state:
+                    state
+                    |> List/retain(item, if:
+                        item.row == event_ports.edit_transition.row
+                        |> WHEN {
+                            True => item.column == event_ports.edit_transition.column |> WHEN {
+                                True => False
+                                __ => True
+                            }
 
-                __ => True
-            })
+                            __ => True
+                        }
+                    )
 
-            committed_default_text: default_formula(
-                column: edit_committed.column
-                row: edit_committed.row
-            )
-
-            edit_committed.text == committed_default_text |> WHEN {
-                True => trimmed_state
-
-                __ => trimmed_state |> List/append(
-                    item: [
-                        row: edit_committed.row
-                        column: edit_committed.column
-                        text: edit_committed.text
-                    ]
+                committed_default_text: default_formula(
+                    column: event_ports.edit_transition.column
+                    row: event_ports.edit_transition.row
                 )
+
+                event_ports.edit_transition.committed_text == committed_default_text |> WHEN {
+                    True => trimmed_state
+
+                    __ => trimmed_state |> List/append(
+                        item: [
+                            row: event_ports.edit_transition.row
+                            column: event_ports.edit_transition.column
+                            text: event_ports.edit_transition.committed_text
+                        ]
+                    )
+                }
             }
         }
+        __ => SKIP
     }
 }

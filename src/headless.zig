@@ -18,6 +18,105 @@ pub const Outcome = union(enum) {
     err: diag.Diagnostic,
 };
 
+const BuiltinOp = enum(u8) {
+    unknown,
+    document_new,
+    scene_new,
+    terminal_new,
+    element_svg,
+    element_svg_circle,
+    element_stack,
+    duration,
+    terminal_columns,
+    terminal_rows,
+    router_route,
+    router_go_to,
+    theme_geometry,
+    theme_lights,
+    light_prefixed,
+    element_stripe,
+    scene_element_stripe,
+    element_label,
+    scene_element_label,
+    element_container,
+    scene_element_block,
+    element_paragraph,
+    scene_element_paragraph,
+    element_checkbox,
+    scene_element_checkbox,
+    scene_element_text,
+    text_empty,
+    text_space,
+    text_to_number,
+    text_trim,
+    text_is_not_empty,
+    text_is_empty,
+    text_length,
+    text_find,
+    text_substring,
+    text_repeat,
+    text_join,
+    text_starts_with,
+    bool_not,
+    bool_or,
+    bool_and,
+    element_button,
+    scene_element_button,
+    element_text_input,
+    scene_element_text_input,
+    element_select,
+    element_link,
+    scene_element_link,
+    assets_icon,
+    element_slider,
+    math_sum,
+    math_min,
+    math_round,
+    ulid_generate,
+    log_info,
+    log_error,
+    list_append,
+    list_clear,
+    list_remove,
+    list_remove_last,
+    list_count,
+    list_is_empty,
+    list_is_not_empty,
+    list_get,
+    list_range,
+    list_map,
+    list_retain,
+    list_any,
+    list_every,
+    list_sum,
+    stream_pulses,
+    stream_skip,
+    timer_interval,
+};
+
+pub const CompiledProgram = struct {
+    metadata_arena: std.heap.ArenaAllocator,
+    flow: flow_ir.Document,
+    builtin_ops: []BuiltinOp,
+    node_needs_scope: []bool,
+    node_needs_deferred_field: []bool,
+    list_remove_nodes: []flow_ir.NodeId,
+    list_remove_last_nodes: []flow_ir.NodeId,
+
+    pub fn deinit(self: *CompiledProgram) void {
+        self.flow.deinit();
+        self.metadata_arena.deinit();
+    }
+};
+
+pub const CompileOutcome = union(enum) {
+    ok: CompiledProgram,
+    err: diag.Diagnostic,
+};
+
+const compiled_cache_magic = "BNCP";
+const compiled_cache_version: u32 = 1;
+
 const Pulse = struct {
     source: flow_ir.NodeId,
     payload: PulsePayload,
@@ -41,7 +140,12 @@ const ScopedNodeKey = struct {
 
 const CachedEvalEntry = struct {
     value: Value,
-    deps: []ScopedNodeKey,
+    deps: []CachedDependency,
+};
+
+const CachedDependency = struct {
+    key: ScopedNodeKey,
+    version: u32,
 };
 
 const EvalFrame = struct {
@@ -307,10 +411,40 @@ const PersistKind = enum {
     hold,
 };
 
-const ControlEventRef = struct {
+pub const ControlEventRef = struct {
     link: flow_ir.NodeId,
     scope: ?*const EvalScope = null,
 };
+
+pub const TextInputSessionRef = struct {
+    change: ControlEventRef,
+    key: ControlEventRef,
+    blur: ?ControlEventRef = null,
+    focus: ?ControlEventRef = null,
+};
+
+fn cloneControlEventRefForCache(allocator: std.mem.Allocator, event: ControlEventRef) !ControlEventRef {
+    return .{
+        .link = event.link,
+        .scope = try captureControlScope(allocator, event.scope),
+    };
+}
+
+fn cloneTextInputValueForCache(allocator: std.mem.Allocator, input: *const TextInputValue) !*TextInputValue {
+    const copy = try allocator.create(TextInputValue);
+    copy.* = .{
+        .text = try cloneCapturedValue(allocator, input.text),
+        .change_link = input.change_link,
+        .key_link = input.key_link,
+        .blur_link = input.blur_link,
+        .focus_link = input.focus_link,
+        .terminal_width = input.terminal_width,
+        .terminal_height = input.terminal_height,
+        .terminal_bindings = try cloneCapturedValue(allocator, input.terminal_bindings),
+        .event_scope = try captureControlScope(allocator, input.event_scope),
+    };
+    return copy;
+}
 
 const CachedControlKind = enum {
     button,
@@ -364,16 +498,107 @@ const ControlSummary = struct {
 
 const control_summary_limit: usize = 16;
 
+fn builtinOpFromPath(path: []const u8) BuiltinOp {
+    if (std.mem.eql(u8, path, "Document/new")) return .document_new;
+    if (std.mem.eql(u8, path, "Scene/new")) return .scene_new;
+    if (std.mem.eql(u8, path, "Terminal/new")) return .terminal_new;
+    if (std.mem.eql(u8, path, "Element/svg")) return .element_svg;
+    if (std.mem.eql(u8, path, "Element/svg_circle")) return .element_svg_circle;
+    if (std.mem.eql(u8, path, "Element/stack")) return .element_stack;
+    if (std.mem.eql(u8, path, "Duration")) return .duration;
+    if (std.mem.eql(u8, path, "Terminal/columns")) return .terminal_columns;
+    if (std.mem.eql(u8, path, "Terminal/rows")) return .terminal_rows;
+    if (std.mem.eql(u8, path, "Router/route")) return .router_route;
+    if (std.mem.eql(u8, path, "Router/go_to")) return .router_go_to;
+    if (std.mem.eql(u8, path, "Theme/geometry")) return .theme_geometry;
+    if (std.mem.eql(u8, path, "Theme/lights")) return .theme_lights;
+    if (std.mem.startsWith(u8, path, "Light/")) return .light_prefixed;
+    if (std.mem.eql(u8, path, "Element/stripe")) return .element_stripe;
+    if (std.mem.eql(u8, path, "Scene/Element/stripe")) return .scene_element_stripe;
+    if (std.mem.eql(u8, path, "Element/label")) return .element_label;
+    if (std.mem.eql(u8, path, "Scene/Element/label")) return .scene_element_label;
+    if (std.mem.eql(u8, path, "Element/container")) return .element_container;
+    if (std.mem.eql(u8, path, "Scene/Element/block")) return .scene_element_block;
+    if (std.mem.eql(u8, path, "Element/paragraph")) return .element_paragraph;
+    if (std.mem.eql(u8, path, "Scene/Element/paragraph")) return .scene_element_paragraph;
+    if (std.mem.eql(u8, path, "Element/checkbox")) return .element_checkbox;
+    if (std.mem.eql(u8, path, "Scene/Element/checkbox")) return .scene_element_checkbox;
+    if (std.mem.eql(u8, path, "Scene/Element/text")) return .scene_element_text;
+    if (std.mem.eql(u8, path, "Text/empty")) return .text_empty;
+    if (std.mem.eql(u8, path, "Text/space")) return .text_space;
+    if (std.mem.eql(u8, path, "Text/to_number")) return .text_to_number;
+    if (std.mem.eql(u8, path, "Text/trim")) return .text_trim;
+    if (std.mem.eql(u8, path, "Text/is_not_empty")) return .text_is_not_empty;
+    if (std.mem.eql(u8, path, "Text/is_empty")) return .text_is_empty;
+    if (std.mem.eql(u8, path, "Text/length")) return .text_length;
+    if (std.mem.eql(u8, path, "Text/find")) return .text_find;
+    if (std.mem.eql(u8, path, "Text/substring")) return .text_substring;
+    if (std.mem.eql(u8, path, "Text/repeat")) return .text_repeat;
+    if (std.mem.eql(u8, path, "Text/join")) return .text_join;
+    if (std.mem.eql(u8, path, "Text/starts_with")) return .text_starts_with;
+    if (std.mem.eql(u8, path, "Bool/not")) return .bool_not;
+    if (std.mem.eql(u8, path, "Bool/or")) return .bool_or;
+    if (std.mem.eql(u8, path, "Bool/and")) return .bool_and;
+    if (std.mem.eql(u8, path, "Element/button")) return .element_button;
+    if (std.mem.eql(u8, path, "Scene/Element/button")) return .scene_element_button;
+    if (std.mem.eql(u8, path, "Element/text_input")) return .element_text_input;
+    if (std.mem.eql(u8, path, "Scene/Element/text_input")) return .scene_element_text_input;
+    if (std.mem.eql(u8, path, "Element/select")) return .element_select;
+    if (std.mem.eql(u8, path, "Element/link")) return .element_link;
+    if (std.mem.eql(u8, path, "Scene/Element/link")) return .scene_element_link;
+    if (std.mem.eql(u8, path, "Assets/icon")) return .assets_icon;
+    if (std.mem.eql(u8, path, "Element/slider")) return .element_slider;
+    if (std.mem.eql(u8, path, "Math/sum")) return .math_sum;
+    if (std.mem.eql(u8, path, "Math/min")) return .math_min;
+    if (std.mem.eql(u8, path, "Math/round")) return .math_round;
+    if (std.mem.eql(u8, path, "Ulid/generate")) return .ulid_generate;
+    if (std.mem.eql(u8, path, "Log/info")) return .log_info;
+    if (std.mem.eql(u8, path, "Log/error")) return .log_error;
+    if (std.mem.eql(u8, path, "List/append")) return .list_append;
+    if (std.mem.eql(u8, path, "List/clear")) return .list_clear;
+    if (std.mem.eql(u8, path, "List/remove")) return .list_remove;
+    if (std.mem.eql(u8, path, "List/remove_last")) return .list_remove_last;
+    if (std.mem.eql(u8, path, "List/count")) return .list_count;
+    if (std.mem.eql(u8, path, "List/is_empty")) return .list_is_empty;
+    if (std.mem.eql(u8, path, "List/is_not_empty")) return .list_is_not_empty;
+    if (std.mem.eql(u8, path, "List/get")) return .list_get;
+    if (std.mem.eql(u8, path, "List/range")) return .list_range;
+    if (std.mem.eql(u8, path, "List/map")) return .list_map;
+    if (std.mem.eql(u8, path, "List/retain")) return .list_retain;
+    if (std.mem.eql(u8, path, "List/any")) return .list_any;
+    if (std.mem.eql(u8, path, "List/every")) return .list_every;
+    if (std.mem.eql(u8, path, "List/sum")) return .list_sum;
+    if (std.mem.eql(u8, path, "Stream/pulses")) return .stream_pulses;
+    if (std.mem.eql(u8, path, "Stream/skip")) return .stream_skip;
+    if (std.mem.eql(u8, path, "Timer/interval")) return .timer_interval;
+    return .unknown;
+}
+
+fn builtinNeedsDeferredField(op: BuiltinOp) bool {
+    return switch (op) {
+        .math_sum, .stream_pulses, .stream_skip, .list_append, .list_clear, .list_remove, .list_remove_last => true,
+        else => false,
+    };
+}
+
 pub const Session = struct {
     backing_allocator: std.mem.Allocator,
     arena: std.heap.ArenaAllocator,
     memo_arena: std.heap.ArenaAllocator,
+    metadata_arena: std.heap.ArenaAllocator,
+    scratch_arena: std.heap.ArenaAllocator,
     flow: flow_ir.Document,
+    builtin_ops: []BuiltinOp = &.{},
+    node_needs_scope: []bool = &.{},
+    node_needs_deferred_field: []bool = &.{},
+    list_remove_nodes: []flow_ir.NodeId = &.{},
+    list_remove_last_nodes: []flow_ir.NodeId = &.{},
     trace_enabled: bool,
     trace_lines: std.ArrayList([]const u8) = .empty,
     queue: std.ArrayList(Pulse) = .empty,
     subscribers: [][]flow_ir.NodeId = &.{},
     runtime_subscribers: []bool = &.{},
+    runtime_subscriber_nodes: []flow_ir.NodeId = &.{},
     latest_values: []?PulsePayload = &.{},
     scoped_latest_values: std.AutoHashMapUnmanaged(ScopedNodeKey, PulsePayload) = .empty,
     hold_values: []Value = &.{},
@@ -385,20 +610,44 @@ pub const Session = struct {
     link_key_values: []Value = &.{},
     link_key_inited: []bool = &.{},
     scoped_link_key_values: std.AutoHashMapUnmanaged(ScopedNodeKey, Value) = .empty,
+    top_level_eval_values: []Value = &.{},
+    top_level_eval_inited: []bool = &.{},
+    top_level_eval_deps: [][]CachedDependency = &.{},
     eval_cache: std.AutoHashMapUnmanaged(ScopedNodeKey, CachedEvalEntry) = .empty,
     cached_terminal_contract: ?*TerminalContract = null,
     cached_terminal_contract_deps: ?[]ScopedNodeKey = null,
+    cached_terminal_contract_versions: ?[]u32 = null,
     cached_terminal_hit_regions: ?[]TerminalHitRegion = null,
     cached_button_links: ?[]ControlEventRef = null,
+    cached_button_links_deps: ?[]ScopedNodeKey = null,
+    cached_button_links_versions: ?[]u32 = null,
     cached_slider_links: ?[]ControlEventRef = null,
+    cached_slider_links_deps: ?[]ScopedNodeKey = null,
+    cached_slider_links_versions: ?[]u32 = null,
     cached_text_input_links: ?[]ControlEventRef = null,
+    cached_text_input_links_deps: ?[]ScopedNodeKey = null,
+    cached_text_input_links_versions: ?[]u32 = null,
     cached_text_input_key_links: ?[]ControlEventRef = null,
+    cached_text_input_key_links_deps: ?[]ScopedNodeKey = null,
+    cached_text_input_key_links_versions: ?[]u32 = null,
     cached_text_input_blur_links: ?[]ControlEventRef = null,
+    cached_text_input_blur_links_deps: ?[]ScopedNodeKey = null,
+    cached_text_input_blur_links_versions: ?[]u32 = null,
     cached_text_input_focus_links: ?[]ControlEventRef = null,
+    cached_text_input_focus_links_deps: ?[]ScopedNodeKey = null,
+    cached_text_input_focus_links_versions: ?[]u32 = null,
     cached_label_double_click_links: ?[]ControlEventRef = null,
+    cached_label_double_click_links_deps: ?[]ScopedNodeKey = null,
+    cached_label_double_click_links_versions: ?[]u32 = null,
     cached_hover_links: ?[]ControlEventRef = null,
+    cached_hover_links_deps: ?[]ScopedNodeKey = null,
+    cached_hover_links_versions: ?[]u32 = null,
     cached_select_links: ?[]ControlEventRef = null,
+    cached_select_links_deps: ?[]ScopedNodeKey = null,
+    cached_select_links_versions: ?[]u32 = null,
     cached_text_inputs: ?[]*TextInputValue = null,
+    cached_text_inputs_deps: ?[]ScopedNodeKey = null,
+    cached_text_inputs_versions: ?[]u32 = null,
     current_eval_frame: ?*EvalFrame = null,
     terminal_columns: usize = 80,
     terminal_rows: usize = 24,
@@ -412,6 +661,7 @@ pub const Session = struct {
     sum_inited: []bool = &.{},
     timer_period_ms: []u64 = &.{},
     timer_next_fire_ms: []u64 = &.{},
+    state_versions: []u32 = &.{},
     scene_specs: []?physical.SceneSpec = &.{},
     geometry_plans: []?physical.GeometryPlan = &.{},
     geometry_results: []?physical.GeometryResult = &.{},
@@ -424,7 +674,6 @@ pub const Session = struct {
     geometry_lit_panels: []?physical.LitPanel = &.{},
     pending_physical_features: []?physical.PendingFeatureUse = &.{},
     persist_ids: []u64 = &.{},
-    node_scope_state: []u8 = &.{},
     current_time_ms: u64 = 0,
     route_value: Value = .{ .text = "/" },
     state_file_path: ?[]const u8 = null,
@@ -439,36 +688,43 @@ pub const Session = struct {
         self.scoped_link_key_values.deinit(self.arena.allocator());
         self.clearEvalCache();
         self.eval_cache.deinit(self.backing_allocator);
-        if (self.cached_terminal_contract_deps) |deps| self.backing_allocator.free(deps);
         self.memo_arena.deinit();
+        self.scratch_arena.deinit();
         self.flow.deinit();
+        self.metadata_arena.deinit();
         self.arena.deinit();
     }
 
+    fn resetScratchArena(self: *Session) std.mem.Allocator {
+        _ = self.scratch_arena.reset(.retain_capacity);
+        return self.scratch_arena.allocator();
+    }
+
+    fn builtinOp(self: *const Session, node_id: flow_ir.NodeId) BuiltinOp {
+        return self.builtin_ops[node_id];
+    }
+
     fn clearEvalCache(self: *Session) void {
-        var iterator = self.eval_cache.iterator();
-        while (iterator.next()) |entry| {
-            self.backing_allocator.free(entry.value_ptr.deps);
-        }
+        if (self.top_level_eval_inited.len != 0) @memset(self.top_level_eval_inited, false);
         self.eval_cache.clearRetainingCapacity();
     }
 
     fn invalidateEvalCache(self: *Session) void {
         self.clearEvalCache();
-        if (self.cached_terminal_contract_deps) |deps| self.backing_allocator.free(deps);
         self.cached_terminal_contract = null;
         self.cached_terminal_contract_deps = null;
+        self.cached_terminal_contract_versions = null;
         self.cached_terminal_hit_regions = null;
-        self.cached_button_links = null;
-        self.cached_slider_links = null;
-        self.cached_text_input_links = null;
-        self.cached_text_input_key_links = null;
-        self.cached_text_input_blur_links = null;
-        self.cached_text_input_focus_links = null;
-        self.cached_label_double_click_links = null;
-        self.cached_hover_links = null;
-        self.cached_select_links = null;
-        self.cached_text_inputs = null;
+        self.dropCachedControlRefs(.button);
+        self.dropCachedControlRefs(.slider);
+        self.dropCachedControlRefs(.text_input);
+        self.dropCachedControlRefs(.text_input_key);
+        self.dropCachedControlRefs(.text_input_blur);
+        self.dropCachedControlRefs(.text_input_focus);
+        self.dropCachedControlRefs(.label_double_click);
+        self.dropCachedControlRefs(.hover);
+        self.dropCachedControlRefs(.select);
+        self.dropCachedTextInputs();
     }
 
     fn flushPendingQueue(self: *Session) !void {
@@ -478,31 +734,28 @@ pub const Session = struct {
     pub fn renderAlloc(self: *Session, allocator: std.mem.Allocator) anyerror![]u8 {
         try self.flushPendingQueue();
         const root_binding = self.flow.root_binding orelse return error.MissingDocumentRoot;
-        var scratch = std.heap.ArenaAllocator.init(allocator);
-        defer scratch.deinit();
+        const scratch = self.resetScratchArena();
 
         var output: std.ArrayList(u8) = .empty;
         defer output.deinit(allocator);
 
-        const value = try self.evalNode(scratch.allocator(), self.flow.bindings[root_binding].node, null);
-        try self.appendRenderedValue(&output, allocator, value);
+        try self.appendRenderedNode(&output, scratch, self.flow.bindings[root_binding].node, null);
         return try output.toOwnedSlice(allocator);
     }
 
     pub fn snapshotAlloc(self: *Session, allocator: std.mem.Allocator) anyerror![]u8 {
         try self.flushPendingQueue();
         const root_binding = self.flow.root_binding orelse return error.MissingDocumentRoot;
-        var scratch = std.heap.ArenaAllocator.init(allocator);
-        defer scratch.deinit();
+        const scratch = self.resetScratchArena();
 
-        const value = try self.evalNode(scratch.allocator(), self.flow.bindings[root_binding].node, null);
-        if (try self.livePhysicalRenderTarget(scratch.allocator())) |target| {
+        const value = try self.evalNode(scratch, self.flow.bindings[root_binding].node, null);
+        if (try self.livePhysicalRenderTarget(scratch)) |target| {
             return try target.textAlloc(allocator);
         }
         if (self.hasPhysicalRenderTarget()) {
             return try self.cachedPhysicalSnapshotAlloc(allocator);
         }
-        const block = try self.snapshotBlock(scratch.allocator(), value);
+        const block = try self.snapshotBlock(scratch, value);
 
         var output: std.ArrayList(u8) = .empty;
         defer output.deinit(allocator);
@@ -515,9 +768,8 @@ pub const Session = struct {
 
     pub fn physicalRenderTarget(self: *Session, allocator: std.mem.Allocator) !?PhysicalRenderTarget {
         try self.flushPendingQueue();
-        var scratch = std.heap.ArenaAllocator.init(allocator);
-        defer scratch.deinit();
-        return try self.livePhysicalRenderTarget(scratch.allocator());
+        _ = allocator;
+        return try self.livePhysicalRenderTarget(self.resetScratchArena());
     }
 
     fn hasPhysicalRenderTarget(self: *Session) bool {
@@ -623,12 +875,11 @@ pub const Session = struct {
     }
 
     pub fn controlsAlloc(self: *Session, allocator: std.mem.Allocator) anyerror![]u8 {
-        var scratch = std.heap.ArenaAllocator.init(allocator);
-        defer scratch.deinit();
+        const scratch = self.resetScratchArena();
 
         var summary: ControlSummary = .{};
-        defer summary.deinit(scratch.allocator());
-        try self.populateControlSummary(scratch.allocator(), &summary);
+        defer summary.deinit(scratch);
+        try self.populateControlSummary(scratch, &summary);
 
         var output: std.ArrayList(u8) = .empty;
         defer output.deinit(allocator);
@@ -673,7 +924,10 @@ pub const Session = struct {
     pub fn terminalContractView(self: *Session) !?*const TerminalContract {
         if (self.rootKind() != .terminal) return null;
         try self.flushPendingQueue();
-        if (self.cached_terminal_contract) |contract| return contract;
+        if (self.cached_terminal_contract) |contract| {
+            if (self.cachedTerminalContractIsFresh()) return contract;
+            self.resetMemoDerivedCaches();
+        }
 
         const root_binding = self.flow.root_binding orelse return error.MissingDocumentRoot;
         const value = try self.evalNode(self.arena.allocator(), self.flow.bindings[root_binding].node, null);
@@ -681,20 +935,22 @@ pub const Session = struct {
             .terminal => |terminal| terminal,
             else => return error.ExpectedTerminalRoot,
         };
-
         var frame = EvalFrame{ .parent = self.current_eval_frame };
         self.current_eval_frame = &frame;
         defer {
             self.current_eval_frame = frame.parent;
-            frame.deps.deinit(self.backing_allocator);
+            frame.deps.deinit(self.arena.allocator());
         }
 
         const contract = try self.memo_arena.allocator().create(TerminalContract);
         contract.* = try terminalContractFromValue(self, self.memo_arena.allocator(), terminal);
-        const deps = try self.backing_allocator.alloc(ScopedNodeKey, frame.deps.items.len);
+        const deps = try self.arena.allocator().alloc(ScopedNodeKey, frame.deps.items.len);
+        const versions = try self.arena.allocator().alloc(u32, frame.deps.items.len);
         @memcpy(deps, frame.deps.items);
-        if (self.cached_terminal_contract_deps) |old_deps| self.backing_allocator.free(old_deps);
+        for (frame.deps.items, 0..) |dep, index| versions[index] = self.stateVersion(dep);
+        self.dropCachedTerminalContract();
         self.cached_terminal_contract_deps = deps;
+        self.cached_terminal_contract_versions = versions;
         self.cached_terminal_contract = contract;
         return contract;
     }
@@ -760,12 +1016,17 @@ pub const Session = struct {
 
     pub fn textInputCountAlloc(self: *Session, allocator: std.mem.Allocator) !usize {
         _ = allocator;
-        return (try self.textInputValuesView()).len;
+        return (try self.cachedControlRefs(.text_input)).len;
     }
 
     pub fn textInputTextAlloc(self: *Session, allocator: std.mem.Allocator, index: usize) ![]u8 {
         const value = try self.currentTextInputValue(index);
         return try allocator.dupe(u8, try valueAsText(value));
+    }
+
+    pub fn textInputTextView(self: *Session, index: usize) ![]const u8 {
+        const value = try self.currentTextInputValue(index);
+        return try valueAsText(value);
     }
 
     pub fn clickButton(self: *Session, index: usize) !void {
@@ -791,6 +1052,13 @@ pub const Session = struct {
         try self.enqueueExternalNodePulse(event.link, scope);
     }
 
+    pub fn setTextInputValueRef(self: *Session, event: ControlEventRef, text: []const u8) !void {
+        const scope = canonicalControlScope(event.scope);
+        try self.setLinkValue(event.link, scope, .{ .text = try self.arena.allocator().dupe(u8, text) });
+        try self.logf("external text_input -> n{d} = {s}", .{ event.link, text });
+        try self.enqueueExternalNodePulse(event.link, scope);
+    }
+
     pub fn setSelectValue(self: *Session, index: usize, text: []const u8) !void {
         const event = try self.selectLinkAt(index);
         const scope = canonicalControlScope(event.scope);
@@ -811,10 +1079,26 @@ pub const Session = struct {
         try self.enqueueExternalNodePulse(event.link, scope);
     }
 
+    pub fn pressTextInputKeyRef(self: *Session, event: ControlEventRef, change_event: ControlEventRef, key: []const u8, current_text: []const u8) !void {
+        const scope = canonicalControlScope(event.scope);
+        const change_scope = canonicalControlScope(change_event.scope);
+        try self.setLinkValue(change_event.link, change_scope, .{ .text = try self.arena.allocator().dupe(u8, current_text) });
+        try self.setLinkValue(event.link, scope, .{ .text = try self.arena.allocator().dupe(u8, current_text) });
+        try self.setLinkKeyValue(event.link, scope, .{ .symbol = try self.arena.allocator().dupe(u8, key) });
+        try self.logf("external text_input_key -> n{d} = {s}", .{ event.link, key });
+        try self.enqueueExternalNodePulse(event.link, scope);
+    }
+
     pub fn focusTextInput(self: *Session, index: usize) !void {
         const event = try self.textInputFocusLinkAt(index);
         const scope = canonicalControlScope(event.scope);
         try self.logf("external text_input_focus[{d}] -> n{d}", .{ index, event.link });
+        try self.enqueueExternalNodePulse(event.link, scope);
+    }
+
+    pub fn focusTextInputRef(self: *Session, event: ControlEventRef) !void {
+        const scope = canonicalControlScope(event.scope);
+        try self.logf("external text_input_focus -> n{d}", .{event.link});
         try self.enqueueExternalNodePulse(event.link, scope);
     }
 
@@ -823,6 +1107,21 @@ pub const Session = struct {
         const scope = canonicalControlScope(event.scope);
         try self.logf("external text_input_blur[{d}] -> n{d}", .{ index, event.link });
         try self.enqueueExternalNodePulse(event.link, scope);
+    }
+
+    pub fn blurTextInputRef(self: *Session, event: ControlEventRef) !void {
+        const scope = canonicalControlScope(event.scope);
+        try self.logf("external text_input_blur -> n{d}", .{event.link});
+        try self.enqueueExternalNodePulse(event.link, scope);
+    }
+
+    pub fn textInputSessionRef(self: *Session, index: usize) !TextInputSessionRef {
+        return .{
+            .change = try self.textInputLinkAt(index),
+            .key = try self.textInputKeyLinkAt(index),
+            .blur = self.textInputBlurLinkAt(index) catch null,
+            .focus = self.textInputFocusLinkAt(index) catch null,
+        };
     }
 
     pub fn doubleClickLabel(self: *Session, index: usize) !void {
@@ -898,6 +1197,7 @@ pub const Session = struct {
 
         self.runtime_subscribers = try allocator.alloc(bool, node_count);
         @memset(self.runtime_subscribers, false);
+        self.runtime_subscriber_nodes = &.{};
 
         self.hold_values = try allocator.alloc(Value, node_count);
         for (self.hold_values) |*slot| slot.* = .none;
@@ -947,6 +1247,18 @@ pub const Session = struct {
         self.timer_next_fire_ms = try allocator.alloc(u64, node_count);
         @memset(self.timer_next_fire_ms, 0);
 
+        self.state_versions = try allocator.alloc(u32, node_count);
+        @memset(self.state_versions, 0);
+
+        self.top_level_eval_values = try allocator.alloc(Value, node_count);
+        for (self.top_level_eval_values) |*slot| slot.* = .none;
+
+        self.top_level_eval_inited = try allocator.alloc(bool, node_count);
+        @memset(self.top_level_eval_inited, false);
+
+        self.top_level_eval_deps = try allocator.alloc([]CachedDependency, node_count);
+        for (self.top_level_eval_deps) |*slot| slot.* = &.{};
+
         self.scene_specs = try allocator.alloc(?physical.SceneSpec, node_count);
         for (self.scene_specs) |*slot| slot.* = null;
 
@@ -983,11 +1295,10 @@ pub const Session = struct {
         self.persist_ids = try allocator.alloc(u64, node_count);
         @memset(self.persist_ids, 0);
 
-        self.node_scope_state = try allocator.alloc(u8, node_count);
-        @memset(self.node_scope_state, 0);
-
-        try self.computePersistIds();
-        try self.loadPersistedState();
+        if (self.state_file_path != null) {
+            try self.computePersistIds();
+            try self.loadPersistedState();
+        }
 
         try self.buildSubscribers();
 
@@ -1210,56 +1521,53 @@ pub const Session = struct {
                         self.pending_physical_features[index] = feature;
                         try self.logf("physical pending n{d} {s}", .{ index, feature.feature.label() });
                     }
-                    if (std.mem.eql(u8, call.path, "Stream/pulses")) {
-                        if (!self.nodeNeedsScope(index)) {
-                            try self.emitPulses(index, call, null);
-                        } else {
-                            try self.logf("defer scoped pulses n{d}", .{index});
-                        }
-                    }
-                    if (std.mem.eql(u8, call.path, "Stream/skip")) {
-                        if (!self.nodeNeedsScope(index)) {
-                            try self.initSkipNode(allocator, index, call, null);
-                        } else {
-                            try self.logf("defer scoped skip n{d}", .{index});
-                        }
-                    }
-                    if (std.mem.eql(u8, call.path, "List/append")) {
-                        if (!self.nodeNeedsScope(index)) try self.initListAppendNode(allocator, index, call);
-                    }
-                    if (std.mem.eql(u8, call.path, "List/clear")) {
-                        if (!self.nodeNeedsScope(index)) try self.initListClearNode(allocator, index, call);
-                    }
-                    if (std.mem.eql(u8, call.path, "List/remove")) {
-                        try self.initListRemoveNode(allocator, index, call);
-                    }
-                    if (std.mem.eql(u8, call.path, "List/remove_last")) {
-                        try self.initListRemoveLastNode(allocator, index, call);
-                    }
-                    if (std.mem.eql(u8, call.path, "Timer/interval")) {
-                        if (!self.nodeNeedsScope(index)) {
-                            const period_ms = try self.durationMsFromCall(call, null);
-                            self.timer_period_ms[index] = period_ms;
-                            self.timer_next_fire_ms[index] = period_ms;
-                            try self.logf("init timer n{d} every {d}ms", .{ index, period_ms });
-                        } else {
-                            try self.logf("defer scoped timer n{d}", .{index});
-                        }
-                    }
-                    if (std.mem.eql(u8, call.path, "Math/sum") and call.positional.len != 0) {
-                        if (self.sum_inited[index]) {
-                            try self.logf("restore sum n{d} = {d}", .{ index, self.sum_values[index] });
-                        } else if (try self.initialNumericValue(call.positional[0])) |value| {
-                            self.sum_values[index] = value;
-                            self.sum_inited[index] = true;
-                            self.invalidateEvalCacheForDependency(.{ .node_id = index, .scope_id = 0 });
-                            try self.logf("init sum n{d} = {d}", .{ index, value });
-                        } else {
-                            try self.logf("init sum n{d} = <empty>", .{index});
-                        }
-                    }
-                    if (std.mem.eql(u8, call.path, "Router/go_to")) {
-                        try self.logf("init router route={s}", .{try valueAsText(self.route_value)});
+                    switch (self.builtinOp(index)) {
+                        .stream_pulses => {
+                            if (!self.nodeNeedsScope(index)) {
+                                try self.emitPulses(index, call, null);
+                            } else {
+                                try self.logf("defer scoped pulses n{d}", .{index});
+                            }
+                        },
+                        .stream_skip => {
+                            if (!self.nodeNeedsScope(index)) {
+                                try self.initSkipNode(allocator, index, call, null);
+                            } else {
+                                try self.logf("defer scoped skip n{d}", .{index});
+                            }
+                        },
+                        .list_append => {
+                            if (!self.nodeNeedsScope(index)) try self.initListAppendNode(allocator, index, call);
+                        },
+                        .list_clear => {
+                            if (!self.nodeNeedsScope(index)) try self.initListClearNode(allocator, index, call);
+                        },
+                        .list_remove => try self.initListRemoveNode(allocator, index, call),
+                        .list_remove_last => try self.initListRemoveLastNode(allocator, index, call),
+                        .timer_interval => {
+                            if (!self.nodeNeedsScope(index)) {
+                                const period_ms = try self.durationMsFromCall(call, null);
+                                self.timer_period_ms[index] = period_ms;
+                                self.timer_next_fire_ms[index] = period_ms;
+                                try self.logf("init timer n{d} every {d}ms", .{ index, period_ms });
+                            } else {
+                                try self.logf("defer scoped timer n{d}", .{index});
+                            }
+                        },
+                        .math_sum => if (call.positional.len != 0) {
+                            if (self.sum_inited[index]) {
+                                try self.logf("restore sum n{d} = {d}", .{ index, self.sum_values[index] });
+                            } else if (try self.initialNumericValue(call.positional[0])) |value| {
+                                self.sum_values[index] = value;
+                                self.sum_inited[index] = true;
+                                self.noteTopLevelMutation(index);
+                                try self.logf("init sum n{d} = {d}", .{ index, value });
+                            } else {
+                                try self.logf("init sum n{d} = <empty>", .{index});
+                            }
+                        },
+                        .router_go_to => try self.logf("init router route={s}", .{try valueAsText(self.route_value)}),
+                        else => {},
                     }
                 },
                 else => {},
@@ -1366,81 +1674,62 @@ pub const Session = struct {
                     counts[source] += 1;
                 },
                 .builtin_call => |call| {
-                    if (std.mem.eql(u8, call.path, "Stream/pulses") and call.positional.len != 0) {
-                        if (self.nodeNeedsScope(call.positional[0])) {
-                            self.runtime_subscribers[subscriber] = true;
-                        } else {
-                            const source = self.eventDependencySource(call.positional[0]) catch |err| switch (err) {
-                                error.UnsupportedEventSource => if (self.nodeNeedsScope(subscriber)) continue else return err,
-                                else => return err,
-                            };
-                            counts[source] += 1;
-                        }
-                    }
-                    if (std.mem.eql(u8, call.path, "Stream/skip") and call.positional.len != 0) {
-                        if (self.nodeNeedsScope(call.positional[0])) {
-                            self.runtime_subscribers[subscriber] = true;
-                        } else {
-                            const source = self.eventDependencySource(call.positional[0]) catch |err| switch (err) {
-                                error.UnsupportedEventSource => if (self.nodeNeedsScope(subscriber)) continue else return err,
-                                else => return err,
-                            };
-                            counts[source] += 1;
-                        }
-                    }
-                    if (std.mem.eql(u8, call.path, "Math/sum") and call.positional.len != 0) {
-                        if (self.nodeNeedsScope(call.positional[0])) {
-                            self.runtime_subscribers[subscriber] = true;
-                        } else {
-                            const source = self.eventDependencySource(call.positional[0]) catch |err| switch (err) {
-                                error.UnsupportedEventSource => if (self.nodeNeedsScope(subscriber)) continue else return err,
-                                else => return err,
-                            };
-                            counts[source] += 1;
-                        }
-                    }
-                    if (std.mem.eql(u8, call.path, "List/append") and !self.nodeNeedsScope(subscriber)) {
-                        if (call.positional.len != 0) counts[try self.listSourceDependency(call.positional[0])] += 1;
-                        if (findNamed(call.named, "item")) |item_node| {
-                            if (self.nodeNeedsScope(item_node)) {
+                    switch (self.builtinOp(subscriber)) {
+                        .stream_pulses, .stream_skip, .math_sum => if (call.positional.len != 0) {
+                            if (self.nodeNeedsScope(call.positional[0])) {
                                 self.runtime_subscribers[subscriber] = true;
                             } else {
-                                counts[try self.valueTriggerSource(item_node)] += 1;
+                                const source = self.eventDependencySource(call.positional[0]) catch |err| switch (err) {
+                                    error.UnsupportedEventSource => if (self.nodeNeedsScope(subscriber)) continue else return err,
+                                    else => return err,
+                                };
+                                counts[source] += 1;
                             }
-                        } else if (findNamed(call.named, "on")) |on_node| {
+                        },
+                        .list_append => if (!self.nodeNeedsScope(subscriber)) {
+                            if (call.positional.len != 0) counts[try self.listSourceDependency(call.positional[0])] += 1;
+                            if (findNamed(call.named, "item")) |item_node| {
+                                if (self.nodeNeedsScope(item_node)) {
+                                    self.runtime_subscribers[subscriber] = true;
+                                } else {
+                                    counts[try self.valueTriggerSource(item_node)] += 1;
+                                }
+                            } else if (findNamed(call.named, "on")) |on_node| {
+                                if (self.nodeNeedsScope(on_node)) {
+                                    self.runtime_subscribers[subscriber] = true;
+                                } else {
+                                    counts[try self.valueTriggerSource(on_node)] += 1;
+                                }
+                            } else {
+                                return error.MissingArgument;
+                            }
+                        },
+                        .list_clear => if (!self.nodeNeedsScope(subscriber)) {
+                            if (call.positional.len != 0) counts[try self.listSourceDependency(call.positional[0])] += 1;
+                            const on_node = findNamed(call.named, "on") orelse return error.MissingArgument;
                             if (self.nodeNeedsScope(on_node)) {
                                 self.runtime_subscribers[subscriber] = true;
                             } else {
                                 counts[try self.valueTriggerSource(on_node)] += 1;
                             }
-                        } else {
-                            return error.MissingArgument;
-                        }
-                    }
-                    if (std.mem.eql(u8, call.path, "List/clear") and !self.nodeNeedsScope(subscriber)) {
-                        if (call.positional.len != 0) counts[try self.listSourceDependency(call.positional[0])] += 1;
-                        const on_node = findNamed(call.named, "on") orelse return error.MissingArgument;
-                        if (self.nodeNeedsScope(on_node)) {
-                            self.runtime_subscribers[subscriber] = true;
-                        } else {
-                            counts[try self.valueTriggerSource(on_node)] += 1;
-                        }
-                    }
-                    if (std.mem.eql(u8, call.path, "List/remove_last")) {
-                        if (call.positional.len != 0) counts[try self.listSourceDependency(call.positional[0])] += 1;
-                        const on_node = findNamed(call.named, "on") orelse return error.MissingArgument;
-                        if (self.nodeNeedsScope(on_node)) {
-                            self.runtime_subscribers[subscriber] = true;
-                        } else {
-                            counts[try self.valueTriggerSource(on_node)] += 1;
-                        }
-                    }
-                    if (std.mem.eql(u8, call.path, "Router/go_to") and call.positional.len != 0) {
-                        if (self.nodeNeedsScope(call.positional[0])) {
-                            self.runtime_subscribers[subscriber] = true;
-                        } else {
-                            counts[try self.eventDependencySource(call.positional[0])] += 1;
-                        }
+                        },
+                        .list_remove_last => {
+                            if (call.positional.len != 0) counts[try self.listSourceDependency(call.positional[0])] += 1;
+                            const on_node = findNamed(call.named, "on") orelse return error.MissingArgument;
+                            if (self.nodeNeedsScope(on_node)) {
+                                self.runtime_subscribers[subscriber] = true;
+                            } else {
+                                counts[try self.valueTriggerSource(on_node)] += 1;
+                            }
+                        },
+                        .router_go_to => if (call.positional.len != 0) {
+                            if (self.nodeNeedsScope(call.positional[0])) {
+                                self.runtime_subscribers[subscriber] = true;
+                            } else {
+                                counts[try self.eventDependencySource(call.positional[0])] += 1;
+                            }
+                        },
+                        else => {},
                     }
                 },
                 else => {},
@@ -1495,67 +1784,62 @@ pub const Session = struct {
                     try self.addSubscriber(source, subscriber, filled);
                 },
                 .builtin_call => |call| {
-                    if (std.mem.eql(u8, call.path, "Stream/pulses") and call.positional.len != 0) {
-                        if (self.nodeNeedsScope(call.positional[0])) continue;
-                        const source = self.eventDependencySource(call.positional[0]) catch |err| switch (err) {
-                            error.UnsupportedEventSource => if (self.nodeNeedsScope(subscriber)) continue else return err,
-                            else => return err,
-                        };
-                        try self.addSubscriber(source, subscriber, filled);
-                    }
-                    if (std.mem.eql(u8, call.path, "Stream/skip") and call.positional.len != 0) {
-                        if (self.nodeNeedsScope(call.positional[0])) continue;
-                        const source = self.eventDependencySource(call.positional[0]) catch |err| switch (err) {
-                            error.UnsupportedEventSource => if (self.nodeNeedsScope(subscriber)) continue else return err,
-                            else => return err,
-                        };
-                        try self.addSubscriber(source, subscriber, filled);
-                    }
-                    if (std.mem.eql(u8, call.path, "Math/sum") and call.positional.len != 0) {
-                        if (self.nodeNeedsScope(call.positional[0])) continue;
-                        const source = self.eventDependencySource(call.positional[0]) catch |err| switch (err) {
-                            error.UnsupportedEventSource => if (self.nodeNeedsScope(subscriber)) continue else return err,
-                            else => return err,
-                        };
-                        try self.addSubscriber(source, subscriber, filled);
-                    }
-                    if (std.mem.eql(u8, call.path, "List/append") and !self.nodeNeedsScope(subscriber)) {
-                        if (call.positional.len != 0) try self.addSubscriber(try self.listSourceDependency(call.positional[0]), subscriber, filled);
-                        if (findNamed(call.named, "item")) |item_node| {
-                            if (!self.nodeNeedsScope(item_node)) {
-                                try self.addSubscriber(try self.valueTriggerSource(item_node), subscriber, filled);
+                    switch (self.builtinOp(subscriber)) {
+                        .stream_pulses, .stream_skip, .math_sum => if (call.positional.len != 0) {
+                            if (self.nodeNeedsScope(call.positional[0])) continue;
+                            const source = self.eventDependencySource(call.positional[0]) catch |err| switch (err) {
+                                error.UnsupportedEventSource => if (self.nodeNeedsScope(subscriber)) continue else return err,
+                                else => return err,
+                            };
+                            try self.addSubscriber(source, subscriber, filled);
+                        },
+                        .list_append => if (!self.nodeNeedsScope(subscriber)) {
+                            if (call.positional.len != 0) try self.addSubscriber(try self.listSourceDependency(call.positional[0]), subscriber, filled);
+                            if (findNamed(call.named, "item")) |item_node| {
+                                if (!self.nodeNeedsScope(item_node)) {
+                                    try self.addSubscriber(try self.valueTriggerSource(item_node), subscriber, filled);
+                                }
+                            } else if (findNamed(call.named, "on")) |on_node| {
+                                if (!self.nodeNeedsScope(on_node)) {
+                                    try self.addSubscriber(try self.valueTriggerSource(on_node), subscriber, filled);
+                                }
+                            } else {
+                                return error.MissingArgument;
                             }
-                        } else if (findNamed(call.named, "on")) |on_node| {
+                        },
+                        .list_clear => if (!self.nodeNeedsScope(subscriber)) {
+                            if (call.positional.len != 0) try self.addSubscriber(try self.listSourceDependency(call.positional[0]), subscriber, filled);
+                            const on_node = findNamed(call.named, "on") orelse return error.MissingArgument;
                             if (!self.nodeNeedsScope(on_node)) {
                                 try self.addSubscriber(try self.valueTriggerSource(on_node), subscriber, filled);
                             }
-                        } else {
-                            return error.MissingArgument;
-                        }
-                    }
-                    if (std.mem.eql(u8, call.path, "List/clear") and !self.nodeNeedsScope(subscriber)) {
-                        if (call.positional.len != 0) try self.addSubscriber(try self.listSourceDependency(call.positional[0]), subscriber, filled);
-                        const on_node = findNamed(call.named, "on") orelse return error.MissingArgument;
-                        if (!self.nodeNeedsScope(on_node)) {
-                            try self.addSubscriber(try self.valueTriggerSource(on_node), subscriber, filled);
-                        }
-                    }
-                    if (std.mem.eql(u8, call.path, "List/remove_last")) {
-                        if (call.positional.len != 0) try self.addSubscriber(try self.listSourceDependency(call.positional[0]), subscriber, filled);
-                        const on_node = findNamed(call.named, "on") orelse return error.MissingArgument;
-                        if (!self.nodeNeedsScope(on_node)) {
-                            try self.addSubscriber(try self.valueTriggerSource(on_node), subscriber, filled);
-                        }
-                    }
-                    if (std.mem.eql(u8, call.path, "Router/go_to") and call.positional.len != 0) {
-                        if (!self.nodeNeedsScope(call.positional[0])) {
-                            try self.addSubscriber(try self.eventDependencySource(call.positional[0]), subscriber, filled);
-                        }
+                        },
+                        .list_remove_last => {
+                            if (call.positional.len != 0) try self.addSubscriber(try self.listSourceDependency(call.positional[0]), subscriber, filled);
+                            const on_node = findNamed(call.named, "on") orelse return error.MissingArgument;
+                            if (!self.nodeNeedsScope(on_node)) {
+                                try self.addSubscriber(try self.valueTriggerSource(on_node), subscriber, filled);
+                            }
+                        },
+                        .router_go_to => if (call.positional.len != 0) {
+                            if (!self.nodeNeedsScope(call.positional[0])) {
+                                try self.addSubscriber(try self.eventDependencySource(call.positional[0]), subscriber, filled);
+                            }
+                        },
+                        else => {},
                     }
                 },
                 else => {},
             }
         }
+
+        var runtime_nodes: std.ArrayList(flow_ir.NodeId) = .empty;
+        defer runtime_nodes.deinit(allocator);
+        for (self.runtime_subscribers, 0..) |enabled, subscriber_usize| {
+            if (!enabled) continue;
+            try runtime_nodes.append(allocator, @intCast(subscriber_usize));
+        }
+        self.runtime_subscriber_nodes = try runtime_nodes.toOwnedSlice(allocator);
     }
 
     fn addSubscriber(self: *Session, source: flow_ir.NodeId, subscriber: flow_ir.NodeId, filled: []usize) !void {
@@ -1665,75 +1949,7 @@ pub const Session = struct {
     }
 
     fn nodeNeedsScope(self: *Session, node_id: flow_ir.NodeId) bool {
-        switch (self.node_scope_state[node_id]) {
-            1 => return false,
-            2 => return false,
-            3 => return true,
-            else => {},
-        }
-
-        self.node_scope_state[node_id] = 1;
-        const node = self.flow.nodes[node_id];
-        const needs_scope = switch (node.kind) {
-            .binding_ref => |binding_id| self.nodeNeedsScope(self.flow.bindings[binding_id].node),
-            .local_ref => true,
-            .special => |special| switch (special) {
-                .pass_ref, .passed_ref => true,
-                else => false,
-            },
-            .access => |access| self.nodeNeedsScope(access.target),
-            .binary => |binary| self.nodeNeedsScope(binary.lhs) or self.nodeNeedsScope(binary.rhs),
-            .text => |parts| blk: {
-                for (parts) |part| if (self.nodeNeedsScope(part)) break :blk true;
-                break :blk false;
-            },
-            .list => |list| blk: {
-                for (list.items) |item| if (self.nodeNeedsScope(item)) break :blk true;
-                break :blk false;
-            },
-            .record => |fields| blk: {
-                for (fields) |field| if (self.nodeNeedsScope(field.value)) break :blk true;
-                break :blk false;
-            },
-            .block => |block| blk: {
-                for (block.bindings) |binding| if (self.nodeNeedsScope(binding.value)) break :blk true;
-                break :blk self.nodeNeedsScope(block.result);
-            },
-            .when => |when| blk: {
-                if (self.nodeNeedsScope(when.input)) break :blk true;
-                for (when.arms) |arm| {
-                    if (self.nodeNeedsScope(arm.pattern) or self.nodeNeedsScope(arm.result)) break :blk true;
-                }
-                break :blk false;
-            },
-            .latest => |latest| blk: {
-                if (latest.initial) |initial| if (self.nodeNeedsScope(initial)) break :blk true;
-                for (latest.sources) |source| if (self.nodeNeedsScope(source)) break :blk true;
-                break :blk false;
-            },
-            .then_value => |then_value| self.nodeNeedsScope(then_value.source) or self.nodeNeedsScope(then_value.value),
-            .hold => |hold| blk: {
-                if (self.nodeNeedsScope(hold.initial)) break :blk true;
-                for (hold.updates) |update| if (self.nodeNeedsScope(update)) break :blk true;
-                break :blk false;
-            },
-            .linked_value => |linked| self.nodeNeedsScope(linked.value) or self.nodeNeedsScope(linked.target),
-            .builtin_call => |call| blk: {
-                for (call.positional) |arg| if (self.nodeNeedsScope(arg)) break :blk true;
-                for (call.named) |arg| if (self.nodeNeedsScope(arg.value)) break :blk true;
-                break :blk false;
-            },
-            .user_call => |call| blk: {
-                for (call.positional) |arg| if (self.nodeNeedsScope(arg)) break :blk true;
-                for (call.named) |arg| if (self.nodeNeedsScope(arg.value)) break :blk true;
-                if (call.pass_context) |pass_context| break :blk self.nodeNeedsScope(pass_context);
-                break :blk false;
-            },
-            else => false,
-        };
-
-        self.node_scope_state[node_id] = if (needs_scope) 3 else 2;
-        return needs_scope;
+        return self.node_needs_scope[node_id];
     }
 
     fn nodeNeedsDeferredField(self: *Session, node_id: flow_ir.NodeId) bool {
@@ -1741,13 +1957,7 @@ pub const Session = struct {
         return switch (node.kind) {
             .binding_ref => |binding_id| self.nodeNeedsDeferredField(self.flow.bindings[binding_id].node),
             .latest, .hold, .then_value, .linked_value => true,
-            .builtin_call => |call| std.mem.eql(u8, call.path, "Math/sum") or
-                std.mem.eql(u8, call.path, "Stream/pulses") or
-                std.mem.eql(u8, call.path, "Stream/skip") or
-                std.mem.eql(u8, call.path, "List/append") or
-                std.mem.eql(u8, call.path, "List/clear") or
-                std.mem.eql(u8, call.path, "List/remove") or
-                std.mem.eql(u8, call.path, "List/remove_last"),
+            .builtin_call => self.node_needs_deferred_field[node_id],
             else => false,
         };
     }
@@ -2009,7 +2219,10 @@ pub const Session = struct {
         const node = self.flow.nodes[node_id];
         return switch (node.kind) {
             .binding_ref => |binding_id| try self.listSourceDependency(self.flow.bindings[binding_id].node),
-            .builtin_call => |call| if (std.mem.eql(u8, call.path, "List/append") or std.mem.eql(u8, call.path, "List/clear") or std.mem.eql(u8, call.path, "List/remove") or std.mem.eql(u8, call.path, "List/remove_last")) node_id else try self.eventDependencySource(node_id),
+            .builtin_call => switch (self.builtinOp(node_id)) {
+                .list_append, .list_clear, .list_remove, .list_remove_last => node_id,
+                else => try self.eventDependencySource(node_id),
+            },
             else => try self.eventDependencySource(node_id),
         };
     }
@@ -2283,16 +2496,13 @@ pub const Session = struct {
                 try self.dispatchPulseToSubscriber(subscriber, pulse);
             }
             try self.dispatchRuntimeScopedSubscribers(pulse);
-            for (self.flow.nodes, 0..) |node, subscriber_usize| {
-                if (node.kind != .builtin_call) continue;
-                const call = node.kind.builtin_call;
-                if (std.mem.eql(u8, call.path, "List/remove")) {
-                    try self.processListRemovePulse(@intCast(subscriber_usize), call, pulse.source);
-                    continue;
-                }
-                if (std.mem.eql(u8, call.path, "List/remove_last")) {
-                    try self.processListRemoveLastPulse(@intCast(subscriber_usize), call, pulse.source);
-                }
+            for (self.list_remove_nodes) |subscriber| {
+                const call = self.flow.nodes[subscriber].kind.builtin_call;
+                try self.processListRemovePulse(subscriber, call, pulse.source);
+            }
+            for (self.list_remove_last_nodes) |subscriber| {
+                const call = self.flow.nodes[subscriber].kind.builtin_call;
+                try self.processListRemoveLastPulse(subscriber, call, pulse.source);
             }
         }
         self.queue.clearRetainingCapacity();
@@ -2352,38 +2562,33 @@ pub const Session = struct {
                 });
             },
             .builtin_call => |call| {
-                if (std.mem.eql(u8, call.path, "Stream/pulses")) {
-                    try self.emitPulses(subscriber, call, pulse.scope);
-                }
-                if (std.mem.eql(u8, call.path, "Stream/skip")) {
-                    try self.processSkipPulse(subscriber, call, pulse.payload, pulse.scope);
-                }
-                if (std.mem.eql(u8, call.path, "Math/sum")) {
-                    const value = try valueAsNumber(try valueFromPulsePayload(self, self.arena.allocator(), pulse.payload, pulse.scope));
-                    self.sum_values[subscriber] += value;
-                    self.sum_inited[subscriber] = true;
-                    self.invalidateEvalCacheForDependency(.{ .node_id = subscriber, .scope_id = 0 });
-                    try self.logf("sum n{d} += {d} -> {d}", .{
-                        subscriber,
-                        value,
-                        self.sum_values[subscriber],
-                    });
-                    try self.queue.append(self.arena.allocator(), .{ .source = subscriber, .payload = .{ .node = subscriber } });
-                }
-                if (std.mem.eql(u8, call.path, "List/append")) {
-                    try self.processListAppendPulse(subscriber, call, pulse.source);
-                }
-                if (std.mem.eql(u8, call.path, "List/clear")) {
-                    try self.processListClearPulse(subscriber, call, pulse.source);
-                }
-                if (std.mem.eql(u8, call.path, "Router/go_to") and call.positional.len != 0) {
-                    const route = try self.evalNode(self.arena.allocator(), call.positional[0], null);
-                    if (route != .none) {
-                        self.route_value = route;
-                        self.invalidateEvalCacheForDependency(.{ .node_id = subscriber, .scope_id = 0 });
-                        try self.logf("router_go_to n{d} -> {s}", .{ subscriber, try valueAsText(route) });
+                switch (self.builtinOp(subscriber)) {
+                    .stream_pulses => try self.emitPulses(subscriber, call, pulse.scope),
+                    .stream_skip => try self.processSkipPulse(subscriber, call, pulse.payload, pulse.scope),
+                    .math_sum => {
+                        const value = try valueAsNumber(try valueFromPulsePayload(self, self.arena.allocator(), pulse.payload, pulse.scope));
+                        self.sum_values[subscriber] += value;
+                        self.sum_inited[subscriber] = true;
+                        self.noteTopLevelMutation(subscriber);
+                        try self.logf("sum n{d} += {d} -> {d}", .{
+                            subscriber,
+                            value,
+                            self.sum_values[subscriber],
+                        });
                         try self.queue.append(self.arena.allocator(), .{ .source = subscriber, .payload = .{ .node = subscriber } });
-                    }
+                    },
+                    .list_append => try self.processListAppendPulse(subscriber, call, pulse.source),
+                    .list_clear => try self.processListClearPulse(subscriber, call, pulse.source),
+                    .router_go_to => if (call.positional.len != 0) {
+                        const route = try self.evalNode(self.arena.allocator(), call.positional[0], null);
+                        if (route != .none) {
+                            self.route_value = route;
+                            self.noteTopLevelMutation(subscriber);
+                            try self.logf("router_go_to n{d} -> {s}", .{ subscriber, try valueAsText(route) });
+                            try self.queue.append(self.arena.allocator(), .{ .source = subscriber, .payload = .{ .node = subscriber } });
+                        }
+                    },
+                    else => {},
                 }
             },
             else => {},
@@ -2392,9 +2597,7 @@ pub const Session = struct {
 
     fn dispatchRuntimeScopedSubscribers(self: *Session, pulse: Pulse) !void {
         const scope = pulse.scope orelse return;
-        for (self.runtime_subscribers, 0..) |enabled, subscriber_usize| {
-            if (!enabled) continue;
-            const subscriber: flow_ir.NodeId = @intCast(subscriber_usize);
+        for (self.runtime_subscriber_nodes) |subscriber| {
             if (!try self.runtimeSubscriberMatchesPulse(subscriber, pulse.source, scope)) continue;
             try self.dispatchPulseToSubscriber(subscriber, pulse);
         }
@@ -2419,34 +2622,34 @@ pub const Session = struct {
                 break :blk false;
             },
             .linked_value => |linked| self.nodeNeedsScope(linked.value) and try self.safeScopedLinkedTriggerEquals(linked.value, scope, pulse_source),
-            .builtin_call => |call| try self.runtimeBuiltinCallMatchesPulse(call, pulse_source, scope),
+            .builtin_call => |call| try self.runtimeBuiltinCallMatchesPulse(subscriber, call, pulse_source, scope),
             else => false,
         };
     }
 
-    fn runtimeBuiltinCallMatchesPulse(self: *Session, call: flow_ir.BuiltinCall, pulse_source: flow_ir.NodeId, scope: *const EvalScope) anyerror!bool {
-        if ((std.mem.eql(u8, call.path, "Stream/pulses") or
-            std.mem.eql(u8, call.path, "Stream/skip") or
-            std.mem.eql(u8, call.path, "Math/sum")) and call.positional.len != 0)
-        {
-            return self.nodeNeedsScope(call.positional[0]) and try self.safeScopedEventSourceEquals(call.positional[0], scope, pulse_source);
-        }
-        if (std.mem.eql(u8, call.path, "List/append")) {
-            if (call.positional.len != 0 and self.nodeNeedsScope(call.positional[0]) and try self.safeScopedListSourceEquals(call.positional[0], scope, pulse_source)) return true;
-            if (findNamed(call.named, "item")) |item_node| {
-                return self.nodeNeedsScope(item_node) and try self.safeScopedValueSourceEquals(item_node, scope, pulse_source);
-            }
-            if (findNamed(call.named, "on")) |on_node| {
+    fn runtimeBuiltinCallMatchesPulse(self: *Session, subscriber: flow_ir.NodeId, call: flow_ir.BuiltinCall, pulse_source: flow_ir.NodeId, scope: *const EvalScope) anyerror!bool {
+        switch (self.builtinOp(subscriber)) {
+            .stream_pulses, .stream_skip, .math_sum => if (call.positional.len != 0) {
+                return self.nodeNeedsScope(call.positional[0]) and try self.safeScopedEventSourceEquals(call.positional[0], scope, pulse_source);
+            },
+            .list_append => {
+                if (call.positional.len != 0 and self.nodeNeedsScope(call.positional[0]) and try self.safeScopedListSourceEquals(call.positional[0], scope, pulse_source)) return true;
+                if (findNamed(call.named, "item")) |item_node| {
+                    return self.nodeNeedsScope(item_node) and try self.safeScopedValueSourceEquals(item_node, scope, pulse_source);
+                }
+                if (findNamed(call.named, "on")) |on_node| {
+                    return self.nodeNeedsScope(on_node) and try self.safeScopedValueSourceEquals(on_node, scope, pulse_source);
+                }
+            },
+            .list_clear, .list_remove_last => {
+                if (call.positional.len != 0 and self.nodeNeedsScope(call.positional[0]) and try self.safeScopedListSourceEquals(call.positional[0], scope, pulse_source)) return true;
+                const on_node = findNamed(call.named, "on") orelse return false;
                 return self.nodeNeedsScope(on_node) and try self.safeScopedValueSourceEquals(on_node, scope, pulse_source);
-            }
-        }
-        if (std.mem.eql(u8, call.path, "List/clear") or std.mem.eql(u8, call.path, "List/remove_last")) {
-            if (call.positional.len != 0 and self.nodeNeedsScope(call.positional[0]) and try self.safeScopedListSourceEquals(call.positional[0], scope, pulse_source)) return true;
-            const on_node = findNamed(call.named, "on") orelse return false;
-            return self.nodeNeedsScope(on_node) and try self.safeScopedValueSourceEquals(on_node, scope, pulse_source);
-        }
-        if (std.mem.eql(u8, call.path, "Router/go_to") and call.positional.len != 0) {
-            return self.nodeNeedsScope(call.positional[0]) and try self.safeScopedEventSourceEquals(call.positional[0], scope, pulse_source);
+            },
+            .router_go_to => if (call.positional.len != 0) {
+                return self.nodeNeedsScope(call.positional[0]) and try self.safeScopedEventSourceEquals(call.positional[0], scope, pulse_source);
+            },
+            else => {},
         }
         return false;
     }
@@ -2530,15 +2733,16 @@ pub const Session = struct {
         const node = self.flow.nodes[node_id];
         return switch (node.kind) {
             .binding_ref => |binding_id| try self.listSourceDependencyScoped(self.flow.bindings[binding_id].node, scope),
-            .builtin_call => |call| if (std.mem.eql(u8, call.path, "List/append") or std.mem.eql(u8, call.path, "List/clear") or std.mem.eql(u8, call.path, "List/remove") or std.mem.eql(u8, call.path, "List/remove_last")) node_id else try self.scopedEventDependencySource(node_id, scope),
+            .builtin_call => switch (self.builtinOp(node_id)) {
+                .list_append, .list_clear, .list_remove, .list_remove_last => node_id,
+                else => try self.scopedEventDependencySource(node_id, scope),
+            },
             else => try self.scopedEventDependencySource(node_id, scope),
         };
     }
 
     fn numberFromNode(self: *Session, node_id: flow_ir.NodeId, scope: ?*const EvalScope) anyerror!f64 {
-        var scratch = std.heap.ArenaAllocator.init(self.arena.allocator());
-        defer scratch.deinit();
-        const value = try self.evalNode(scratch.allocator(), node_id, scope);
+        const value = try self.evalNode(self.scratch_arena.allocator(), node_id, scope);
         return try valueAsNumber(value);
     }
 
@@ -2548,9 +2752,7 @@ pub const Session = struct {
             .binding_ref => |binding_id| try self.initialNumericValue(self.flow.bindings[binding_id].node),
             .number => |number| number.value,
             .latest => blk: {
-                var scratch = std.heap.ArenaAllocator.init(self.arena.allocator());
-                defer scratch.deinit();
-                const value = self.evalNode(scratch.allocator(), node_id, null) catch |err| switch (err) {
+                const value = self.evalNode(self.scratch_arena.allocator(), node_id, null) catch |err| switch (err) {
                     error.ExpectedNumericValue, error.ExpectedTextValue, error.ExpectedDurationValue => break :blk null,
                     else => return err,
                 };
@@ -2560,8 +2762,8 @@ pub const Session = struct {
                 };
             },
             .link_port => if (self.getLinkValue(node_id, null)) |value| try valueAsNumber(value) else null,
-            .builtin_call => |call| blk: {
-                if (std.mem.eql(u8, call.path, "Math/sum") and self.sum_inited[node_id]) {
+            .builtin_call => blk: {
+                if (self.builtinOp(node_id) == .math_sum and self.sum_inited[node_id]) {
                     break :blk self.sum_values[node_id];
                 }
                 break :blk null;
@@ -2572,15 +2774,49 @@ pub const Session = struct {
 
     fn cachedControlRefs(self: *Session, kind: CachedControlKind) anyerror![]const ControlEventRef {
         switch (kind) {
-            .button => if (self.cached_button_links) |links| return links,
-            .slider => if (self.cached_slider_links) |links| return links,
-            .text_input => if (self.cached_text_input_links) |links| return links,
-            .text_input_key => if (self.cached_text_input_key_links) |links| return links,
-            .text_input_blur => if (self.cached_text_input_blur_links) |links| return links,
-            .text_input_focus => if (self.cached_text_input_focus_links) |links| return links,
-            .label_double_click => if (self.cached_label_double_click_links) |links| return links,
-            .hover => if (self.cached_hover_links) |links| return links,
-            .select => if (self.cached_select_links) |links| return links,
+            .button => if (self.cached_button_links) |links| {
+                if (self.cachedDepsWithVersionsAreFresh(self.cached_button_links_deps, self.cached_button_links_versions)) return links;
+                self.resetMemoDerivedCaches();
+            },
+            .slider => if (self.cached_slider_links) |links| {
+                if (self.cachedDepsWithVersionsAreFresh(self.cached_slider_links_deps, self.cached_slider_links_versions)) return links;
+                self.resetMemoDerivedCaches();
+            },
+            .text_input => if (self.cached_text_input_links) |links| {
+                if (self.cachedDepsWithVersionsAreFresh(self.cached_text_input_links_deps, self.cached_text_input_links_versions)) return links;
+                self.resetMemoDerivedCaches();
+            },
+            .text_input_key => if (self.cached_text_input_key_links) |links| {
+                if (self.cachedDepsWithVersionsAreFresh(self.cached_text_input_key_links_deps, self.cached_text_input_key_links_versions)) return links;
+                self.resetMemoDerivedCaches();
+            },
+            .text_input_blur => if (self.cached_text_input_blur_links) |links| {
+                if (self.cachedDepsWithVersionsAreFresh(self.cached_text_input_blur_links_deps, self.cached_text_input_blur_links_versions)) return links;
+                self.resetMemoDerivedCaches();
+            },
+            .text_input_focus => if (self.cached_text_input_focus_links) |links| {
+                if (self.cachedDepsWithVersionsAreFresh(self.cached_text_input_focus_links_deps, self.cached_text_input_focus_links_versions)) return links;
+                self.resetMemoDerivedCaches();
+            },
+            .label_double_click => if (self.cached_label_double_click_links) |links| {
+                if (self.cachedDepsWithVersionsAreFresh(self.cached_label_double_click_links_deps, self.cached_label_double_click_links_versions)) return links;
+                self.resetMemoDerivedCaches();
+            },
+            .hover => if (self.cached_hover_links) |links| {
+                if (self.cachedDepsWithVersionsAreFresh(self.cached_hover_links_deps, self.cached_hover_links_versions)) return links;
+                self.resetMemoDerivedCaches();
+            },
+            .select => if (self.cached_select_links) |links| {
+                if (self.cachedDepsWithVersionsAreFresh(self.cached_select_links_deps, self.cached_select_links_versions)) return links;
+                self.resetMemoDerivedCaches();
+            },
+        }
+
+        var frame = EvalFrame{ .parent = self.current_eval_frame };
+        self.current_eval_frame = &frame;
+        defer {
+            self.current_eval_frame = frame.parent;
+            frame.deps.deinit(self.arena.allocator());
         }
 
         const value = try self.interactionRootValue();
@@ -2598,16 +2834,56 @@ pub const Session = struct {
             .select => try collectSelectLinks(self, &links, self.memo_arena.allocator(), value),
         }
         const owned = try links.toOwnedSlice(self.memo_arena.allocator());
+        const deps = try self.arena.allocator().alloc(ScopedNodeKey, frame.deps.items.len);
+        const versions = try self.arena.allocator().alloc(u32, frame.deps.items.len);
+        @memcpy(deps, frame.deps.items);
+        for (frame.deps.items, 0..) |dep, index| versions[index] = self.stateVersion(dep);
         switch (kind) {
-            .button => self.cached_button_links = owned,
-            .slider => self.cached_slider_links = owned,
-            .text_input => self.cached_text_input_links = owned,
-            .text_input_key => self.cached_text_input_key_links = owned,
-            .text_input_blur => self.cached_text_input_blur_links = owned,
-            .text_input_focus => self.cached_text_input_focus_links = owned,
-            .label_double_click => self.cached_label_double_click_links = owned,
-            .hover => self.cached_hover_links = owned,
-            .select => self.cached_select_links = owned,
+            .button => {
+                self.cached_button_links = owned;
+                self.cached_button_links_deps = deps;
+                self.cached_button_links_versions = versions;
+            },
+            .slider => {
+                self.cached_slider_links = owned;
+                self.cached_slider_links_deps = deps;
+                self.cached_slider_links_versions = versions;
+            },
+            .text_input => {
+                self.cached_text_input_links = owned;
+                self.cached_text_input_links_deps = deps;
+                self.cached_text_input_links_versions = versions;
+            },
+            .text_input_key => {
+                self.cached_text_input_key_links = owned;
+                self.cached_text_input_key_links_deps = deps;
+                self.cached_text_input_key_links_versions = versions;
+            },
+            .text_input_blur => {
+                self.cached_text_input_blur_links = owned;
+                self.cached_text_input_blur_links_deps = deps;
+                self.cached_text_input_blur_links_versions = versions;
+            },
+            .text_input_focus => {
+                self.cached_text_input_focus_links = owned;
+                self.cached_text_input_focus_links_deps = deps;
+                self.cached_text_input_focus_links_versions = versions;
+            },
+            .label_double_click => {
+                self.cached_label_double_click_links = owned;
+                self.cached_label_double_click_links_deps = deps;
+                self.cached_label_double_click_links_versions = versions;
+            },
+            .hover => {
+                self.cached_hover_links = owned;
+                self.cached_hover_links_deps = deps;
+                self.cached_hover_links_versions = versions;
+            },
+            .select => {
+                self.cached_select_links = owned;
+                self.cached_select_links_deps = deps;
+                self.cached_select_links_versions = versions;
+            },
         }
         return owned;
     }
@@ -2693,17 +2969,156 @@ pub const Session = struct {
         for (frame.deps.items) |existing| {
             if (existing.node_id == dep.node_id and existing.scope_id == dep.scope_id) return;
         }
-        try frame.deps.append(self.backing_allocator, dep);
+        try frame.deps.append(self.arena.allocator(), dep);
     }
 
-    fn mergeCachedDependencies(self: *Session, deps: []const ScopedNodeKey) !void {
+    fn mergeCachedDependencies(self: *Session, deps: []const CachedDependency) !void {
         const frame = self.current_eval_frame orelse return;
-        for (deps) |dep| try self.addFrameDependency(frame, dep);
+        for (deps) |dep| try self.addFrameDependency(frame, dep.key);
     }
 
     fn recordStateDependency(self: *Session, dep: ScopedNodeKey) !void {
         const frame = self.current_eval_frame orelse return;
         try self.addFrameDependency(frame, dep);
+    }
+
+    fn stateVersion(self: *const Session, dep: ScopedNodeKey) u32 {
+        return if (dep.scope_id == 0 and dep.node_id < self.state_versions.len) self.state_versions[dep.node_id] else 0;
+    }
+
+    fn clearDerivedCaches(self: *Session) void {
+        self.resetMemoDerivedCaches();
+    }
+
+    fn noteStateMutation(self: *Session, node_id: flow_ir.NodeId, scope: ?*const EvalScope) void {
+        const dep = self.scopedStateKey(node_id, scope);
+        if (dep.scope_id == 0) {
+            self.state_versions[node_id] +%= 1;
+            self.clearDerivedCaches();
+            return;
+        }
+        self.invalidateEvalCacheForDependency(dep);
+    }
+
+    fn noteTopLevelMutation(self: *Session, node_id: flow_ir.NodeId) void {
+        self.noteStateMutation(node_id, null);
+    }
+
+    fn cachedEntryIsFresh(self: *const Session, cached: CachedEvalEntry) bool {
+        for (cached.deps) |dep| {
+            if (dep.version != self.stateVersion(dep.key)) return false;
+        }
+        return true;
+    }
+
+    fn cachedDepsAreFresh(self: *const Session, deps: []const CachedDependency) bool {
+        for (deps) |dep| {
+            if (dep.version != self.stateVersion(dep.key)) return false;
+        }
+        return true;
+    }
+
+    fn cachedTerminalContractIsFresh(self: *const Session) bool {
+        return self.cachedDepsWithVersionsAreFresh(self.cached_terminal_contract_deps, self.cached_terminal_contract_versions);
+    }
+
+    fn cachedDepsWithVersionsAreFresh(
+        self: *const Session,
+        deps_opt: ?[]ScopedNodeKey,
+        versions_opt: ?[]u32,
+    ) bool {
+        const deps = deps_opt orelse return false;
+        const versions = versions_opt orelse return false;
+        if (deps.len != versions.len) return false;
+        for (deps, versions) |dep, version| {
+            if (version != self.stateVersion(dep)) return false;
+        }
+        return true;
+    }
+
+    fn snapshotFrameDeps(self: *Session, frame: *const EvalFrame) !struct { deps: []ScopedNodeKey, versions: []u32 } {
+        const deps = try self.arena.allocator().alloc(ScopedNodeKey, frame.deps.items.len);
+        const versions = try self.arena.allocator().alloc(u32, frame.deps.items.len);
+        @memcpy(deps, frame.deps.items);
+        for (frame.deps.items, 0..) |dep, index| versions[index] = self.stateVersion(dep);
+        return .{ .deps = deps, .versions = versions };
+    }
+
+    fn dropCachedTerminalContract(self: *Session) void {
+        self.cached_terminal_contract_deps = null;
+        self.cached_terminal_contract_versions = null;
+        self.cached_terminal_contract = null;
+    }
+
+    fn dropCachedControlRefs(self: *Session, kind: CachedControlKind) void {
+        switch (kind) {
+            .button => {
+                self.cached_button_links = null;
+                self.cached_button_links_deps = null;
+                self.cached_button_links_versions = null;
+            },
+            .slider => {
+                self.cached_slider_links = null;
+                self.cached_slider_links_deps = null;
+                self.cached_slider_links_versions = null;
+            },
+            .text_input => {
+                self.cached_text_input_links = null;
+                self.cached_text_input_links_deps = null;
+                self.cached_text_input_links_versions = null;
+            },
+            .text_input_key => {
+                self.cached_text_input_key_links = null;
+                self.cached_text_input_key_links_deps = null;
+                self.cached_text_input_key_links_versions = null;
+            },
+            .text_input_blur => {
+                self.cached_text_input_blur_links = null;
+                self.cached_text_input_blur_links_deps = null;
+                self.cached_text_input_blur_links_versions = null;
+            },
+            .text_input_focus => {
+                self.cached_text_input_focus_links = null;
+                self.cached_text_input_focus_links_deps = null;
+                self.cached_text_input_focus_links_versions = null;
+            },
+            .label_double_click => {
+                self.cached_label_double_click_links = null;
+                self.cached_label_double_click_links_deps = null;
+                self.cached_label_double_click_links_versions = null;
+            },
+            .hover => {
+                self.cached_hover_links = null;
+                self.cached_hover_links_deps = null;
+                self.cached_hover_links_versions = null;
+            },
+            .select => {
+                self.cached_select_links = null;
+                self.cached_select_links_deps = null;
+                self.cached_select_links_versions = null;
+            },
+        }
+    }
+
+    fn dropCachedTextInputs(self: *Session) void {
+        self.cached_text_inputs = null;
+        self.cached_text_inputs_deps = null;
+        self.cached_text_inputs_versions = null;
+    }
+
+    fn resetMemoDerivedCaches(self: *Session) void {
+        self.dropCachedTerminalContract();
+        self.cached_terminal_hit_regions = null;
+        self.dropCachedControlRefs(.button);
+        self.dropCachedControlRefs(.slider);
+        self.dropCachedControlRefs(.text_input);
+        self.dropCachedControlRefs(.text_input_key);
+        self.dropCachedControlRefs(.text_input_blur);
+        self.dropCachedControlRefs(.text_input_focus);
+        self.dropCachedControlRefs(.label_double_click);
+        self.dropCachedControlRefs(.hover);
+        self.dropCachedControlRefs(.select);
+        self.dropCachedTextInputs();
     }
 
     fn scopedStateKey(self: *Session, node_id: flow_ir.NodeId, scope: ?*const EvalScope) ScopedNodeKey {
@@ -2717,27 +3132,18 @@ pub const Session = struct {
     }
 
     fn invalidateEvalCacheForDependency(self: *Session, dep: ScopedNodeKey) void {
+        if (dep.scope_id != 0 and self.top_level_eval_inited.len != 0) {
+            @memset(self.top_level_eval_inited, false);
+        }
         if (self.cached_terminal_contract_deps) |deps| {
             for (deps) |cached_dep| {
                 if (cached_dep.node_id == dep.node_id and cached_dep.scope_id == dep.scope_id) {
-                    self.backing_allocator.free(deps);
-                    self.cached_terminal_contract_deps = null;
-                    self.cached_terminal_contract = null;
+                    self.dropCachedTerminalContract();
                     break;
                 }
             }
         }
-        self.cached_terminal_hit_regions = null;
-        self.cached_button_links = null;
-        self.cached_slider_links = null;
-        self.cached_text_input_links = null;
-        self.cached_text_input_key_links = null;
-        self.cached_text_input_blur_links = null;
-        self.cached_text_input_focus_links = null;
-        self.cached_label_double_click_links = null;
-        self.cached_hover_links = null;
-        self.cached_select_links = null;
-        self.cached_text_inputs = null;
+        self.clearDerivedCaches();
 
         var keys: std.ArrayList(ScopedNodeKey) = .empty;
         defer keys.deinit(self.backing_allocator);
@@ -2754,7 +3160,7 @@ pub const Session = struct {
                 continue;
             }
             for (cached.deps) |cached_dep| {
-                if (cached_dep.node_id == dep.node_id and cached_dep.scope_id == dep.scope_id) {
+                if (cached_dep.key.node_id == dep.node_id and cached_dep.key.scope_id == dep.scope_id) {
                     keys.append(self.backing_allocator, key) catch {
                         self.invalidateEvalCache();
                         return;
@@ -2765,9 +3171,7 @@ pub const Session = struct {
         }
 
         for (keys.items) |key| {
-            if (self.eval_cache.fetchRemove(key)) |removed| {
-                self.backing_allocator.free(removed.value.deps);
-            }
+            _ = self.eval_cache.fetchRemove(key);
         }
     }
 
@@ -2807,7 +3211,7 @@ pub const Session = struct {
     }
 
     fn setLinkValue(self: *Session, node_id: flow_ir.NodeId, scope: ?*const EvalScope, value: Value) !void {
-        self.invalidateEvalCacheForDependency(self.scopedStateKey(node_id, scope));
+        self.noteStateMutation(node_id, scope);
         if (self.scopedNodeKey(node_id, scope)) |key| {
             try self.scoped_link_values.put(self.arena.allocator(), key, value);
             return;
@@ -2822,7 +3226,7 @@ pub const Session = struct {
     }
 
     fn setLinkKeyValue(self: *Session, node_id: flow_ir.NodeId, scope: ?*const EvalScope, value: Value) !void {
-        self.invalidateEvalCacheForDependency(self.scopedStateKey(node_id, scope));
+        self.noteStateMutation(node_id, scope);
         if (self.scopedNodeKey(node_id, scope)) |key| {
             try self.scoped_link_key_values.put(self.arena.allocator(), key, value);
             return;
@@ -2837,7 +3241,7 @@ pub const Session = struct {
     }
 
     fn setLatestPayload(self: *Session, node_id: flow_ir.NodeId, scope: ?*const EvalScope, payload: PulsePayload) !void {
-        self.invalidateEvalCacheForDependency(self.scopedStateKey(node_id, scope));
+        self.noteStateMutation(node_id, scope);
         if (self.scopedNodeKey(node_id, scope)) |key| {
             try self.scoped_latest_values.put(self.arena.allocator(), key, payload);
             return;
@@ -2851,7 +3255,7 @@ pub const Session = struct {
     }
 
     fn setHoldValue(self: *Session, node_id: flow_ir.NodeId, scope: ?*const EvalScope, value: Value) !void {
-        self.invalidateEvalCacheForDependency(self.scopedStateKey(node_id, scope));
+        self.noteStateMutation(node_id, scope);
         if (self.scopedNodeKey(node_id, scope)) |key| {
             try self.scoped_hold_values.put(self.arena.allocator(), key, value);
             return;
@@ -2861,6 +3265,10 @@ pub const Session = struct {
     }
 
     fn currentTextInputValue(self: *Session, index: usize) anyerror!Value {
+        const event = try self.textInputLinkAt(index);
+        const scope = canonicalControlScope(event.scope);
+        if (self.getLinkValue(event.link, scope)) |value| return value;
+
         const inputs = try self.textInputValuesView();
         if (index >= inputs.len) return error.InvalidTextInputIndex;
         return inputs[index].text;
@@ -2868,22 +3276,52 @@ pub const Session = struct {
 
     fn textInputValuesView(self: *Session) anyerror![]*TextInputValue {
         try self.flushPendingQueue();
-        if (self.cached_text_inputs) |inputs| return inputs;
+        if (self.cached_text_inputs) |inputs| {
+            if (self.cachedDepsWithVersionsAreFresh(self.cached_text_inputs_deps, self.cached_text_inputs_versions)) return inputs;
+            self.resetMemoDerivedCaches();
+        }
+
+        var frame = EvalFrame{ .parent = self.current_eval_frame };
+        self.current_eval_frame = &frame;
+        defer {
+            self.current_eval_frame = frame.parent;
+            frame.deps.deinit(self.arena.allocator());
+        }
 
         const value = try self.interactionRootValue();
         var inputs: std.ArrayList(*TextInputValue) = .empty;
         defer inputs.deinit(self.memo_arena.allocator());
         try collectTextInputValues(self, &inputs, self.memo_arena.allocator(), value);
         const owned = try inputs.toOwnedSlice(self.memo_arena.allocator());
+        const deps = try self.arena.allocator().alloc(ScopedNodeKey, frame.deps.items.len);
+        const versions = try self.arena.allocator().alloc(u32, frame.deps.items.len);
+        @memcpy(deps, frame.deps.items);
+        for (frame.deps.items, 0..) |dep, index| versions[index] = self.stateVersion(dep);
         self.cached_text_inputs = owned;
+        self.cached_text_inputs_deps = deps;
+        self.cached_text_inputs_versions = versions;
         return owned;
     }
 
     fn evalNode(self: *Session, allocator: std.mem.Allocator, node_id: flow_ir.NodeId, scope: ?*const EvalScope) anyerror!Value {
-        const cache_key = self.evalCacheKey(node_id, scope);
-        if (self.eval_cache.get(cache_key)) |cached| {
-            try self.mergeCachedDependencies(cached.deps);
-            return cached.value;
+        if (scope == null and node_id < self.top_level_eval_inited.len) {
+            if (self.top_level_eval_inited[node_id]) {
+                const deps = self.top_level_eval_deps[node_id];
+                if (self.cachedDepsAreFresh(deps)) {
+                    try self.mergeCachedDependencies(deps);
+                    return self.top_level_eval_values[node_id];
+                }
+                self.top_level_eval_inited[node_id] = false;
+            }
+        } else {
+            const cache_key = self.evalCacheKey(node_id, scope);
+            if (self.eval_cache.get(cache_key)) |cached| {
+                if (self.cachedEntryIsFresh(cached)) {
+                    try self.mergeCachedDependencies(cached.deps);
+                    return cached.value;
+                }
+                _ = self.eval_cache.fetchRemove(cache_key);
+            }
         }
 
         var frame = EvalFrame{ .parent = self.current_eval_frame };
@@ -2894,15 +3332,27 @@ pub const Session = struct {
         }
 
         const value = try self.evalNodeUncached(allocator, node_id, scope);
-        const deps = try self.backing_allocator.alloc(ScopedNodeKey, frame.deps.items.len);
-        @memcpy(deps, frame.deps.items);
+        const deps = try self.arena.allocator().alloc(CachedDependency, frame.deps.items.len);
+        for (frame.deps.items, 0..) |dep, index| {
+            deps[index] = .{
+                .key = dep,
+                .version = self.stateVersion(dep),
+            };
+        }
         if (frame.parent) |parent| {
             for (frame.deps.items) |dep| try self.addFrameDependency(parent, dep);
         }
-        try self.eval_cache.put(self.backing_allocator, cache_key, .{
-            .value = value,
-            .deps = deps,
-        });
+        if (scope == null and node_id < self.top_level_eval_inited.len) {
+            self.top_level_eval_values[node_id] = value;
+            self.top_level_eval_deps[node_id] = deps;
+            self.top_level_eval_inited[node_id] = true;
+        } else {
+            const cache_key = self.evalCacheKey(node_id, scope);
+            try self.eval_cache.put(self.backing_allocator, cache_key, .{
+                .value = value,
+                .deps = deps,
+            });
+        }
         return value;
     }
 
@@ -2971,12 +3421,13 @@ pub const Session = struct {
     fn evalRecord(self: *Session, allocator: std.mem.Allocator, fields: []flow_ir.Field, scope: ?*const EvalScope) anyerror!Value {
         var values: std.ArrayList(RecordField) = .empty;
         defer values.deinit(allocator);
+        const passed = if (scope) |parent| parent.passed else null;
 
         var record_scope = EvalScope{
             .bindings = &.{},
             .parent = scope,
-            .passed = if (scope) |parent| parent.passed else null,
-            .id = deriveRecordScopeId(scope, &.{}, if (scope) |parent| parent.passed else null),
+            .passed = passed,
+            .id = recordScopeIdBase(scope, passed),
         };
 
         for (fields) |field| {
@@ -2996,7 +3447,7 @@ pub const Session = struct {
                 for (spread_fields) |spread_field| {
                     try values.append(allocator, spread_field);
                     record_scope.bindings = values.items;
-                    record_scope.id = deriveRecordScopeId(record_scope.parent, record_scope.bindings, record_scope.passed);
+                    record_scope.id = extendRecordScopeId(record_scope.id, spread_field);
                 }
                 continue;
             }
@@ -3014,12 +3465,13 @@ pub const Session = struct {
                 .link_port => Value{ .link = field.value },
                 else => try self.evalNode(allocator, field.value, scope),
             };
-            try values.append(allocator, .{
+            const record_field = RecordField{
                 .name = field.name,
                 .value = field_value,
-            });
+            };
+            try values.append(allocator, record_field);
             record_scope.bindings = values.items;
-            record_scope.id = deriveRecordScopeId(record_scope.parent, record_scope.bindings, record_scope.passed);
+            record_scope.id = extendRecordScopeId(record_scope.id, record_field);
         }
         return .{ .record = try values.toOwnedSlice(allocator) };
     }
@@ -3213,22 +3665,24 @@ pub const Session = struct {
     fn evalBlock(self: *Session, allocator: std.mem.Allocator, block: flow_ir.Block, parent_scope: ?*const EvalScope) anyerror!Value {
         var bindings: std.ArrayList(RecordField) = .empty;
         defer bindings.deinit(allocator);
+        const passed = if (parent_scope) |parent| parent.passed else null;
 
         var scope = EvalScope{
             .bindings = &.{},
             .parent = parent_scope,
-            .passed = if (parent_scope) |parent| parent.passed else null,
-            .id = deriveScopeId(parent_scope, &.{}, if (parent_scope) |parent| parent.passed else null),
+            .passed = passed,
+            .id = scopeIdBase(parent_scope, passed),
         };
 
         for (block.bindings) |binding| {
             const value = try self.evalNode(allocator, binding.value, &scope);
-            try bindings.append(allocator, .{
+            const field = RecordField{
                 .name = binding.name,
                 .value = value,
-            });
+            };
+            try bindings.append(allocator, field);
             scope.bindings = bindings.items;
-            scope.id = deriveScopeId(scope.parent, scope.bindings, scope.passed);
+            scope.id = extendScopeId(scope.id, field);
         }
 
         return try self.evalNode(allocator, block.result, &scope);
@@ -3387,13 +3841,14 @@ pub const Session = struct {
     }
 
     fn evalBuiltin(self: *Session, allocator: std.mem.Allocator, node_id: flow_ir.NodeId, call: flow_ir.BuiltinCall, scope: ?*const EvalScope) anyerror!Value {
-        if (std.mem.eql(u8, call.path, "Document/new") or std.mem.eql(u8, call.path, "Scene/new")) {
+        const op = self.builtinOp(node_id);
+        if (op == .document_new or op == .scene_new) {
             const root_node = findNamed(call.named, "root") orelse if (call.positional.len != 0) call.positional[0] else return error.MissingRootArg;
             const document = try allocator.create(DocumentValue);
             document.* = .{ .root = try self.evalNode(allocator, root_node, scope) };
             return .{ .document = document };
         }
-        if (std.mem.eql(u8, call.path, "Terminal/new")) {
+        if (op == .terminal_new) {
             const root_node = findNamed(call.named, "root") orelse if (call.positional.len != 0) call.positional[0] else return error.MissingRootArg;
             const loop_node = findNamed(call.named, "loop") orelse return error.MissingArgument;
             const terminal = try allocator.create(TerminalValue);
@@ -3403,7 +3858,7 @@ pub const Session = struct {
             };
             return .{ .terminal = terminal };
         }
-        if (std.mem.eql(u8, call.path, "Element/svg")) {
+        if (op == .element_svg) {
             const element_node = findNamed(call.named, "element") orelse return error.MissingElementArg;
             const children_node = findNamed(call.named, "children") orelse return error.MissingItemsArg;
             const element_value = try self.evalNode(allocator, element_node, scope);
@@ -3412,16 +3867,16 @@ pub const Session = struct {
             container.* = .{
                 .child = try self.evalNode(allocator, children_node, &element_scope),
                 .terminal_bindings = extractTerminalMetadata(element_value),
-                .event_scope = try captureScope(allocator, &element_scope),
+                .event_scope = try captureControlScope(allocator, &element_scope),
             };
             return .{ .container = container };
         }
-        if (std.mem.eql(u8, call.path, "Element/svg_circle")) {
+        if (op == .element_svg_circle) {
             const container = try allocator.create(ContainerValue);
             container.* = .{ .child = .none };
             return .{ .container = container };
         }
-        if (std.mem.eql(u8, call.path, "Element/stack")) {
+        if (op == .element_stack) {
             const element_node = findNamed(call.named, "element") orelse return error.MissingElementArg;
             const layers_node = findNamed(call.named, "layers") orelse return error.MissingItemsArg;
             const element_value = try self.evalNode(allocator, element_node, scope);
@@ -3437,11 +3892,11 @@ pub const Session = struct {
                 .direction = .column,
                 .hovered_link = extractHoverLink(element_value),
                 .terminal_bindings = extractTerminalMetadata(element_value),
-                .event_scope = try captureScope(allocator, &element_scope),
+                .event_scope = try captureControlScope(allocator, &element_scope),
             };
             return .{ .stripe = stripe };
         }
-        if (std.mem.eql(u8, call.path, "Duration")) {
+        if (op == .duration) {
             if (findNamed(call.named, "seconds")) |seconds_node| {
                 const seconds = try self.numberFromNode(seconds_node, scope);
                 return .{ .duration_ms = @intFromFloat(seconds * 1000.0) };
@@ -3452,27 +3907,27 @@ pub const Session = struct {
             }
             return error.MissingDurationArg;
         }
-        if (std.mem.eql(u8, call.path, "Terminal/columns")) {
+        if (op == .terminal_columns) {
             return .{ .number = @floatFromInt(self.terminal_columns) };
         }
-        if (std.mem.eql(u8, call.path, "Terminal/rows")) {
+        if (op == .terminal_rows) {
             return .{ .number = @floatFromInt(self.terminal_rows) };
         }
-        if (std.mem.eql(u8, call.path, "Router/route")) {
+        if (op == .router_route) {
             try self.recordStateDependency(.{ .node_id = node_id, .scope_id = 0 });
             return self.route_value;
         }
-        if (std.mem.eql(u8, call.path, "Router/go_to")) {
+        if (op == .router_go_to) {
             try self.recordStateDependency(.{ .node_id = node_id, .scope_id = 0 });
             return self.route_value;
         }
-        if (std.mem.eql(u8, call.path, "Theme/geometry")) {
+        if (op == .theme_geometry) {
             return try themeGeometryValueForScope(self, allocator, scope);
         }
-        if (std.mem.eql(u8, call.path, "Theme/lights")) {
+        if (op == .theme_lights) {
             return try themeLightsValueForScope(self, allocator, scope);
         }
-        if (std.mem.startsWith(u8, call.path, "Light/")) {
+        if (op == .light_prefixed) {
             const fields = try allocator.alloc(RecordField, call.named.len + 1);
             fields[0] = .{ .name = "kind", .value = .{ .text = try allocator.dupe(u8, call.path) } };
             for (call.named, 0..) |field, index| {
@@ -3483,7 +3938,7 @@ pub const Session = struct {
             }
             return .{ .record = fields };
         }
-        if (std.mem.eql(u8, call.path, "Element/stripe") or std.mem.eql(u8, call.path, "Scene/Element/stripe")) {
+        if (op == .element_stripe or op == .scene_element_stripe) {
             const element_node = findNamed(call.named, "element") orelse return error.MissingElementArg;
             const items_node = findNamed(call.named, "items") orelse return error.MissingItemsArg;
             const element_value = try self.evalNode(allocator, element_node, scope);
@@ -3506,11 +3961,11 @@ pub const Session = struct {
                     0,
                 .hovered_link = try self.resolveElementEventLink(element_node, "hovered", scope),
                 .terminal_bindings = extractTerminalMetadata(element_value),
-                .event_scope = try captureScope(allocator, &element_scope),
+                .event_scope = try captureControlScope(allocator, &element_scope),
             };
             return .{ .stripe = stripe };
         }
-        if (std.mem.eql(u8, call.path, "Element/label") or std.mem.eql(u8, call.path, "Scene/Element/label")) {
+        if (op == .element_label or op == .scene_element_label) {
             const element_node = findNamed(call.named, "element") orelse return error.MissingElementArg;
             const label_node = findNamed(call.named, "label") orelse return error.MissingLabelArg;
             const style_node = findNamed(call.named, "style");
@@ -3526,11 +3981,11 @@ pub const Session = struct {
                 .terminal_width = style_size.width,
                 .terminal_height = style_size.height,
                 .terminal_bindings = extractTerminalMetadata(element_value),
-                .event_scope = try captureScope(allocator, &element_scope),
+                .event_scope = try captureControlScope(allocator, &element_scope),
             };
             return .{ .label = label };
         }
-        if (std.mem.eql(u8, call.path, "Element/container")) {
+        if (op == .element_container) {
             const element_node = findNamed(call.named, "element") orelse return error.MissingElementArg;
             const child_node = findNamed(call.named, "child") orelse return error.MissingArgument;
             const element_value = try self.evalNode(allocator, element_node, scope);
@@ -3539,11 +3994,11 @@ pub const Session = struct {
             container.* = .{
                 .child = try self.evalNode(allocator, child_node, &element_scope),
                 .terminal_bindings = extractTerminalMetadata(element_value),
-                .event_scope = try captureScope(allocator, &element_scope),
+                .event_scope = try captureControlScope(allocator, &element_scope),
             };
             return .{ .container = container };
         }
-        if (std.mem.eql(u8, call.path, "Scene/Element/block")) {
+        if (op == .scene_element_block) {
             const element_node = findNamed(call.named, "element") orelse return error.MissingElementArg;
             const child_node = findNamed(call.named, "child") orelse return error.MissingArgument;
             const element_value = try self.evalNode(allocator, element_node, scope);
@@ -3552,11 +4007,11 @@ pub const Session = struct {
             container.* = .{
                 .child = try self.evalNode(allocator, child_node, &element_scope),
                 .terminal_bindings = extractTerminalMetadata(element_value),
-                .event_scope = try captureScope(allocator, &element_scope),
+                .event_scope = try captureControlScope(allocator, &element_scope),
             };
             return .{ .container = container };
         }
-        if (std.mem.eql(u8, call.path, "Element/paragraph") or std.mem.eql(u8, call.path, "Scene/Element/paragraph")) {
+        if (op == .element_paragraph or op == .scene_element_paragraph) {
             const element_node = findNamed(call.named, "element") orelse return error.MissingElementArg;
             const contents_node = findNamed(call.named, "contents") orelse return error.MissingArgument;
             const element_value = try self.evalNode(allocator, element_node, scope);
@@ -3565,11 +4020,11 @@ pub const Session = struct {
             container.* = .{
                 .child = try self.evalNode(allocator, contents_node, &element_scope),
                 .terminal_bindings = extractTerminalMetadata(element_value),
-                .event_scope = try captureScope(allocator, &element_scope),
+                .event_scope = try captureControlScope(allocator, &element_scope),
             };
             return .{ .container = container };
         }
-        if (std.mem.eql(u8, call.path, "Element/checkbox") or std.mem.eql(u8, call.path, "Scene/Element/checkbox")) {
+        if (op == .element_checkbox or op == .scene_element_checkbox) {
             const element_node = findNamed(call.named, "element") orelse return error.MissingElementArg;
             const icon_node = findNamed(call.named, "icon") orelse return error.MissingArgument;
             const label_node = findNamed(call.named, "label");
@@ -3588,11 +4043,11 @@ pub const Session = struct {
                 .terminal_width = style_size.width,
                 .terminal_height = style_size.height,
                 .terminal_bindings = extractTerminalMetadata(element_value),
-                .event_scope = try captureScope(allocator, &element_scope),
+                .event_scope = try captureControlScope(allocator, &element_scope),
             };
             return .{ .checkbox = checkbox };
         }
-        if (std.mem.eql(u8, call.path, "Scene/Element/text")) {
+        if (op == .scene_element_text) {
             const element_node = findNamed(call.named, "element");
             const text_node = findNamed(call.named, "text") orelse return error.MissingLabelArg;
             const element_value: Value = if (element_node) |node|
@@ -3608,17 +4063,17 @@ pub const Session = struct {
                 else
                     null,
                 .terminal_bindings = extractTerminalMetadata(element_value),
-                .event_scope = try captureScope(allocator, &element_scope),
+                .event_scope = try captureControlScope(allocator, &element_scope),
             };
             return .{ .label = label };
         }
-        if (std.mem.eql(u8, call.path, "Text/empty")) {
+        if (op == .text_empty) {
             return .{ .text = "" };
         }
-        if (std.mem.eql(u8, call.path, "Text/space")) {
+        if (op == .text_space) {
             return .{ .text = " " };
         }
-        if (std.mem.eql(u8, call.path, "Text/to_number")) {
+        if (op == .text_to_number) {
             const value_node = if (call.positional.len != 0) call.positional[0] else return error.MissingArgument;
             const value = try self.evalNode(allocator, value_node, scope);
             return switch (value) {
@@ -3628,7 +4083,7 @@ pub const Session = struct {
                 else => .{ .number = std.math.nan(f64) },
             };
         }
-        if (std.mem.eql(u8, call.path, "Text/trim")) {
+        if (op == .text_trim) {
             const value_node = if (call.positional.len != 0) call.positional[0] else return error.MissingArgument;
             const value = try self.evalNode(allocator, value_node, scope);
             return switch (value) {
@@ -3637,7 +4092,7 @@ pub const Session = struct {
                 else => .{ .text = "" },
             };
         }
-        if (std.mem.eql(u8, call.path, "Text/is_not_empty")) {
+        if (op == .text_is_not_empty) {
             const value_node = if (call.positional.len != 0) call.positional[0] else return error.MissingArgument;
             const value = try self.evalNode(allocator, value_node, scope);
             return switch (value) {
@@ -3646,7 +4101,7 @@ pub const Session = struct {
                 else => booleanValue(false),
             };
         }
-        if (std.mem.eql(u8, call.path, "Text/is_empty")) {
+        if (op == .text_is_empty) {
             const value_node = if (call.positional.len != 0) call.positional[0] else return error.MissingArgument;
             const value = try self.evalNode(allocator, value_node, scope);
             return switch (value) {
@@ -3655,19 +4110,19 @@ pub const Session = struct {
                 else => booleanValue(true),
             };
         }
-        if (std.mem.eql(u8, call.path, "Text/length")) {
+        if (op == .text_length) {
             const value_node = if (call.positional.len != 0) call.positional[0] else return error.MissingArgument;
             const text = try valueAsText(try self.evalNode(allocator, value_node, scope));
             return .{ .number = @floatFromInt(text.len) };
         }
-        if (std.mem.eql(u8, call.path, "Text/find")) {
+        if (op == .text_find) {
             const value_node = if (call.positional.len != 0) call.positional[0] else return error.MissingArgument;
             const search_node = findNamed(call.named, "search") orelse return error.MissingArgument;
             const haystack = try valueAsText(try self.evalNode(allocator, value_node, scope));
             const needle = try valueAsText(try self.evalNode(allocator, search_node, scope));
             return .{ .number = if (std.mem.indexOf(u8, haystack, needle)) |index| @floatFromInt(index) else -1 };
         }
-        if (std.mem.eql(u8, call.path, "Text/substring")) {
+        if (op == .text_substring) {
             const value_node = if (call.positional.len != 0) call.positional[0] else return error.MissingArgument;
             const start_node = findNamed(call.named, "start") orelse return error.MissingArgument;
             const length_node = findNamed(call.named, "length") orelse return error.MissingArgument;
@@ -3678,7 +4133,7 @@ pub const Session = struct {
             const bounded_end = @min(bounded_start + length, text.len);
             return .{ .text = try allocator.dupe(u8, text[bounded_start..bounded_end]) };
         }
-        if (std.mem.eql(u8, call.path, "Text/repeat")) {
+        if (op == .text_repeat) {
             const value_node = if (call.positional.len != 0) call.positional[0] else return error.MissingArgument;
             const times_node = findNamed(call.named, "times") orelse return error.MissingArgument;
             const text = try valueAsText(try self.evalNode(allocator, value_node, scope));
@@ -3694,7 +4149,7 @@ pub const Session = struct {
             }
             return .{ .text = try output.toOwnedSlice(allocator) };
         }
-        if (std.mem.eql(u8, call.path, "Text/join")) {
+        if (op == .text_join) {
             const value_node = if (call.positional.len != 0) call.positional[0] else return error.MissingArgument;
             const items = try listItemsFromValue(try self.evalNode(allocator, value_node, scope));
 
@@ -3706,32 +4161,32 @@ pub const Session = struct {
             }
             return .{ .text = try output.toOwnedSlice(allocator) };
         }
-        if (std.mem.eql(u8, call.path, "Text/starts_with")) {
+        if (op == .text_starts_with) {
             const value_node = if (call.positional.len != 0) call.positional[0] else return error.MissingArgument;
             const prefix_node = findNamed(call.named, "prefix") orelse return error.MissingArgument;
             const text = try valueAsText(try self.evalNode(allocator, value_node, scope));
             const prefix = try valueAsText(try self.evalNode(allocator, prefix_node, scope));
             return booleanValue(std.mem.startsWith(u8, text, prefix));
         }
-        if (std.mem.eql(u8, call.path, "Bool/not")) {
+        if (op == .bool_not) {
             const value_node = if (call.positional.len != 0) call.positional[0] else return error.MissingArgument;
             return booleanValue(!try valueAsBool(try self.evalNode(allocator, value_node, scope)));
         }
-        if (std.mem.eql(u8, call.path, "Bool/or")) {
+        if (op == .bool_or) {
             const lhs_node = if (call.positional.len != 0) call.positional[0] else return error.MissingArgument;
             const rhs_node = findNamed(call.named, "that") orelse return error.MissingArgument;
             const lhs = try valueAsBool(try self.evalNode(allocator, lhs_node, scope));
             const rhs = try valueAsBool(try self.evalNode(allocator, rhs_node, scope));
             return booleanValue(lhs or rhs);
         }
-        if (std.mem.eql(u8, call.path, "Bool/and")) {
+        if (op == .bool_and) {
             const lhs_node = if (call.positional.len != 0) call.positional[0] else return error.MissingArgument;
             const rhs_node = findNamed(call.named, "that") orelse return error.MissingArgument;
             const lhs = try valueAsBool(try self.evalNode(allocator, lhs_node, scope));
             const rhs = try valueAsBool(try self.evalNode(allocator, rhs_node, scope));
             return booleanValue(lhs and rhs);
         }
-        if (std.mem.eql(u8, call.path, "Element/button") or std.mem.eql(u8, call.path, "Scene/Element/button")) {
+        if (op == .element_button or op == .scene_element_button) {
             const label_node = findNamed(call.named, "label") orelse return error.MissingLabelArg;
             const element_node = findNamed(call.named, "element") orelse return error.MissingElementArg;
             const style_node = findNamed(call.named, "style");
@@ -3747,11 +4202,11 @@ pub const Session = struct {
                 .terminal_width = style_size.width,
                 .terminal_height = style_size.height,
                 .terminal_bindings = extractTerminalMetadata(element_value),
-                .event_scope = try captureScope(allocator, &element_scope),
+                .event_scope = try captureControlScope(allocator, &element_scope),
             };
             return .{ .button = button };
         }
-        if (std.mem.eql(u8, call.path, "Element/text_input") or std.mem.eql(u8, call.path, "Scene/Element/text_input")) {
+        if (op == .element_text_input or op == .scene_element_text_input) {
             const element_node = findNamed(call.named, "element") orelse return error.MissingElementArg;
             const text_node = findNamed(call.named, "text") orelse return error.MissingArgument;
             const style_node = findNamed(call.named, "style");
@@ -3769,11 +4224,11 @@ pub const Session = struct {
                 .terminal_width = style_size.width,
                 .terminal_height = style_size.height,
                 .terminal_bindings = extractTerminalMetadata(element_value),
-                .event_scope = try captureScope(allocator, &element_scope),
+                .event_scope = try captureControlScope(allocator, &element_scope),
             };
             return .{ .text_input = input };
         }
-        if (std.mem.eql(u8, call.path, "Element/select")) {
+        if (op == .element_select) {
             const element_node = findNamed(call.named, "element") orelse return error.MissingElementArg;
             const selected_node = findNamed(call.named, "selected") orelse return error.MissingArgument;
             const style_node = findNamed(call.named, "style");
@@ -3788,11 +4243,11 @@ pub const Session = struct {
                 .terminal_width = style_size.width,
                 .terminal_height = style_size.height,
                 .terminal_bindings = extractTerminalMetadata(element_value),
-                .event_scope = try captureScope(allocator, &element_scope),
+                .event_scope = try captureControlScope(allocator, &element_scope),
             };
             return .{ .select = select };
         }
-        if (std.mem.eql(u8, call.path, "Element/link") or std.mem.eql(u8, call.path, "Scene/Element/link")) {
+        if (op == .element_link or op == .scene_element_link) {
             const element_node = findNamed(call.named, "element") orelse return error.MissingElementArg;
             const label_node = findNamed(call.named, "label") orelse return error.MissingLabelArg;
             const element_value = try self.evalNode(allocator, element_node, scope);
@@ -3800,16 +4255,16 @@ pub const Session = struct {
             const label = try allocator.create(LabelValue);
             label.* = .{ .label = try self.evalNode(allocator, label_node, &element_scope) };
             label.terminal_bindings = extractTerminalMetadata(element_value);
-            label.event_scope = try captureScope(allocator, &element_scope);
+            label.event_scope = try captureControlScope(allocator, &element_scope);
             return .{ .label = label };
         }
-        if (std.mem.eql(u8, call.path, "Assets/icon")) {
+        if (op == .assets_icon) {
             const icons = try allocator.alloc(RecordField, 2);
             icons[0] = .{ .name = "checkbox_completed", .value = .{ .text = "X" } };
             icons[1] = .{ .name = "checkbox_active", .value = .{ .text = "O" } };
             return .{ .record = icons };
         }
-        if (std.mem.eql(u8, call.path, "Element/slider")) {
+        if (op == .element_slider) {
             const element_node = findNamed(call.named, "element") orelse return error.MissingElementArg;
             const element_value = try self.evalNode(allocator, element_node, scope);
             var element_scope = try withLocalBinding(allocator, scope, "element", element_value);
@@ -3817,37 +4272,37 @@ pub const Session = struct {
             slider.* = .{
                 .change_link = try self.resolveElementEventLink(element_node, "change", scope),
                 .terminal_bindings = extractTerminalMetadata(element_value),
-                .event_scope = try captureScope(allocator, &element_scope),
+                .event_scope = try captureControlScope(allocator, &element_scope),
             };
             return .{ .slider = slider };
         }
-        if (std.mem.eql(u8, call.path, "Math/sum")) {
+        if (op == .math_sum) {
             try self.recordStateDependency(.{ .node_id = node_id, .scope_id = 0 });
             if (!self.sum_inited[node_id]) return .none;
             return .{ .number = self.sum_values[node_id] };
         }
-        if (std.mem.eql(u8, call.path, "Math/min")) {
+        if (op == .math_min) {
             const lhs = if (call.positional.len != 0) try self.numberFromNode(call.positional[0], scope) else return error.MissingArgument;
             const rhs_node = findNamed(call.named, "b") orelse return error.MissingArgument;
             const rhs = try self.numberFromNode(rhs_node, scope);
             return .{ .number = @min(lhs, rhs) };
         }
-        if (std.mem.eql(u8, call.path, "Math/round")) {
+        if (op == .math_round) {
             const value = if (call.positional.len != 0) try self.numberFromNode(call.positional[0], scope) else return error.MissingArgument;
             return .{ .number = @round(value) };
         }
-        if (std.mem.eql(u8, call.path, "Ulid/generate")) {
+        if (op == .ulid_generate) {
             const key = if (self.persist_ids.len != 0 and node_id < self.persist_ids.len and self.persist_ids[node_id] != 0)
                 self.persist_ids[node_id]
             else
                 @as(u64, node_id);
             return .{ .text = try std.fmt.allocPrint(allocator, "ulid-{x}", .{key}) };
         }
-        if (std.mem.eql(u8, call.path, "Log/info") or std.mem.eql(u8, call.path, "Log/error")) {
+        if (op == .log_info or op == .log_error) {
             if (call.positional.len == 0) return .none;
             return try self.evalNode(allocator, call.positional[0], scope);
         }
-        if (std.mem.eql(u8, call.path, "List/append")) {
+        if (op == .list_append) {
             try self.recordStateDependency(.{ .node_id = node_id, .scope_id = 0 });
             if (!self.list_inited[node_id]) {
                 const base_node = if (call.positional.len != 0) call.positional[0] else return error.MissingArgument;
@@ -3868,7 +4323,7 @@ pub const Session = struct {
             }
             return self.list_values[node_id];
         }
-        if (std.mem.eql(u8, call.path, "List/clear")) {
+        if (op == .list_clear) {
             try self.recordStateDependency(.{ .node_id = node_id, .scope_id = 0 });
             if (!self.list_inited[node_id]) {
                 const base_node = if (call.positional.len != 0) call.positional[0] else return error.MissingArgument;
@@ -3876,7 +4331,7 @@ pub const Session = struct {
             }
             return self.list_values[node_id];
         }
-        if (std.mem.eql(u8, call.path, "List/remove")) {
+        if (op == .list_remove) {
             try self.recordStateDependency(.{ .node_id = node_id, .scope_id = 0 });
             if (!self.list_inited[node_id]) {
                 const base_node = if (call.positional.len != 0) call.positional[0] else return error.MissingArgument;
@@ -3885,7 +4340,7 @@ pub const Session = struct {
             }
             return self.list_values[node_id];
         }
-        if (std.mem.eql(u8, call.path, "List/remove_last")) {
+        if (op == .list_remove_last) {
             try self.recordStateDependency(.{ .node_id = node_id, .scope_id = 0 });
             if (!self.list_inited[node_id]) {
                 const base_node = if (call.positional.len != 0) call.positional[0] else return error.MissingArgument;
@@ -3893,7 +4348,7 @@ pub const Session = struct {
             }
             return self.list_values[node_id];
         }
-        if (std.mem.eql(u8, call.path, "List/count")) {
+        if (op == .list_count) {
             const list_node = if (call.positional.len != 0) call.positional[0] else return error.MissingArgument;
             const list_value = try self.evalNode(allocator, list_node, scope);
             return switch (list_value) {
@@ -3901,7 +4356,7 @@ pub const Session = struct {
                 else => error.ExpectedListValue,
             };
         }
-        if (std.mem.eql(u8, call.path, "List/is_empty")) {
+        if (op == .list_is_empty) {
             const list_node = if (call.positional.len != 0) call.positional[0] else return error.MissingArgument;
             const list_value = try self.evalNode(allocator, list_node, scope);
             return switch (list_value) {
@@ -3909,7 +4364,7 @@ pub const Session = struct {
                 else => error.ExpectedListValue,
             };
         }
-        if (std.mem.eql(u8, call.path, "List/is_not_empty")) {
+        if (op == .list_is_not_empty) {
             const list_node = if (call.positional.len != 0) call.positional[0] else return error.MissingArgument;
             const list_value = try self.evalNode(allocator, list_node, scope);
             return switch (list_value) {
@@ -3917,7 +4372,7 @@ pub const Session = struct {
                 else => error.ExpectedListValue,
             };
         }
-        if (std.mem.eql(u8, call.path, "List/get")) {
+        if (op == .list_get) {
             const list_node = if (call.positional.len != 0) call.positional[0] else return error.MissingArgument;
             const index_node = findNamed(call.named, "index") orelse return error.MissingArgument;
             const list_value = try self.evalNode(allocator, list_node, scope);
@@ -3929,7 +4384,7 @@ pub const Session = struct {
             if (index == 0 or index > items.len) return .none;
             return items[index - 1];
         }
-        if (std.mem.eql(u8, call.path, "List/range")) {
+        if (op == .list_range) {
             const from_node = findNamed(call.named, "from") orelse return error.MissingArgument;
             const to_node = findNamed(call.named, "to") orelse return error.MissingArgument;
             const from_value = try valueAsIndex(try self.evalNode(allocator, from_node, scope));
@@ -3942,7 +4397,7 @@ pub const Session = struct {
             }
             return .{ .list = items };
         }
-        if (std.mem.eql(u8, call.path, "List/map")) {
+        if (op == .list_map) {
             if (call.positional.len < 2) return error.MissingArgument;
             const list_value = try self.evalNode(allocator, call.positional[0], scope);
             const items = switch (list_value) {
@@ -3968,7 +4423,7 @@ pub const Session = struct {
             }
             return .{ .list = mapped };
         }
-        if (std.mem.eql(u8, call.path, "List/retain")) {
+        if (op == .list_retain) {
             if (call.positional.len < 2) return error.MissingArgument;
             const list_value = try self.evalNode(allocator, call.positional[0], scope);
             const items = switch (list_value) {
@@ -3996,7 +4451,7 @@ pub const Session = struct {
             }
             return .{ .list = try retained.toOwnedSlice(allocator) };
         }
-        if (std.mem.eql(u8, call.path, "List/any") or std.mem.eql(u8, call.path, "List/every")) {
+        if (op == .list_any or op == .list_every) {
             if (call.positional.len < 2) return error.MissingArgument;
             const list_value = try self.evalNode(allocator, call.positional[0], scope);
             const items = switch (list_value) {
@@ -4008,7 +4463,7 @@ pub const Session = struct {
                 else => return error.MissingLocalBinding,
             };
             const predicate = findNamed(call.named, "if") orelse return error.MissingArgument;
-            const want_all = std.mem.eql(u8, call.path, "List/every");
+            const want_all = op == .list_every;
             if (items.len == 0) return booleanValue(want_all);
             for (items) |item| {
                 const bindings = try allocator.alloc(RecordField, 1);
@@ -4025,7 +4480,7 @@ pub const Session = struct {
             }
             return booleanValue(want_all);
         }
-        if (std.mem.eql(u8, call.path, "List/sum")) {
+        if (op == .list_sum) {
             const list_node = if (call.positional.len != 0) call.positional[0] else return error.MissingArgument;
             const list_value = try self.evalNode(allocator, list_node, scope);
             const items = switch (list_value) {
@@ -4036,8 +4491,8 @@ pub const Session = struct {
             for (items) |item| sum += try valueAsNumber(item);
             return .{ .number = sum };
         }
-        if (std.mem.eql(u8, call.path, "Stream/pulses")) return .none;
-        if (std.mem.eql(u8, call.path, "Stream/skip")) {
+        if (op == .stream_pulses) return .none;
+        if (op == .stream_skip) {
             try self.recordStateDependency(.{ .node_id = node_id, .scope_id = 0 });
             if (!self.skip_inited[node_id] and scope != null) {
                 try self.initSkipNode(allocator, node_id, call, scope);
@@ -4049,7 +4504,7 @@ pub const Session = struct {
             if (!self.skip_inited[node_id]) return .none;
             return self.skip_values[node_id];
         }
-        if (std.mem.eql(u8, call.path, "Timer/interval")) return .none;
+        if (op == .timer_interval) return .none;
         if (std.mem.indexOfScalar(u8, call.path, '/')) |_| {} else {
             var fields = try allocator.alloc(RecordField, call.named.len);
             for (call.named, 0..) |field, index| {
@@ -4078,7 +4533,10 @@ pub const Session = struct {
         return switch (node.kind) {
             .binding_ref => |binding_id| self.nodeCanSeedLatest(self.flow.bindings[binding_id].node),
             .then_value, .latest, .hold, .link_port => false,
-            .builtin_call => |call| !std.mem.eql(u8, call.path, "Stream/skip") and !std.mem.eql(u8, call.path, "Stream/pulses") and !std.mem.eql(u8, call.path, "Timer/interval"),
+            .builtin_call => switch (self.builtinOp(node_id)) {
+                .stream_skip, .stream_pulses, .timer_interval => false,
+                else => true,
+            },
             else => true,
         };
     }
@@ -4109,6 +4567,434 @@ pub const Session = struct {
             .select => |select| try self.renderValue(writer, select.selected),
             .scoped_node => |deferred| try self.renderValue(writer, try self.evalNode(self.arena.allocator(), deferred.node_id, deferred.scope)),
             .slider, .link, .none => {},
+        }
+    }
+
+    fn appendRenderedNode(
+        self: *Session,
+        output: *std.ArrayList(u8),
+        allocator: std.mem.Allocator,
+        node_id: flow_ir.NodeId,
+        scope: ?*const EvalScope,
+    ) anyerror!void {
+        const node = self.flow.nodes[node_id];
+        switch (node.kind) {
+            .number => |number| {
+                var buffer: [64]u8 = undefined;
+                const text = if (std.math.isFinite(number.value) and @round(number.value) == number.value)
+                    try std.fmt.bufPrint(&buffer, "{d}", .{@as(i64, @intFromFloat(number.value))})
+                else
+                    try std.fmt.bufPrint(&buffer, "{d}", .{number.value});
+                try output.appendSlice(allocator, text);
+                return;
+            },
+            .atom => |text| {
+                try output.appendSlice(allocator, text);
+                return;
+            },
+            .symbol => |text| {
+                try output.appendSlice(allocator, text);
+                return;
+            },
+            .binding_ref => |binding_id| {
+                try self.appendRenderedNode(output, allocator, self.flow.bindings[binding_id].node, null);
+                return;
+            },
+            .local_ref => |name| {
+                if (lookupLocal(scope, name)) |value| {
+                    try self.appendRenderedValue(output, allocator, value);
+                    return;
+                }
+            },
+            .access => |access| {
+                if (try self.resolveStaticFieldNode(access.target, access.field)) |field_node| {
+                    try self.appendRenderedNode(output, allocator, field_node, scope);
+                    return;
+                }
+                const target_value = try self.evalNode(allocator, access.target, scope);
+                if (target_value == .record) {
+                    for (target_value.record) |field| {
+                        if (std.mem.eql(u8, field.name, access.field)) {
+                            try self.appendRenderedValue(output, allocator, field.value);
+                            return;
+                        }
+                    }
+                }
+            },
+            .text => |parts| {
+                for (parts) |part| try self.appendRenderedNode(output, allocator, part, scope);
+                return;
+            },
+            .list => |list| {
+                for (list.items) |item| try self.appendRenderedNode(output, allocator, item, scope);
+                return;
+            },
+            .block => |block| {
+                const passed = if (scope) |parent| parent.passed else null;
+                const bindings = try allocator.alloc(RecordField, block.bindings.len);
+
+                var block_scope = EvalScope{
+                    .bindings = bindings[0..0],
+                    .parent = scope,
+                    .passed = passed,
+                    .id = scopeIdBase(scope, passed),
+                };
+
+                for (block.bindings, 0..) |binding, index| {
+                    const value = try self.evalNode(allocator, binding.value, &block_scope);
+                    const field = RecordField{
+                        .name = binding.name,
+                        .value = value,
+                    };
+                    bindings[index] = field;
+                    block_scope.bindings = bindings[0 .. index + 1];
+                    block_scope.id = extendScopeId(block_scope.id, field);
+                }
+
+                try self.appendRenderedNode(output, allocator, block.result, &block_scope);
+                return;
+            },
+            .when => |when| {
+                const input = try self.evalNode(allocator, when.input, scope);
+                for (when.arms) |arm| {
+                    const pattern = try self.evalNode(allocator, arm.pattern, scope);
+                    const capture = try patternBinding(allocator, self.flow, arm.pattern, input, pattern);
+                    if (!matchesPattern(input, pattern) and capture == null) continue;
+
+                    if (capture) |binding| {
+                        var binding_storage = [1]RecordField{binding};
+                        const passed = if (scope) |parent| parent.passed else null;
+                        var arm_scope = EvalScope{
+                            .bindings = binding_storage[0..],
+                            .parent = scope,
+                            .passed = passed,
+                            .id = extendScopeId(scopeIdBase(scope, passed), binding_storage[0]),
+                        };
+                        try self.appendRenderedNode(output, allocator, arm.result, &arm_scope);
+                    } else {
+                        try self.appendRenderedNode(output, allocator, arm.result, scope);
+                    }
+                    return;
+                }
+                return;
+            },
+            .user_call => |call| {
+                const function = self.flow.functions[call.function];
+                var bindings = try allocator.alloc(RecordField, function.params.len);
+                if (call.named.len == 0 and call.positional.len == function.params.len) {
+                    for (call.positional, 0..) |argument, index| {
+                        bindings[index] = .{
+                            .name = function.params[index],
+                            .value = try self.evalNode(allocator, argument, scope),
+                        };
+                        if (bindings[index].value == .none) return;
+                    }
+                } else {
+                    var filled = try allocator.alloc(bool, function.params.len);
+                    @memset(filled, false);
+
+                    var positional_index: usize = 0;
+                    for (call.positional) |argument| {
+                        if (positional_index >= function.params.len) return error.TooManyArguments;
+                        bindings[positional_index] = .{
+                            .name = function.params[positional_index],
+                            .value = try self.evalNode(allocator, argument, scope),
+                        };
+                        if (bindings[positional_index].value == .none) return;
+                        filled[positional_index] = true;
+                        positional_index += 1;
+                    }
+
+                    for (call.named) |argument| {
+                        const param_index = findParamIndex(function.params, argument.name) orelse return error.UnknownFunctionArgument;
+                        bindings[param_index] = .{
+                            .name = function.params[param_index],
+                            .value = try self.evalNode(allocator, argument.value, scope),
+                        };
+                        if (bindings[param_index].value == .none) return;
+                        filled[param_index] = true;
+                    }
+
+                    for (filled) |is_filled| {
+                        if (!is_filled) return error.MissingFunctionArgument;
+                    }
+                }
+
+                const passed = if (call.pass_context) |pass_context|
+                    try self.evalNode(allocator, pass_context, scope)
+                else if (scope) |parent|
+                    parent.passed
+                else
+                    null;
+
+                const function_scope = EvalScope{
+                    .bindings = bindings,
+                    .parent = null,
+                    .passed = passed,
+                    .id = deriveScopeId(null, bindings, passed),
+                };
+                try self.appendRenderedNode(output, allocator, function.body, &function_scope);
+                return;
+            },
+            .then_value => |then_value| {
+                try self.appendRenderedNode(output, allocator, then_value.value, scope);
+                return;
+            },
+            .builtin_call => |call| {
+                const op = self.builtinOp(node_id);
+                switch (op) {
+                    .document_new, .scene_new, .terminal_new => {
+                        const root_node = findNamed(call.named, "root") orelse if (call.positional.len != 0) call.positional[0] else return error.MissingRootArg;
+                        try self.appendRenderedNode(output, allocator, root_node, scope);
+                        return;
+                    },
+                    .text_substring => {
+                        const value_node = if (call.positional.len != 0) call.positional[0] else return error.MissingArgument;
+                        const start_node = findNamed(call.named, "start") orelse return error.MissingArgument;
+                        const length_node = findNamed(call.named, "length") orelse return error.MissingArgument;
+                        const text = try valueAsText(try self.evalNode(allocator, value_node, scope));
+                        const start = try valueAsIndex(try self.evalNode(allocator, start_node, scope));
+                        const length = try valueAsIndex(try self.evalNode(allocator, length_node, scope));
+                        if (start >= text.len or length == 0) return;
+                        const end = @min(start + length, text.len);
+                        try output.appendSlice(allocator, text[start..end]);
+                        return;
+                    },
+                    .text_repeat => {
+                        const value_node = if (call.positional.len != 0) call.positional[0] else return error.MissingArgument;
+                        const times_node = findNamed(call.named, "times") orelse return error.MissingArgument;
+                        const text = try valueAsText(try self.evalNode(allocator, value_node, scope));
+                        const times = try valueAsIndex(try self.evalNode(allocator, times_node, scope));
+                        var index: usize = 0;
+                        while (index < times) : (index += 1) try output.appendSlice(allocator, text);
+                        return;
+                    },
+                    .text_join => {
+                        const value_node = if (call.positional.len != 0) call.positional[0] else return error.MissingArgument;
+                        try self.appendJoinedTextNode(output, allocator, value_node, scope);
+                        return;
+                    },
+                    .element_stripe, .scene_element_stripe, .element_stack => {
+                        const items_node = switch (op) {
+                            .element_stack => findNamed(call.named, "layers") orelse return error.MissingItemsArg,
+                            else => findNamed(call.named, "items") orelse return error.MissingItemsArg,
+                        };
+                        if (self.nodeNeedsScope(items_node)) {
+                            const element_node = findNamed(call.named, "element") orelse return error.MissingElementArg;
+                            const element_value = try self.evalNode(allocator, element_node, scope);
+                            var binding_storage: [1]RecordField = undefined;
+                            var element_scope = self.singleBindingScope(scope, "element", element_value, &binding_storage);
+                            try self.appendRenderedNode(output, allocator, items_node, &element_scope);
+                        } else {
+                            try self.appendRenderedNode(output, allocator, items_node, scope);
+                        }
+                        return;
+                    },
+                    .element_label, .scene_element_label, .scene_element_text => {
+                        const label_node = if (op == .scene_element_text)
+                            (findNamed(call.named, "text") orelse return error.MissingLabelArg)
+                        else
+                            (findNamed(call.named, "label") orelse return error.MissingLabelArg);
+                        if (self.nodeNeedsScope(label_node)) {
+                            const element_node = findNamed(call.named, "element") orelse return error.MissingElementArg;
+                            const element_value = try self.evalNode(allocator, element_node, scope);
+                            var binding_storage: [1]RecordField = undefined;
+                            var element_scope = self.singleBindingScope(scope, "element", element_value, &binding_storage);
+                            try self.appendRenderedNode(output, allocator, label_node, &element_scope);
+                        } else {
+                            try self.appendRenderedNode(output, allocator, label_node, scope);
+                        }
+                        return;
+                    },
+                    .element_container, .scene_element_block => {
+                        const child_node = findNamed(call.named, "child") orelse return error.MissingArgument;
+                        if (self.nodeNeedsScope(child_node)) {
+                            const element_node = findNamed(call.named, "element") orelse return error.MissingElementArg;
+                            const element_value = try self.evalNode(allocator, element_node, scope);
+                            var binding_storage: [1]RecordField = undefined;
+                            var element_scope = self.singleBindingScope(scope, "element", element_value, &binding_storage);
+                            try self.appendRenderedNode(output, allocator, child_node, &element_scope);
+                        } else {
+                            try self.appendRenderedNode(output, allocator, child_node, scope);
+                        }
+                        return;
+                    },
+                    .element_paragraph, .scene_element_paragraph, .element_svg => {
+                        const child_node = switch (op) {
+                            .element_svg => findNamed(call.named, "children") orelse return error.MissingItemsArg,
+                            else => findNamed(call.named, "contents") orelse return error.MissingArgument,
+                        };
+                        if (self.nodeNeedsScope(child_node)) {
+                            const element_node = findNamed(call.named, "element") orelse return error.MissingElementArg;
+                            const element_value = try self.evalNode(allocator, element_node, scope);
+                            var binding_storage: [1]RecordField = undefined;
+                            var element_scope = self.singleBindingScope(scope, "element", element_value, &binding_storage);
+                            try self.appendRenderedNode(output, allocator, child_node, &element_scope);
+                        } else {
+                            try self.appendRenderedNode(output, allocator, child_node, scope);
+                        }
+                        return;
+                    },
+                    .element_checkbox, .scene_element_checkbox => {
+                        const icon_node = findNamed(call.named, "icon") orelse return error.MissingArgument;
+                        if (self.nodeNeedsScope(icon_node)) {
+                            const element_node = findNamed(call.named, "element") orelse return error.MissingElementArg;
+                            const element_value = try self.evalNode(allocator, element_node, scope);
+                            var binding_storage: [1]RecordField = undefined;
+                            var element_scope = self.singleBindingScope(scope, "element", element_value, &binding_storage);
+                            try self.appendRenderedNode(output, allocator, icon_node, &element_scope);
+                        } else {
+                            try self.appendRenderedNode(output, allocator, icon_node, scope);
+                        }
+                        return;
+                    },
+                    .element_button, .scene_element_button => {
+                        const label_node = findNamed(call.named, "label") orelse return error.MissingLabelArg;
+                        if (self.nodeNeedsScope(label_node)) {
+                            const element_node = findNamed(call.named, "element") orelse return error.MissingElementArg;
+                            const element_value = try self.evalNode(allocator, element_node, scope);
+                            var binding_storage: [1]RecordField = undefined;
+                            var element_scope = self.singleBindingScope(scope, "element", element_value, &binding_storage);
+                            try self.appendRenderedNode(output, allocator, label_node, &element_scope);
+                        } else {
+                            try self.appendRenderedNode(output, allocator, label_node, scope);
+                        }
+                        return;
+                    },
+                    .element_text_input, .scene_element_text_input => {
+                        const text_node = findNamed(call.named, "text") orelse return error.MissingArgument;
+                        if (self.nodeNeedsScope(text_node)) {
+                            const element_node = findNamed(call.named, "element") orelse return error.MissingElementArg;
+                            const element_value = try self.evalNode(allocator, element_node, scope);
+                            var binding_storage: [1]RecordField = undefined;
+                            var element_scope = self.singleBindingScope(scope, "element", element_value, &binding_storage);
+                            try self.appendRenderedNode(output, allocator, text_node, &element_scope);
+                        } else {
+                            try self.appendRenderedNode(output, allocator, text_node, scope);
+                        }
+                        return;
+                    },
+                    .element_select => {
+                        const selected_node = findNamed(call.named, "selected") orelse return error.MissingArgument;
+                        if (self.nodeNeedsScope(selected_node)) {
+                            const element_node = findNamed(call.named, "element") orelse return error.MissingElementArg;
+                            const element_value = try self.evalNode(allocator, element_node, scope);
+                            var binding_storage: [1]RecordField = undefined;
+                            var element_scope = self.singleBindingScope(scope, "element", element_value, &binding_storage);
+                            try self.appendRenderedNode(output, allocator, selected_node, &element_scope);
+                        } else {
+                            try self.appendRenderedNode(output, allocator, selected_node, scope);
+                        }
+                        return;
+                    },
+                    .text_empty => {
+                        return;
+                    },
+                    .text_space => {
+                        try output.append(allocator, ' ');
+                        return;
+                    },
+                    else => {},
+                }
+            },
+            else => {},
+        }
+
+        try self.appendRenderedValue(output, allocator, try self.evalNode(allocator, node_id, scope));
+    }
+
+    fn singleBindingScope(
+        self: *Session,
+        parent: ?*const EvalScope,
+        name: []const u8,
+        value: Value,
+        storage: *[1]RecordField,
+    ) EvalScope {
+        _ = self;
+        storage[0] = .{
+            .name = name,
+            .value = value,
+        };
+        const passed = if (parent) |frame| frame.passed else null;
+        return .{
+            .bindings = storage[0..],
+            .parent = parent,
+            .passed = passed,
+            .id = extendScopeId(scopeIdBase(parent, passed), storage[0]),
+        };
+    }
+
+    fn appendJoinedTextNode(
+        self: *Session,
+        output: *std.ArrayList(u8),
+        allocator: std.mem.Allocator,
+        node_id: flow_ir.NodeId,
+        scope: ?*const EvalScope,
+    ) anyerror!void {
+        const node = self.flow.nodes[node_id];
+        switch (node.kind) {
+            .binding_ref => |binding_id| return try self.appendJoinedTextNode(output, allocator, self.flow.bindings[binding_id].node, null),
+            .list => |list| {
+                for (list.items) |item| try self.appendRenderedNode(output, allocator, item, scope);
+                return;
+            },
+            .builtin_call => |call| {
+                if (self.builtinOp(node_id) == .list_map) {
+                    if (call.positional.len < 2) return error.MissingArgument;
+                    const item_name = switch (self.flow.nodes[call.positional[1]].kind) {
+                        .symbol => |text| text,
+                        else => return error.MissingLocalBinding,
+                    };
+                    const mapper = findNamed(call.named, "new") orelse return error.MissingArgument;
+                    if (try self.appendJoinedRangeMapNode(output, allocator, call.positional[0], item_name, mapper, scope)) return;
+                    const list_value = try self.evalNode(allocator, call.positional[0], scope);
+                    const items = switch (list_value) {
+                        .list => |items| items,
+                        else => return error.ExpectedListValue,
+                    };
+                    for (items) |item| {
+                        var binding_storage: [1]RecordField = undefined;
+                        var map_scope = self.singleBindingScope(scope, item_name, item, &binding_storage);
+                        try self.appendRenderedNode(output, allocator, mapper, &map_scope);
+                    }
+                    return;
+                }
+            },
+            else => {},
+        }
+
+        const items = try listItemsFromValue(try self.evalNode(allocator, node_id, scope));
+        for (items) |item| try output.appendSlice(allocator, try valueAsText(item));
+    }
+
+    fn appendJoinedRangeMapNode(
+        self: *Session,
+        output: *std.ArrayList(u8),
+        allocator: std.mem.Allocator,
+        source_node: flow_ir.NodeId,
+        item_name: []const u8,
+        mapper: flow_ir.NodeId,
+        scope: ?*const EvalScope,
+    ) anyerror!bool {
+        const node = self.flow.nodes[source_node];
+        switch (node.kind) {
+            .binding_ref => |binding_id| return try self.appendJoinedRangeMapNode(output, allocator, self.flow.bindings[binding_id].node, item_name, mapper, scope),
+            .builtin_call => |call| {
+                if (self.builtinOp(source_node) != .list_range) return false;
+                const from_node = findNamed(call.named, "from") orelse return error.MissingArgument;
+                const to_node = findNamed(call.named, "to") orelse return error.MissingArgument;
+                const from_value = try valueAsIndex(try self.evalNode(allocator, from_node, scope));
+                const to_value = try valueAsIndex(try self.evalNode(allocator, to_node, scope));
+                if (to_value < from_value) return true;
+                var current = from_value;
+                while (current <= to_value) : (current += 1) {
+                    var binding_storage: [1]RecordField = undefined;
+                    var map_scope = self.singleBindingScope(scope, item_name, .{ .number = @floatFromInt(current) }, &binding_storage);
+                    try self.appendRenderedNode(output, allocator, mapper, &map_scope);
+                }
+                return true;
+            },
+            else => return false,
         }
     }
 
@@ -4673,9 +5559,7 @@ pub const Session = struct {
 
     fn durationMsFromCall(self: *Session, call: flow_ir.BuiltinCall, scope: ?*const EvalScope) anyerror!u64 {
         if (call.positional.len == 0) return error.MissingDurationArg;
-        var scratch = std.heap.ArenaAllocator.init(self.arena.allocator());
-        defer scratch.deinit();
-        const value = try self.evalNode(scratch.allocator(), call.positional[0], scope);
+        const value = try self.evalNode(self.scratch_arena.allocator(), call.positional[0], scope);
         return switch (value) {
             .duration_ms => |duration_ms| duration_ms,
             .number => |number| @intFromFloat(number),
@@ -4712,7 +5596,7 @@ pub const Session = struct {
                 }
             },
             .builtin_call => |call| {
-                if (std.mem.eql(u8, call.path, "Stream/skip") and !self.skip_inited[node_id]) {
+                if (self.builtinOp(node_id) == .stream_skip and !self.skip_inited[node_id]) {
                     try self.initSkipNode(self.arena.allocator(), node_id, call, scope);
                     if (call.positional.len != 0) try self.primeScopedStream(call.positional[0], scope);
                 }
@@ -4726,10 +5610,10 @@ pub const Session = struct {
         switch (node.kind) {
             .binding_ref => |binding_id| try self.primeScopedEventSource(self.flow.bindings[binding_id].node, scope),
             .builtin_call => |call| {
-                if (std.mem.eql(u8, call.path, "Stream/pulses")) {
-                    try self.emitPulses(node_id, call, scope);
-                } else if (std.mem.eql(u8, call.path, "Stream/skip")) {
-                    try self.primeScopedStream(node_id, scope);
+                switch (self.builtinOp(node_id)) {
+                    .stream_pulses => try self.emitPulses(node_id, call, scope),
+                    .stream_skip => try self.primeScopedStream(node_id, scope),
+                    else => {},
                 }
             },
             else => {},
@@ -4743,7 +5627,7 @@ pub const Session = struct {
             if (limit == 0) {
                 self.skip_values[node_id] = value;
                 self.skip_inited[node_id] = true;
-                self.invalidateEvalCacheForDependency(.{ .node_id = node_id, .scope_id = 0 });
+                self.noteTopLevelMutation(node_id);
             } else {
                 self.skip_seen[node_id] = 1;
             }
@@ -4761,7 +5645,7 @@ pub const Session = struct {
 
         self.skip_values[node_id] = try valueFromPulsePayload(self, self.arena.allocator(), payload, scope);
         self.skip_inited[node_id] = true;
-        self.invalidateEvalCacheForDependency(.{ .node_id = node_id, .scope_id = 0 });
+        self.noteTopLevelMutation(node_id);
         try self.logf("skip n{d} emitted", .{node_id});
         try self.queue.append(self.arena.allocator(), .{ .source = node_id, .payload = .{ .node = node_id } });
     }
@@ -4771,7 +5655,7 @@ pub const Session = struct {
         const base = try self.evalNode(allocator, call.positional[0], null);
         self.list_values[node_id] = try cloneListValue(self.arena.allocator(), base);
         self.list_inited[node_id] = true;
-        self.invalidateEvalCacheForDependency(.{ .node_id = node_id, .scope_id = 0 });
+        self.noteTopLevelMutation(node_id);
         try self.logf("init list_append n{d}", .{node_id});
     }
 
@@ -4780,7 +5664,7 @@ pub const Session = struct {
         const base = try self.evalNode(allocator, call.positional[0], null);
         self.list_values[node_id] = try cloneListValue(self.arena.allocator(), base);
         self.list_inited[node_id] = true;
-        self.invalidateEvalCacheForDependency(.{ .node_id = node_id, .scope_id = 0 });
+        self.noteTopLevelMutation(node_id);
         try self.logf("init list_clear n{d}", .{node_id});
     }
 
@@ -4789,7 +5673,7 @@ pub const Session = struct {
         const base = try self.evalNode(allocator, call.positional[0], null);
         self.list_values[node_id] = try self.filterRemovedItems(self.arena.allocator(), base, self.list_remove_tombstones[node_id]);
         self.list_inited[node_id] = true;
-        self.invalidateEvalCacheForDependency(.{ .node_id = node_id, .scope_id = 0 });
+        self.noteTopLevelMutation(node_id);
         try self.logf("init list_remove n{d}", .{node_id});
     }
 
@@ -4798,7 +5682,7 @@ pub const Session = struct {
         const base = try self.evalNode(allocator, call.positional[0], null);
         self.list_values[node_id] = try cloneListValue(self.arena.allocator(), base);
         self.list_inited[node_id] = true;
-        self.invalidateEvalCacheForDependency(.{ .node_id = node_id, .scope_id = 0 });
+        self.noteTopLevelMutation(node_id);
         try self.logf("init list_remove_last n{d}", .{node_id});
     }
 
@@ -4809,7 +5693,7 @@ pub const Session = struct {
             const base = try self.evalNode(self.arena.allocator(), call.positional[0], null);
             self.list_values[node_id] = try cloneListValue(self.arena.allocator(), base);
             self.list_inited[node_id] = true;
-            self.invalidateEvalCacheForDependency(.{ .node_id = node_id, .scope_id = 0 });
+            self.noteTopLevelMutation(node_id);
             try self.logf("list_append n{d} mirror", .{node_id});
             try self.queue.append(self.arena.allocator(), .{ .source = node_id, .payload = .{ .node = node_id } });
             return;
@@ -4829,7 +5713,7 @@ pub const Session = struct {
         next[current.len] = item;
         self.list_values[node_id] = .{ .list = next };
         self.list_inited[node_id] = true;
-        self.invalidateEvalCacheForDependency(.{ .node_id = node_id, .scope_id = 0 });
+        self.noteTopLevelMutation(node_id);
         try self.logf("list_append n{d} len={d}", .{ node_id, next.len });
         try self.queue.append(self.arena.allocator(), .{ .source = node_id, .payload = .{ .node = node_id } });
     }
@@ -4842,7 +5726,7 @@ pub const Session = struct {
             const base = try self.evalNode(self.arena.allocator(), call.positional[0], null);
             self.list_values[node_id] = try cloneListValue(self.arena.allocator(), base);
             self.list_inited[node_id] = true;
-            self.invalidateEvalCacheForDependency(.{ .node_id = node_id, .scope_id = 0 });
+            self.noteTopLevelMutation(node_id);
             try self.logf("list_clear n{d} mirror", .{node_id});
             try self.queue.append(self.arena.allocator(), .{ .source = node_id, .payload = .{ .node = node_id } });
             return;
@@ -4850,7 +5734,7 @@ pub const Session = struct {
         if (try self.valueTriggerSource(on_node) != source) return;
         self.list_values[node_id] = .{ .list = &.{} };
         self.list_inited[node_id] = true;
-        self.invalidateEvalCacheForDependency(.{ .node_id = node_id, .scope_id = 0 });
+        self.noteTopLevelMutation(node_id);
         try self.logf("list_clear n{d} cleared", .{node_id});
         try self.queue.append(self.arena.allocator(), .{ .source = node_id, .payload = .{ .node = node_id } });
     }
@@ -4869,7 +5753,7 @@ pub const Session = struct {
             const base = try self.evalNode(self.arena.allocator(), base_node, null);
             self.list_values[node_id] = try self.filterRemovedItems(self.arena.allocator(), base, self.list_remove_tombstones[node_id]);
             self.list_inited[node_id] = true;
-            self.invalidateEvalCacheForDependency(.{ .node_id = node_id, .scope_id = 0 });
+            self.noteTopLevelMutation(node_id);
             try self.logf("list_remove n{d} mirror len={d}", .{ node_id, (try listItemsFromValue(self.list_values[node_id])).len });
             try self.queue.append(self.arena.allocator(), .{ .source = node_id, .payload = .{ .node = node_id } });
             return;
@@ -4881,7 +5765,7 @@ pub const Session = struct {
             const base = try self.evalNode(self.arena.allocator(), base_node, null);
             self.list_values[node_id] = try self.filterRemovedItems(self.arena.allocator(), base, self.list_remove_tombstones[node_id]);
             self.list_inited[node_id] = true;
-            self.invalidateEvalCacheForDependency(.{ .node_id = node_id, .scope_id = 0 });
+            self.noteTopLevelMutation(node_id);
             break :blk try listItemsFromValue(self.list_values[node_id]);
         };
 
@@ -4907,7 +5791,7 @@ pub const Session = struct {
         );
         self.list_values[node_id] = .{ .list = try kept.toOwnedSlice(self.arena.allocator()) };
         self.list_inited[node_id] = true;
-        self.invalidateEvalCacheForDependency(.{ .node_id = node_id, .scope_id = 0 });
+        self.noteTopLevelMutation(node_id);
         try self.logf("list_remove n{d} removed={d} len={d}", .{ node_id, removed.items.len, kept.items.len });
         try self.queue.append(self.arena.allocator(), .{ .source = node_id, .payload = .{ .node = node_id } });
     }
@@ -4922,7 +5806,7 @@ pub const Session = struct {
             const base = try self.evalNode(self.arena.allocator(), base_node, null);
             self.list_values[node_id] = try cloneListValue(self.arena.allocator(), base);
             self.list_inited[node_id] = true;
-            self.invalidateEvalCacheForDependency(.{ .node_id = node_id, .scope_id = 0 });
+            self.noteTopLevelMutation(node_id);
             try self.logf("list_remove_last n{d} mirror", .{node_id});
             try self.queue.append(self.arena.allocator(), .{ .source = node_id, .payload = .{ .node = node_id } });
             return;
@@ -4935,7 +5819,7 @@ pub const Session = struct {
             const base = try self.evalNode(self.arena.allocator(), base_node, null);
             self.list_values[node_id] = try cloneListValue(self.arena.allocator(), base);
             self.list_inited[node_id] = true;
-            self.invalidateEvalCacheForDependency(.{ .node_id = node_id, .scope_id = 0 });
+            self.noteTopLevelMutation(node_id);
             break :blk try listItemsFromValue(self.list_values[node_id]);
         };
 
@@ -4945,16 +5829,14 @@ pub const Session = struct {
         @memcpy(next, current[0 .. current.len - 1]);
         self.list_values[node_id] = .{ .list = next };
         self.list_inited[node_id] = true;
-        self.invalidateEvalCacheForDependency(.{ .node_id = node_id, .scope_id = 0 });
+        self.noteTopLevelMutation(node_id);
         try self.logf("list_remove_last n{d} len={d}", .{ node_id, next.len });
         try self.queue.append(self.arena.allocator(), .{ .source = node_id, .payload = .{ .node = node_id } });
     }
 
     fn skipLimit(self: *Session, call: flow_ir.BuiltinCall, scope: ?*const EvalScope) anyerror!u64 {
         const count_node = findNamed(call.named, "count") orelse return error.MissingCountArg;
-        var scratch = std.heap.ArenaAllocator.init(self.arena.allocator());
-        defer scratch.deinit();
-        const value = try self.evalNode(scratch.allocator(), count_node, scope);
+        const value = try self.evalNode(self.scratch_arena.allocator(), count_node, scope);
         return @intFromFloat(try valueAsNumber(value));
     }
 
@@ -4971,7 +5853,10 @@ pub const Session = struct {
         return switch (node.kind) {
             .then_value => |then_value| try self.eventDependencySource(then_value.source),
             .latest, .hold => node_id,
-            .builtin_call => |call| if (std.mem.eql(u8, call.path, "Stream/skip") or std.mem.eql(u8, call.path, "Stream/pulses")) node_id else try self.eventDependencySource(node_id),
+            .builtin_call => switch (self.builtinOp(node_id)) {
+                .stream_skip, .stream_pulses => node_id,
+                else => try self.eventDependencySource(node_id),
+            },
             else => try self.eventDependencySource(node_id),
         };
     }
@@ -4981,7 +5866,10 @@ pub const Session = struct {
         return switch (node.kind) {
             .then_value => |then_value| try self.scopedEventDependencySource(then_value.source, scope),
             .latest, .hold => node_id,
-            .builtin_call => |call| if (std.mem.eql(u8, call.path, "Stream/skip") or std.mem.eql(u8, call.path, "Stream/pulses")) node_id else try self.scopedEventDependencySource(node_id, scope),
+            .builtin_call => switch (self.builtinOp(node_id)) {
+                .stream_skip, .stream_pulses => node_id,
+                else => try self.scopedEventDependencySource(node_id, scope),
+            },
             else => try self.scopedEventDependencySource(node_id, scope),
         };
     }
@@ -5306,42 +6194,266 @@ pub const Session = struct {
     fn nodeMatchesPersistKind(self: *Session, node_id: flow_ir.NodeId, kind: PersistKind) bool {
         const node = self.flow.nodes[node_id];
         return switch (kind) {
-            .sum => node.kind == .builtin_call and std.mem.eql(u8, node.kind.builtin_call.path, "Math/sum"),
+            .sum => node.kind == .builtin_call and self.builtinOp(node_id) == .math_sum,
             .hold => node.kind == .hold,
         };
     }
 };
 
-pub fn runAlloc(allocator: std.mem.Allocator, source: []const u8, options: Options) !Outcome {
+pub fn compileAlloc(allocator: std.mem.Allocator, source: []const u8) !CompileOutcome {
     const lowered_flow = try flow_ir.lowerAlloc(allocator, source);
     const document = switch (lowered_flow) {
         .ok => |document| document,
         .err => |failure| return .{ .err = failure },
     };
+
+    return .{ .ok = try compileLoweredDocumentAlloc(allocator, document) };
+}
+
+fn computeNodeNeedsScopeAlloc(
+    allocator: std.mem.Allocator,
+    document: *const flow_ir.Document,
+) ![]bool {
+    const node_count = document.nodes.len;
+    const state = try allocator.alloc(u8, node_count);
+    @memset(state, 0);
+    const result = try allocator.alloc(bool, node_count);
+    @memset(result, false);
+    for (document.nodes, 0..) |_, index| {
+        result[index] = computeNodeNeedsScopeAt(document, state, result, @intCast(index));
+    }
+    return result;
+}
+
+fn computeNodeNeedsScopeAt(
+    document: *const flow_ir.Document,
+    state: []u8,
+    result: []bool,
+    node_id: flow_ir.NodeId,
+) bool {
+    switch (state[node_id]) {
+        1, 2 => return false,
+        3 => return true,
+        else => {},
+    }
+
+    state[node_id] = 1;
+    const node = document.nodes[node_id];
+    const needs_scope = switch (node.kind) {
+        .binding_ref => |binding_id| computeNodeNeedsScopeAt(document, state, result, document.bindings[binding_id].node),
+        .local_ref => true,
+        .special => |special| switch (special) {
+            .pass_ref, .passed_ref => true,
+            else => false,
+        },
+        .access => |access| computeNodeNeedsScopeAt(document, state, result, access.target),
+        .binary => |binary| computeNodeNeedsScopeAt(document, state, result, binary.lhs) or computeNodeNeedsScopeAt(document, state, result, binary.rhs),
+        .text => |parts| blk: {
+            for (parts) |part| if (computeNodeNeedsScopeAt(document, state, result, part)) break :blk true;
+            break :blk false;
+        },
+        .list => |list| blk: {
+            for (list.items) |item| if (computeNodeNeedsScopeAt(document, state, result, item)) break :blk true;
+            break :blk false;
+        },
+        .record => |fields| blk: {
+            for (fields) |field| if (computeNodeNeedsScopeAt(document, state, result, field.value)) break :blk true;
+            break :blk false;
+        },
+        .block => |block| blk: {
+            for (block.bindings) |binding| if (computeNodeNeedsScopeAt(document, state, result, binding.value)) break :blk true;
+            break :blk computeNodeNeedsScopeAt(document, state, result, block.result);
+        },
+        .when => |when| blk: {
+            if (computeNodeNeedsScopeAt(document, state, result, when.input)) break :blk true;
+            for (when.arms) |arm| {
+                if (computeNodeNeedsScopeAt(document, state, result, arm.pattern) or computeNodeNeedsScopeAt(document, state, result, arm.result)) break :blk true;
+            }
+            break :blk false;
+        },
+        .latest => |latest| blk: {
+            if (latest.initial) |initial| if (computeNodeNeedsScopeAt(document, state, result, initial)) break :blk true;
+            for (latest.sources) |source| if (computeNodeNeedsScopeAt(document, state, result, source)) break :blk true;
+            break :blk false;
+        },
+        .then_value => |then_value| computeNodeNeedsScopeAt(document, state, result, then_value.source) or computeNodeNeedsScopeAt(document, state, result, then_value.value),
+        .hold => |hold| blk: {
+            if (computeNodeNeedsScopeAt(document, state, result, hold.initial)) break :blk true;
+            for (hold.updates) |update| if (computeNodeNeedsScopeAt(document, state, result, update)) break :blk true;
+            break :blk false;
+        },
+        .linked_value => |linked| computeNodeNeedsScopeAt(document, state, result, linked.value) or computeNodeNeedsScopeAt(document, state, result, linked.target),
+        .builtin_call => |call| blk: {
+            for (call.positional) |arg| if (computeNodeNeedsScopeAt(document, state, result, arg)) break :blk true;
+            for (call.named) |arg| if (computeNodeNeedsScopeAt(document, state, result, arg.value)) break :blk true;
+            break :blk false;
+        },
+        .user_call => |call| blk: {
+            for (call.positional) |arg| if (computeNodeNeedsScopeAt(document, state, result, arg)) break :blk true;
+            for (call.named) |arg| if (computeNodeNeedsScopeAt(document, state, result, arg.value)) break :blk true;
+            if (call.pass_context) |pass_context| break :blk computeNodeNeedsScopeAt(document, state, result, pass_context);
+            break :blk false;
+        },
+        else => false,
+    };
+
+    state[node_id] = if (needs_scope) 3 else 2;
+    result[node_id] = needs_scope;
+    return needs_scope;
+}
+
+pub fn compileLoweredDocumentAlloc(allocator: std.mem.Allocator, document: flow_ir.Document) !CompiledProgram {
     errdefer {
         var cleanup = document;
         cleanup.deinit();
     }
 
+    var metadata_arena = std.heap.ArenaAllocator.init(allocator);
+    errdefer metadata_arena.deinit();
+    const meta_allocator = metadata_arena.allocator();
+
+    const builtin_ops = try meta_allocator.alloc(BuiltinOp, document.nodes.len);
+    const node_needs_scope = try computeNodeNeedsScopeAlloc(meta_allocator, &document);
+    const node_needs_deferred_field = try meta_allocator.alloc(bool, document.nodes.len);
+    var list_remove_nodes: std.ArrayList(flow_ir.NodeId) = .empty;
+    defer list_remove_nodes.deinit(meta_allocator);
+    var list_remove_last_nodes: std.ArrayList(flow_ir.NodeId) = .empty;
+    defer list_remove_last_nodes.deinit(meta_allocator);
+
+    for (document.nodes, 0..) |node, index_usize| {
+        const node_id: flow_ir.NodeId = @intCast(index_usize);
+        const op = switch (node.kind) {
+            .builtin_call => |call| builtinOpFromPath(call.path),
+            else => .unknown,
+        };
+        builtin_ops[index_usize] = op;
+        node_needs_deferred_field[index_usize] = builtinNeedsDeferredField(op);
+        switch (op) {
+            .list_remove => try list_remove_nodes.append(meta_allocator, node_id),
+            .list_remove_last => try list_remove_last_nodes.append(meta_allocator, node_id),
+            else => {},
+        }
+    }
+
+    return .{
+        .metadata_arena = metadata_arena,
+        .flow = document,
+        .builtin_ops = builtin_ops,
+        .node_needs_scope = node_needs_scope,
+        .node_needs_deferred_field = node_needs_deferred_field,
+        .list_remove_nodes = try list_remove_nodes.toOwnedSlice(meta_allocator),
+        .list_remove_last_nodes = try list_remove_last_nodes.toOwnedSlice(meta_allocator),
+    };
+}
+
+pub fn serializeCompiledProgram(writer: anytype, compiled: *const CompiledProgram) !void {
+    try writer.writeAll(compiled_cache_magic);
+    try writer.writeInt(u32, compiled_cache_version, .little);
+    try flow_ir.serializeDocument(writer, &compiled.flow);
+    try writer.writeInt(u32, @intCast(compiled.builtin_ops.len), .little);
+    for (compiled.builtin_ops) |op| try writer.writeByte(@intCast(@intFromEnum(op)));
+    try writer.writeInt(u32, @intCast(compiled.node_needs_scope.len), .little);
+    for (compiled.node_needs_scope) |value| try writer.writeByte(if (value) 1 else 0);
+    try writer.writeInt(u32, @intCast(compiled.node_needs_deferred_field.len), .little);
+    for (compiled.node_needs_deferred_field) |value| try writer.writeByte(if (value) 1 else 0);
+    try writer.writeInt(u32, @intCast(compiled.list_remove_nodes.len), .little);
+    for (compiled.list_remove_nodes) |node_id| try writer.writeInt(u32, node_id, .little);
+    try writer.writeInt(u32, @intCast(compiled.list_remove_last_nodes.len), .little);
+    for (compiled.list_remove_last_nodes) |node_id| try writer.writeInt(u32, node_id, .little);
+}
+
+pub fn deserializeCompiledProgramAlloc(allocator: std.mem.Allocator, reader: anytype) !CompiledProgram {
+    var magic: [compiled_cache_magic.len]u8 = undefined;
+    try reader.readSliceAll(&magic);
+    if (!std.mem.eql(u8, &magic, compiled_cache_magic)) return error.InvalidCacheFormat;
+    const version = try reader.takeInt(u32, .little);
+    if (version != compiled_cache_version) return error.InvalidCacheFormat;
+
+    const document = try flow_ir.deserializeDocumentAlloc(allocator, reader);
+
+    var metadata_arena = std.heap.ArenaAllocator.init(allocator);
+    errdefer metadata_arena.deinit();
+    const meta_allocator = metadata_arena.allocator();
+
+    const builtin_count = try reader.takeInt(u32, .little);
+    if (builtin_count != document.nodes.len) return error.InvalidCacheFormat;
+    const builtin_ops = try meta_allocator.alloc(BuiltinOp, builtin_count);
+    for (builtin_ops) |*op| {
+        const raw = try reader.takeByte();
+        op.* = @enumFromInt(raw);
+    }
+
+    const needs_scope_count = try reader.takeInt(u32, .little);
+    if (needs_scope_count != document.nodes.len) return error.InvalidCacheFormat;
+    const node_needs_scope = try meta_allocator.alloc(bool, needs_scope_count);
+    for (node_needs_scope) |*value| value.* = (try reader.takeByte()) != 0;
+
+    const deferred_field_count = try reader.takeInt(u32, .little);
+    if (deferred_field_count != document.nodes.len) return error.InvalidCacheFormat;
+    const node_needs_deferred_field = try meta_allocator.alloc(bool, deferred_field_count);
+    for (node_needs_deferred_field) |*value| value.* = (try reader.takeByte()) != 0;
+
+    const list_remove_count = try reader.takeInt(u32, .little);
+    const list_remove_nodes = try meta_allocator.alloc(flow_ir.NodeId, list_remove_count);
+    for (list_remove_nodes) |*node_id| node_id.* = try reader.takeInt(u32, .little);
+
+    const list_remove_last_count = try reader.takeInt(u32, .little);
+    const list_remove_last_nodes = try meta_allocator.alloc(flow_ir.NodeId, list_remove_last_count);
+    for (list_remove_last_nodes) |*node_id| node_id.* = try reader.takeInt(u32, .little);
+
+    return .{
+        .metadata_arena = metadata_arena,
+        .flow = document,
+        .builtin_ops = builtin_ops,
+        .node_needs_scope = node_needs_scope,
+        .node_needs_deferred_field = node_needs_deferred_field,
+        .list_remove_nodes = list_remove_nodes,
+        .list_remove_last_nodes = list_remove_last_nodes,
+    };
+}
+
+pub fn runCompiledAlloc(allocator: std.mem.Allocator, compiled: CompiledProgram, options: Options) !Outcome {
+    var program = compiled;
+
     var arena = std.heap.ArenaAllocator.init(allocator);
     errdefer arena.deinit();
     var memo_arena = std.heap.ArenaAllocator.init(allocator);
     errdefer memo_arena.deinit();
+    var scratch_arena = std.heap.ArenaAllocator.init(allocator);
+    errdefer scratch_arena.deinit();
 
     var session = Session{
         .backing_allocator = allocator,
         .arena = arena,
         .memo_arena = memo_arena,
-        .flow = document,
+        .metadata_arena = program.metadata_arena,
+        .scratch_arena = scratch_arena,
+        .flow = program.flow,
+        .builtin_ops = program.builtin_ops,
+        .node_needs_scope = program.node_needs_scope,
+        .node_needs_deferred_field = program.node_needs_deferred_field,
+        .list_remove_nodes = program.list_remove_nodes,
+        .list_remove_last_nodes = program.list_remove_last_nodes,
         .trace_enabled = options.trace,
         .state_file_path = if (options.state_file_path) |path| try arena.allocator().dupe(u8, path) else null,
         .clear_state = options.clear_state,
         .terminal_columns = options.terminal_columns,
         .terminal_rows = options.terminal_rows,
     };
+    program = undefined;
+    errdefer session.deinit();
     try session.init();
     if (options.virtual_time_ms != 0) try session.advanceTime(options.virtual_time_ms);
     return .{ .ok = session };
+}
+
+pub fn runAlloc(allocator: std.mem.Allocator, source: []const u8, options: Options) !Outcome {
+    const compiled_outcome = try compileAlloc(allocator, source);
+    const compiled = switch (compiled_outcome) {
+        .ok => |program| program,
+        .err => |failure| return .{ .err = failure },
+    };
+    return runCompiledAlloc(allocator, compiled, options);
 }
 
 fn controlEventValue(allocator: std.mem.Allocator, value: Value) anyerror!Value {
@@ -5455,7 +6567,7 @@ fn terminalStyleSpan(size: f64, divisor: f64) usize {
 fn persistKindLabel(kind: flow_ir.Node.Kind) ?[]const u8 {
     return switch (kind) {
         .hold => "hold",
-        .builtin_call => |call| if (std.mem.eql(u8, call.path, "Math/sum")) "sum" else null,
+        .builtin_call => |call| if (builtinOpFromPath(call.path) == .math_sum) "sum" else null,
         else => null,
     };
 }
@@ -5515,11 +6627,12 @@ fn withLocalBinding(allocator: std.mem.Allocator, parent: ?*const EvalScope, nam
         .name = name,
         .value = value,
     };
+    const passed = if (parent) |frame| frame.passed else null;
     return .{
         .bindings = bindings,
         .parent = parent,
-        .passed = if (parent) |frame| frame.passed else null,
-        .id = deriveScopeId(parent, bindings, if (parent) |frame| frame.passed else null),
+        .passed = passed,
+        .id = extendScopeId(scopeIdBase(parent, passed), bindings[0]),
     };
 }
 
@@ -5597,6 +6710,10 @@ fn destroyCapturedScope(allocator: std.mem.Allocator, scope: ?*const EvalScope) 
     allocator.destroy(frame);
 }
 
+fn captureControlScope(allocator: std.mem.Allocator, scope: ?*const EvalScope) !?*const EvalScope {
+    return try captureScope(allocator, Session.canonicalControlScope(scope) orelse scope);
+}
+
 fn normalizedStateScope(scope: ?*const EvalScope) ?*const EvalScope {
     var current = scope;
     while (current) |frame| {
@@ -5618,11 +6735,19 @@ fn normalizedStateScope(scope: ?*const EvalScope) ?*const EvalScope {
 }
 
 fn deriveScopeId(parent: ?*const EvalScope, bindings: []const RecordField, passed: ?Value) u64 {
+    var id = scopeIdBase(parent, passed);
+    for (bindings) |binding| id = extendScopeId(id, binding);
+    return id;
+}
+
+fn deriveRecordScopeId(parent: ?*const EvalScope, bindings: []const RecordField, passed: ?Value) u64 {
+    var id = recordScopeIdBase(parent, passed);
+    for (bindings) |binding| id = extendRecordScopeId(id, binding);
+    return id;
+}
+
+fn scopeIdBase(parent: ?*const EvalScope, passed: ?Value) u64 {
     var hasher = std.hash.Wyhash.init(if (parent) |frame| frame.id else 0);
-    for (bindings) |binding| {
-        hasher.update(binding.name);
-        hashValueIdentity(&hasher, binding.value);
-    }
     if (passed) |value| {
         hasher.update("passed");
         hashValueIdentity(&hasher, value);
@@ -5630,16 +6755,26 @@ fn deriveScopeId(parent: ?*const EvalScope, bindings: []const RecordField, passe
     return hasher.final();
 }
 
-fn deriveRecordScopeId(parent: ?*const EvalScope, bindings: []const RecordField, passed: ?Value) u64 {
+fn recordScopeIdBase(parent: ?*const EvalScope, passed: ?Value) u64 {
     var hasher = std.hash.Wyhash.init(if (parent) |frame| frame.id else 0);
-    for (bindings) |binding| {
-        hasher.update(binding.name);
-        hashRecordScopeValueIdentity(&hasher, binding.value);
-    }
     if (passed) |value| {
         hasher.update("passed");
         hashRecordScopeValueIdentity(&hasher, value);
     }
+    return hasher.final();
+}
+
+fn extendScopeId(base: u64, binding: RecordField) u64 {
+    var hasher = std.hash.Wyhash.init(base);
+    hasher.update(binding.name);
+    hashValueIdentity(&hasher, binding.value);
+    return hasher.final();
+}
+
+fn extendRecordScopeId(base: u64, binding: RecordField) u64 {
+    var hasher = std.hash.Wyhash.init(base);
+    hasher.update(binding.name);
+    hashRecordScopeValueIdentity(&hasher, binding.value);
     return hasher.final();
 }
 
@@ -6618,9 +7753,9 @@ fn collectButtonLinks(self: *Session, list: *std.ArrayList(ControlEventRef), all
         .terminal => |terminal| try collectButtonLinks(self, list, allocator, terminal.root),
         .stripe => |stripe| for (stripe.items) |item| try collectButtonLinks(self, list, allocator, item),
         .container => |container| try collectButtonLinks(self, list, allocator, container.child),
-        .label => |label| if (label.click_link) |link| try list.append(allocator, .{ .link = link, .scope = label.event_scope }),
-        .checkbox => |checkbox| if (checkbox.click_link) |link| try list.append(allocator, .{ .link = link, .scope = checkbox.event_scope }),
-        .button => |button| if (button.press_link) |link| try list.append(allocator, .{ .link = link, .scope = button.event_scope }),
+        .label => |label| if (label.click_link) |link| try list.append(allocator, try cloneControlEventRefForCache(allocator, .{ .link = link, .scope = label.event_scope })),
+        .checkbox => |checkbox| if (checkbox.click_link) |link| try list.append(allocator, try cloneControlEventRefForCache(allocator, .{ .link = link, .scope = checkbox.event_scope })),
+        .button => |button| if (button.press_link) |link| try list.append(allocator, try cloneControlEventRefForCache(allocator, .{ .link = link, .scope = button.event_scope })),
         .scoped_node => |deferred| try collectButtonLinks(self, list, allocator, try self.evalNode(allocator, deferred.node_id, deferred.scope)),
         else => {},
     }
@@ -6657,7 +7792,7 @@ fn collectLabelDoubleClickLinks(self: *Session, list: *std.ArrayList(ControlEven
         .terminal => |terminal| try collectLabelDoubleClickLinks(self, list, allocator, terminal.root),
         .stripe => |stripe| for (stripe.items) |item| try collectLabelDoubleClickLinks(self, list, allocator, item),
         .container => |container| try collectLabelDoubleClickLinks(self, list, allocator, container.child),
-        .label => |label| if (label.double_click_link) |link| try list.append(allocator, .{ .link = link, .scope = label.event_scope }),
+        .label => |label| if (label.double_click_link) |link| try list.append(allocator, try cloneControlEventRefForCache(allocator, .{ .link = link, .scope = label.event_scope })),
         .scoped_node => |deferred| try collectLabelDoubleClickLinks(self, list, allocator, try self.evalNode(allocator, deferred.node_id, deferred.scope)),
         else => {},
     }
@@ -6669,11 +7804,11 @@ fn collectHoverLinks(self: *Session, list: *std.ArrayList(ControlEventRef), allo
         .document => |document| try collectHoverLinks(self, list, allocator, document.root),
         .terminal => |terminal| try collectHoverLinks(self, list, allocator, terminal.root),
         .stripe => |stripe| {
-            if (stripe.hovered_link) |link| try list.append(allocator, .{ .link = link, .scope = stripe.event_scope });
+            if (stripe.hovered_link) |link| try list.append(allocator, try cloneControlEventRefForCache(allocator, .{ .link = link, .scope = stripe.event_scope }));
             for (stripe.items) |item| try collectHoverLinks(self, list, allocator, item);
         },
         .container => |container| try collectHoverLinks(self, list, allocator, container.child),
-        .button => |button| if (button.hovered_link) |link| try list.append(allocator, .{ .link = link, .scope = button.event_scope }),
+        .button => |button| if (button.hovered_link) |link| try list.append(allocator, try cloneControlEventRefForCache(allocator, .{ .link = link, .scope = button.event_scope })),
         .scoped_node => |deferred| try collectHoverLinks(self, list, allocator, try self.evalNode(allocator, deferred.node_id, deferred.scope)),
         else => {},
     }
@@ -6686,7 +7821,7 @@ fn collectSliderLinks(self: *Session, list: *std.ArrayList(ControlEventRef), all
         .terminal => |terminal| try collectSliderLinks(self, list, allocator, terminal.root),
         .stripe => |stripe| for (stripe.items) |item| try collectSliderLinks(self, list, allocator, item),
         .container => |container| try collectSliderLinks(self, list, allocator, container.child),
-        .slider => |slider| if (slider.change_link) |link| try list.append(allocator, .{ .link = link, .scope = slider.event_scope }),
+        .slider => |slider| if (slider.change_link) |link| try list.append(allocator, try cloneControlEventRefForCache(allocator, .{ .link = link, .scope = slider.event_scope })),
         .scoped_node => |deferred| try collectSliderLinks(self, list, allocator, try self.evalNode(allocator, deferred.node_id, deferred.scope)),
         else => {},
     }
@@ -6699,7 +7834,7 @@ fn collectTextInputLinks(self: *Session, list: *std.ArrayList(ControlEventRef), 
         .terminal => |terminal| try collectTextInputLinks(self, list, allocator, terminal.root),
         .stripe => |stripe| for (stripe.items) |item| try collectTextInputLinks(self, list, allocator, item),
         .container => |container| try collectTextInputLinks(self, list, allocator, container.child),
-        .text_input => |input| if (input.change_link) |link| try list.append(allocator, .{ .link = link, .scope = input.event_scope }),
+        .text_input => |input| if (input.change_link) |link| try list.append(allocator, try cloneControlEventRefForCache(allocator, .{ .link = link, .scope = input.event_scope })),
         .scoped_node => |deferred| try collectTextInputLinks(self, list, allocator, try self.evalNode(allocator, deferred.node_id, deferred.scope)),
         else => {},
     }
@@ -6712,7 +7847,7 @@ fn collectTextInputValues(self: *Session, list: *std.ArrayList(*TextInputValue),
         .terminal => |terminal| try collectTextInputValues(self, list, allocator, terminal.root),
         .stripe => |stripe| for (stripe.items) |item| try collectTextInputValues(self, list, allocator, item),
         .container => |container| try collectTextInputValues(self, list, allocator, container.child),
-        .text_input => |input| try list.append(allocator, input),
+        .text_input => |input| try list.append(allocator, try cloneTextInputValueForCache(allocator, input)),
         .scoped_node => |deferred| try collectTextInputValues(self, list, allocator, try self.evalNode(allocator, deferred.node_id, deferred.scope)),
         else => {},
     }
@@ -6725,7 +7860,7 @@ fn collectTextInputKeyLinks(self: *Session, list: *std.ArrayList(ControlEventRef
         .terminal => |terminal| try collectTextInputKeyLinks(self, list, allocator, terminal.root),
         .stripe => |stripe| for (stripe.items) |item| try collectTextInputKeyLinks(self, list, allocator, item),
         .container => |container| try collectTextInputKeyLinks(self, list, allocator, container.child),
-        .text_input => |input| if (input.key_link orelse input.change_link) |link| try list.append(allocator, .{ .link = link, .scope = input.event_scope }),
+        .text_input => |input| if (input.key_link orelse input.change_link) |link| try list.append(allocator, try cloneControlEventRefForCache(allocator, .{ .link = link, .scope = input.event_scope })),
         .scoped_node => |deferred| try collectTextInputKeyLinks(self, list, allocator, try self.evalNode(allocator, deferred.node_id, deferred.scope)),
         else => {},
     }
@@ -6738,7 +7873,7 @@ fn collectTextInputBlurLinks(self: *Session, list: *std.ArrayList(ControlEventRe
         .terminal => |terminal| try collectTextInputBlurLinks(self, list, allocator, terminal.root),
         .stripe => |stripe| for (stripe.items) |item| try collectTextInputBlurLinks(self, list, allocator, item),
         .container => |container| try collectTextInputBlurLinks(self, list, allocator, container.child),
-        .text_input => |input| if (input.blur_link) |link| try list.append(allocator, .{ .link = link, .scope = input.event_scope }),
+        .text_input => |input| if (input.blur_link) |link| try list.append(allocator, try cloneControlEventRefForCache(allocator, .{ .link = link, .scope = input.event_scope })),
         .scoped_node => |deferred| try collectTextInputBlurLinks(self, list, allocator, try self.evalNode(allocator, deferred.node_id, deferred.scope)),
         else => {},
     }
@@ -6751,7 +7886,7 @@ fn collectTextInputFocusLinks(self: *Session, list: *std.ArrayList(ControlEventR
         .terminal => |terminal| try collectTextInputFocusLinks(self, list, allocator, terminal.root),
         .stripe => |stripe| for (stripe.items) |item| try collectTextInputFocusLinks(self, list, allocator, item),
         .container => |container| try collectTextInputFocusLinks(self, list, allocator, container.child),
-        .text_input => |input| if (input.focus_link) |link| try list.append(allocator, .{ .link = link, .scope = input.event_scope }),
+        .text_input => |input| if (input.focus_link) |link| try list.append(allocator, try cloneControlEventRefForCache(allocator, .{ .link = link, .scope = input.event_scope })),
         .scoped_node => |deferred| try collectTextInputFocusLinks(self, list, allocator, try self.evalNode(allocator, deferred.node_id, deferred.scope)),
         else => {},
     }
@@ -6764,7 +7899,7 @@ fn collectSelectLinks(self: *Session, list: *std.ArrayList(ControlEventRef), all
         .terminal => |terminal| try collectSelectLinks(self, list, allocator, terminal.root),
         .stripe => |stripe| for (stripe.items) |item| try collectSelectLinks(self, list, allocator, item),
         .container => |container| try collectSelectLinks(self, list, allocator, container.child),
-        .select => |select| if (select.change_link) |link| try list.append(allocator, .{ .link = link, .scope = select.event_scope }),
+        .select => |select| if (select.change_link) |link| try list.append(allocator, try cloneControlEventRefForCache(allocator, .{ .link = link, .scope = select.event_scope })),
         .scoped_node => |deferred| try collectSelectLinks(self, list, allocator, try self.evalNode(allocator, deferred.node_id, deferred.scope)),
         else => {},
     }
@@ -7839,6 +8974,84 @@ test "pong terminal root exposes root element bindings" {
     try std.testing.expectEqual(@as(usize, 5), contract.keyboard_bindings.len);
     try std.testing.expectEqualStrings("Up", contract.keyboard_bindings[0].keys[0]);
     try std.testing.expectEqualStrings("Enter", contract.keyboard_bindings[2].keys[0]);
+    try std.testing.expect(contract.keyboard_bindings[2].when);
+
+    try session.triggerLinkWithScope(contract.keyboard_bindings[2].link, contract.keyboard_bindings[2].scope);
+
+    const rendered = try session.renderAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(rendered);
+    try std.testing.expect(std.mem.indexOf(u8, rendered, "Rally") != null);
+}
+
+test "compiled pong terminal contract keeps Enter binding active" {
+    const source = @embedFile("../examples/terminal/pong/pong.bn");
+    const compiled_outcome = try compileAlloc(std.testing.allocator, source);
+    const compiled = switch (compiled_outcome) {
+        .ok => |program| program,
+        .err => |failure| {
+            std.debug.print("unexpected compiled pong compile failure: {s}\n", .{failure.message});
+            return error.UnexpectedHeadlessFailure;
+        },
+    };
+    const outcome = try runCompiledAlloc(std.testing.allocator, compiled, .{});
+    const session_value = switch (outcome) {
+        .ok => |session| session,
+        .err => |failure| {
+            std.debug.print("unexpected compiled pong run failure: {s}\n", .{failure.message});
+            return error.UnexpectedHeadlessFailure;
+        },
+    };
+    var session = session_value;
+    defer session.deinit();
+
+    var contract = (try session.terminalContractAlloc(std.testing.allocator)).?;
+    defer contract.deinit(std.testing.allocator);
+    try std.testing.expectEqualStrings("Enter", contract.keyboard_bindings[2].keys[0]);
+    try std.testing.expect(contract.keyboard_bindings[2].when);
+
+    try session.triggerLinkWithScope(contract.keyboard_bindings[2].link, contract.keyboard_bindings[2].scope);
+
+    const rendered = try session.renderAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(rendered);
+    try std.testing.expect(std.mem.indexOf(u8, rendered, "Rally") != null);
+}
+
+test "serialized pong flow keeps Enter binding active after compile cache round-trip" {
+    const source = @embedFile("../examples/terminal/pong/pong.bn");
+    const compiled_outcome = try compileAlloc(std.testing.allocator, source);
+    const compiled = switch (compiled_outcome) {
+        .ok => |program| program,
+        .err => |failure| {
+            std.debug.print("unexpected serialized pong compile failure: {s}\n", .{failure.message});
+            return error.UnexpectedHeadlessFailure;
+        },
+    };
+    defer {
+        var cleanup = compiled;
+        cleanup.deinit();
+    }
+
+    var encoded: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer encoded.deinit();
+    try flow_ir.serializeDocument(&encoded.writer, &compiled.flow);
+
+    var reader = std.Io.Reader.fixed(encoded.written());
+    const loaded = try flow_ir.deserializeDocumentAlloc(std.testing.allocator, &reader);
+    const outcome = try runCompiledAlloc(std.testing.allocator, try compileLoweredDocumentAlloc(std.testing.allocator, loaded), .{});
+    const session_value = switch (outcome) {
+        .ok => |session| session,
+        .err => |failure| {
+            std.debug.print("unexpected serialized pong run failure: {s}\n", .{failure.message});
+            return error.UnexpectedHeadlessFailure;
+        },
+    };
+    var session = session_value;
+    defer session.deinit();
+
+    var contract = (try session.terminalContractAlloc(std.testing.allocator)).?;
+    defer contract.deinit(std.testing.allocator);
+    try std.testing.expectEqualStrings("Enter", contract.keyboard_bindings[2].keys[0]);
+    try std.testing.expect(contract.keyboard_bindings[2].when);
 
     try session.triggerLinkWithScope(contract.keyboard_bindings[2].link, contract.keyboard_bindings[2].scope);
 
@@ -8697,6 +9910,46 @@ test "terminal cells headless session recomputes dependent cells after edit comm
     const rendered = try session.renderAlloc(std.testing.allocator);
     defer std.testing.allocator.free(rendered);
     try std.testing.expect(std.mem.indexOf(u8, rendered, "0 7 17 32") != null);
+}
+
+test "compileAlloc and runCompiledAlloc match runAlloc render output" {
+    const source = @embedFile("../examples/terminal/cells/cells.bn");
+
+    const compiled_outcome = try compileAlloc(std.testing.allocator, source);
+    const compiled = switch (compiled_outcome) {
+        .ok => |program| program,
+        .err => |failure| {
+            std.debug.print("unexpected compile failure: {s}\n", .{failure.message});
+            return error.UnexpectedHeadlessFailure;
+        },
+    };
+    const compiled_session = try runCompiledAlloc(std.testing.allocator, compiled, .{});
+    const compiled_value = switch (compiled_session) {
+        .ok => |session| session,
+        .err => |failure| {
+            std.debug.print("unexpected compiled run failure: {s}\n", .{failure.message});
+            return error.UnexpectedHeadlessFailure;
+        },
+    };
+    var compiled_runtime = compiled_value;
+    defer compiled_runtime.deinit();
+
+    const direct_outcome = try runAlloc(std.testing.allocator, source, .{});
+    const direct_value = switch (direct_outcome) {
+        .ok => |session| session,
+        .err => |failure| {
+            std.debug.print("unexpected direct run failure: {s}\n", .{failure.message});
+            return error.UnexpectedHeadlessFailure;
+        },
+    };
+    var direct_runtime = direct_value;
+    defer direct_runtime.deinit();
+
+    const compiled_render = try compiled_runtime.renderAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(compiled_render);
+    const direct_render = try direct_runtime.renderAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(direct_render);
+    try std.testing.expectEqualStrings(direct_render, compiled_render);
 }
 
 test "terminal cells commit still works after snapshot renders between edit steps" {

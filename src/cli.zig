@@ -15,6 +15,7 @@ pub const Command = union(enum) {
     verify_examples: VerifyExamplesArgs,
     build_browser: BuildBrowserArgs,
     verify_visual: VerifyVisualArgs,
+    example: TerminalArgs,
     run: TerminalArgs,
     run_headless: HeadlessArgs,
     snapshot: SnapshotArgs,
@@ -100,6 +101,7 @@ pub fn run(
         .verify_examples => |verify_args| return try runVerifyExamples(allocator, io, verify_args, stdout, stderr),
         .build_browser => |build_browser_args| return try runBuildBrowser(allocator, io, build_browser_args, stdout, stderr),
         .verify_visual => |verify_visual_args| return try runVerifyVisual(allocator, io, verify_visual_args, stdout, stderr),
+        .example => |terminal_args| return try runTerminal(allocator, io, terminal_args, stdout, stderr),
         .run => |terminal_args| return try runTerminal(allocator, io, terminal_args, stdout, stderr),
         .run_headless => |headless_args| return try runHeadless(allocator, io, headless_args, stdout, stderr),
         .snapshot => |snapshot_args| return try runSnapshot(allocator, io, snapshot_args, stdout, stderr),
@@ -210,34 +212,13 @@ fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) !Command {
             .filter = filter orelse return error.MissingFilter,
         } };
     }
+    if (std.mem.eql(u8, arg, "example")) {
+        if (args.len <= 2) return error.MissingPath;
+        return .{ .example = try parseTerminalArgs(try resolveExamplePath(args[2]), args, 3) };
+    }
     if (std.mem.eql(u8, arg, "run") or std.mem.eql(u8, arg, "run-terminal")) {
         if (args.len <= 2) return error.MissingPath;
-        var trace = false;
-        var virtual_time_ms: u64 = 0;
-        var script_path: ?[]const u8 = null;
-        var index: usize = 3;
-        while (index < args.len) : (index += 1) {
-            const flag = args[index];
-            if (std.mem.eql(u8, flag, "--trace")) {
-                trace = true;
-            } else if (std.mem.eql(u8, flag, "--virtual-time")) {
-                index += 1;
-                if (index >= args.len) return error.MissingVirtualTime;
-                virtual_time_ms = try parseDurationArg(args[index]);
-            } else if (std.mem.eql(u8, flag, "--script")) {
-                index += 1;
-                if (index >= args.len) return error.MissingScriptPath;
-                script_path = args[index];
-            } else {
-                return error.UnknownCommand;
-            }
-        }
-        return .{ .run = .{
-            .path = args[2],
-            .trace = trace,
-            .virtual_time_ms = virtual_time_ms,
-            .script_path = script_path,
-        } };
+        return .{ .run = try parseTerminalArgs(args[2], args, 3) };
     }
     if (std.mem.eql(u8, arg, "run-headless")) {
         if (args.len <= 2) return error.MissingPath;
@@ -380,6 +361,48 @@ fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) !Command {
     return error.UnknownCommand;
 }
 
+fn parseTerminalArgs(path: []const u8, args: []const []const u8, start_index: usize) !TerminalArgs {
+    var trace = false;
+    var virtual_time_ms: u64 = 0;
+    var script_path: ?[]const u8 = null;
+    var index: usize = start_index;
+    while (index < args.len) : (index += 1) {
+        const flag = args[index];
+        if (std.mem.eql(u8, flag, "--trace")) {
+            trace = true;
+        } else if (std.mem.eql(u8, flag, "--virtual-time")) {
+            index += 1;
+            if (index >= args.len) return error.MissingVirtualTime;
+            virtual_time_ms = try parseDurationArg(args[index]);
+        } else if (std.mem.eql(u8, flag, "--script")) {
+            index += 1;
+            if (index >= args.len) return error.MissingScriptPath;
+            script_path = args[index];
+        } else {
+            return error.UnknownCommand;
+        }
+    }
+    return .{
+        .path = path,
+        .trace = trace,
+        .virtual_time_ms = virtual_time_ms,
+        .script_path = script_path,
+    };
+}
+
+fn resolveExamplePath(name: []const u8) ![]const u8 {
+    if (std.mem.eql(u8, name, "counter")) return "examples/terminal/counter/counter.bn";
+    if (std.mem.eql(u8, name, "interval")) return "examples/terminal/interval/interval.bn";
+    if (std.mem.eql(u8, name, "cells")) return "examples/terminal/cells/cells.bn";
+    if (std.mem.eql(u8, name, "cells_dynamic")) return "examples/terminal/cells_dynamic/cells_dynamic.bn";
+    if (std.mem.eql(u8, name, "todo_mvc")) return "examples/terminal/todo_mvc/todo_mvc.bn";
+    if (std.mem.eql(u8, name, "pong")) return "examples/terminal/pong/pong.bn";
+    if (std.mem.eql(u8, name, "arkanoid")) return "examples/terminal/arkanoid/arkanoid.bn";
+    if (std.mem.eql(u8, name, "todo_mvc_physical")) return "examples/upstream/todo_mvc_physical/RUN.bn";
+    if (std.mem.indexOfScalar(u8, name, '/') != null or std.mem.endsWith(u8, name, ".bn")) return name;
+    return error.UnknownExample;
+}
+
 fn parseDurationArg(text: []const u8) !u64 {
     if (std.mem.endsWith(u8, text, "ms")) {
         return try std.fmt.parseInt(u64, text[0 .. text.len - 2], 10);
@@ -407,6 +430,7 @@ pub fn writeHelp(writer: *std.Io.Writer) !void {
         \\  boon-zig verify-examples --headless|--terminal-grid [--filter <name|p0>]
         \\  boon-zig build-browser --out-dir <path>
         \\  boon-zig verify-visual --filter <name>|--all-with-reference-assets
+        \\  boon-zig example <name> [--trace] [--virtual-time <duration>] [--script <path>]
         \\  boon-zig run <path> [--trace] [--virtual-time <duration>] [--script <path>]
         \\  boon-zig run-headless <path> [--trace] [--virtual-time <duration>] [--state-dir <path>] [--clear-state] [--script <path>] [--expect-text <text>]
         \\  boon-zig snapshot <path> [--virtual-time <duration>] [--script <path>] [--frames <count>] [--expect-text <text>]
@@ -423,6 +447,7 @@ pub fn writeHelp(writer: *std.Io.Writer) !void {
         \\  verify-examples  Run Zig-native example verification lanes.
         \\  build-browser  Export the browser host bundle and manifest.
         \\  verify-visual  Run the browser visual comparison lane.
+        \\  example  Run a built-in example by short name: counter, interval, cells, cells_dynamic, todo_mvc, pong, arkanoid.
         \\  run     Run a Terminal/new Boon source file in the interactive terminal host.
         \\  run-headless  Run a Boon source file in the headless runtime.
         \\  snapshot  Render a deterministic terminal-grid snapshot from the headless document tree.
@@ -1185,6 +1210,71 @@ fn parseImagemagickRmseSimilarity(text: []const u8) !f64 {
     return 1.0 - normalized;
 }
 
+const compiled_cache_dir = ".zig-cache/boon-runtime";
+const compiled_cache_schema = "compiled-v2";
+
+fn compiledProgramForSource(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    path: []const u8,
+    source: []const u8,
+) !boon.headless.CompileOutcome {
+    const cwd = std.Io.Dir.cwd();
+    try cwd.createDirPath(io, compiled_cache_dir);
+
+    var hasher = std.crypto.hash.Blake3.init(.{});
+    hasher.update(compiled_cache_schema);
+    hasher.update(boon.version);
+    hasher.update(path);
+    hasher.update(source);
+    var digest: [32]u8 = undefined;
+    hasher.final(&digest);
+
+    const cache_name = try std.fmt.allocPrint(allocator, "{s}/{x}.bin", .{ compiled_cache_dir, digest });
+    defer allocator.free(cache_name);
+
+    const cached_data = cwd.readFileAlloc(io, cache_name, allocator, .limited(std.math.maxInt(usize))) catch null;
+    if (cached_data) |data| {
+        defer allocator.free(data);
+        var reader = std.Io.Reader.fixed(data);
+        const program = boon.headless.deserializeCompiledProgramAlloc(allocator, &reader) catch |err| switch (err) {
+            error.InvalidCacheFormat,
+            error.EndOfStream,
+            => null,
+            else => return err,
+        };
+        if (program) |loaded| {
+            return .{ .ok = loaded };
+        }
+    }
+
+    const compiled = try boon.headless.compileAlloc(allocator, source);
+    switch (compiled) {
+        .ok => |program| {
+            var encoded: std.Io.Writer.Allocating = .init(allocator);
+            defer encoded.deinit();
+            try boon.headless.serializeCompiledProgram(&encoded.writer, &program);
+            cwd.writeFile(io, .{ .sub_path = cache_name, .data = encoded.written() }) catch {};
+            return .{ .ok = program };
+        },
+        .err => |failure| return .{ .err = failure },
+    }
+}
+
+fn runCompiledSource(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    path: []const u8,
+    source: []const u8,
+    options: boon.headless.Options,
+) !boon.headless.Outcome {
+    const compiled_outcome = try compiledProgramForSource(allocator, io, path, source);
+    return switch (compiled_outcome) {
+        .ok => |program| try boon.headless.runCompiledAlloc(allocator, program, options),
+        .err => |failure| .{ .err = failure },
+    };
+}
+
 fn runHeadless(
     allocator: std.mem.Allocator,
     io: std.Io,
@@ -1206,7 +1296,7 @@ fn runHeadless(
         null;
     defer if (state_file_path) |path| allocator.free(path);
 
-    const outcome = try boon.headless.runAlloc(allocator, source, .{
+    const outcome = try runCompiledSource(allocator, io, args.path, source, .{
         .trace = args.trace,
         .virtual_time_ms = args.virtual_time_ms,
         .state_file_path = state_file_path,
@@ -1220,8 +1310,6 @@ fn runHeadless(
             defer runtime.deinit();
 
             if (args.script_path) |script_path| {
-                const initial_render = try runtime.renderAlloc(allocator);
-                defer allocator.free(initial_render);
                 try executeHeadlessScript(allocator, io, script_path, &runtime);
             }
 
@@ -1267,7 +1355,7 @@ fn runSnapshot(
     );
     defer allocator.free(source);
 
-    const outcome = try boon.headless.runAlloc(allocator, source, .{
+    const outcome = try runCompiledSource(allocator, io, args.path, source, .{
         .virtual_time_ms = args.virtual_time_ms,
     });
     switch (outcome) {
@@ -1315,7 +1403,7 @@ fn runPhysicalState(
     );
     defer allocator.free(source);
 
-    const outcome = try boon.headless.runAlloc(allocator, source, .{
+    const outcome = try runCompiledSource(allocator, io, args.path, source, .{
         .virtual_time_ms = args.virtual_time_ms,
     });
     switch (outcome) {
@@ -1458,7 +1546,7 @@ fn runVerifiedHeadlessCase(
     const source = try std.Io.Dir.cwd().readFileAlloc(io, case.path, allocator, .limited(std.math.maxInt(usize)));
     defer allocator.free(source);
 
-    const outcome = try boon.headless.runAlloc(allocator, source, .{ .virtual_time_ms = case.virtual_time_ms });
+    const outcome = try runCompiledSource(allocator, io, case.path, source, .{ .virtual_time_ms = case.virtual_time_ms });
     const session = switch (outcome) {
         .ok => |session| session,
         .err => |failure| {
@@ -1486,7 +1574,7 @@ fn runVerifiedSnapshotCase(
     const source = try std.Io.Dir.cwd().readFileAlloc(io, case.path, allocator, .limited(std.math.maxInt(usize)));
     defer allocator.free(source);
 
-    const outcome = try boon.headless.runAlloc(allocator, source, .{ .virtual_time_ms = case.virtual_time_ms });
+    const outcome = try runCompiledSource(allocator, io, case.path, source, .{ .virtual_time_ms = case.virtual_time_ms });
     const session = switch (outcome) {
         .ok => |session| session,
         .err => |failure| {
@@ -1585,7 +1673,7 @@ fn runTerminal(
     );
     defer allocator.free(source);
 
-    const outcome = try boon.headless.runAlloc(allocator, source, .{
+    const outcome = try runCompiledSource(allocator, io, args.path, source, .{
         .trace = args.trace,
         .virtual_time_ms = args.virtual_time_ms,
         .terminal_columns = terminalViewport().width,
@@ -1724,6 +1812,8 @@ fn renderTerminalDeclaredScreen(
 const TerminalInputState = struct {
     focused_text_input: ?usize = null,
     focused_text_input_cursor: usize = 0,
+    focused_text_input_value: std.ArrayList(u8) = .empty,
+    focused_text_input_ref: ?boon.headless.TextInputSessionRef = null,
     pending_focus_promote: bool = false,
     hovered_indices: std.ArrayList(usize) = .empty,
     last_mouse_click: ?TerminalMouseClick = null,
@@ -1735,6 +1825,7 @@ const TerminalInputState = struct {
     content_height: usize = 0,
 
     fn deinit(self: *TerminalInputState, allocator: std.mem.Allocator) void {
+        self.focused_text_input_value.deinit(allocator);
         self.hovered_indices.deinit(allocator);
     }
 };
@@ -1866,7 +1957,7 @@ fn handleTerminalDeclaredInput(
         0x1b => return try handleDeclaredTerminalEscapeSequence(allocator, runtime, contract, input_state),
         else => {
             if (byte[0] >= 0x20 and byte[0] < 0x7f) {
-                const key = [_]u8{std.ascii.toLower(byte[0])};
+                const key = [_]u8{byte[0]};
                 _ = try dispatchTerminalNamedKey(allocator, runtime, contract, input_state, &key);
                 return true;
             }
@@ -2227,6 +2318,7 @@ fn positionTerminalCursorForFocusedInput(
     stdout: *std.Io.Writer,
     input_state: *const TerminalInputState,
 ) !void {
+    _ = allocator;
     if (input_state.focused_text_input) |index| {
         const regions = (try runtime.terminalHitRegionsView()) orelse {
             try stdout.writeAll("\x1b[?25l");
@@ -2244,8 +2336,7 @@ fn positionTerminalCursorForFocusedInput(
             return;
         };
 
-        const current = try runtime.textInputTextAlloc(allocator, index);
-        defer allocator.free(current);
+        const current = input_state.focused_text_input_value.items;
 
         const logical_x = region.x + 1 + @min(input_state.focused_text_input_cursor, current.len);
         const logical_y = region.y;
@@ -2407,8 +2498,7 @@ fn dispatchTerminalNamedKey(
             return true;
         }
         if (std.mem.eql(u8, key, "Right")) {
-            const current = try runtime.textInputTextAlloc(allocator, index);
-            defer allocator.free(current);
+            const current = input_state.focused_text_input_value.items;
             if (input_state.focused_text_input_cursor < current.len) input_state.focused_text_input_cursor += 1;
             return true;
         }
@@ -2437,7 +2527,7 @@ fn dispatchTerminalNamedKey(
     };
 
     if (dispatched and focus_before_binding == null and input_state.focused_text_input == null) {
-        input_state.pending_focus_promote = true;
+        input_state.pending_focus_promote = (try runtime.textInputCountAlloc(allocator)) == 1;
     }
 
     return dispatched;
@@ -2459,10 +2549,34 @@ fn dispatchHeadlessTerminalNamedKey(
     input_state: *TerminalInputState,
     key: []const u8,
 ) !bool {
+    const needs_pre_promote = input_state.pending_focus_promote and
+        (key.len == 1 or
+            std.mem.eql(u8, key, "Space") or
+            std.mem.eql(u8, key, "Backspace") or
+            std.mem.eql(u8, key, "Left") or
+            std.mem.eql(u8, key, "Right") or
+            std.mem.eql(u8, key, "Enter") or
+            std.mem.eql(u8, key, "Escape") or
+            std.mem.eql(u8, key, "Up") or
+            std.mem.eql(u8, key, "Down"));
+    if (needs_pre_promote) {
+        try normalizeTerminalInputState(allocator, runtime, input_state);
+        try promotePendingTerminalFocus(allocator, runtime, input_state);
+    }
+
     const contract = (try runtime.terminalContractView()) orelse return false;
     const dispatched = try dispatchTerminalNamedKey(allocator, runtime, contract, input_state, key);
-    try normalizeTerminalInputState(allocator, runtime, input_state);
-    try promotePendingTerminalFocus(allocator, runtime, input_state);
+
+    const needs_post_reconcile = input_state.focused_text_input != null or
+        input_state.hovered_indices.items.len != 0 or
+        std.mem.eql(u8, key, "Enter") or
+        std.mem.eql(u8, key, "Tab") or
+        std.mem.eql(u8, key, "Shift+Tab") or
+        std.mem.eql(u8, key, "Escape");
+    if (needs_post_reconcile) {
+        try normalizeTerminalInputState(allocator, runtime, input_state);
+        try promotePendingTerminalFocus(allocator, runtime, input_state);
+    }
     return dispatched;
 }
 
@@ -2562,6 +2676,9 @@ fn normalizeTerminalInputState(
     if (input_state.focused_text_input) |index| {
         if (index >= try runtime.textInputCountAlloc(allocator)) {
             input_state.focused_text_input = null;
+            input_state.focused_text_input_ref = null;
+            input_state.focused_text_input_cursor = 0;
+            try input_state.focused_text_input_value.resize(allocator, 0);
         }
     }
     if (try runtime.terminalHitRegionsView()) |regions| {
@@ -2613,11 +2730,15 @@ fn setTerminalTextInputFocus(
                 else => return err,
             };
         }
-        const current = try runtime.textInputTextAlloc(allocator, index);
-        defer allocator.free(current);
+        const current = try runtime.textInputTextView(index);
+        try input_state.focused_text_input_value.resize(allocator, 0);
+        try input_state.focused_text_input_value.appendSlice(allocator, current);
         input_state.focused_text_input_cursor = current.len;
+        input_state.focused_text_input_ref = null;
     } else {
         input_state.focused_text_input_cursor = 0;
+        input_state.focused_text_input_ref = null;
+        try input_state.focused_text_input_value.resize(allocator, 0);
     }
     input_state.focused_text_input = next_focus;
 }
@@ -2652,10 +2773,9 @@ fn appendTerminalTextInputChar(
     index: usize,
     byte: u8,
 ) !void {
-    const current = try runtime.textInputTextAlloc(allocator, index);
-    defer allocator.free(current);
     var next: std.ArrayList(u8) = .empty;
     defer next.deinit(allocator);
+    const current = input_state.focused_text_input_value.items;
     const cursor = @min(input_state.focused_text_input_cursor, current.len);
     try next.appendSlice(allocator, current[0..cursor]);
     try next.append(allocator, byte);
@@ -2663,6 +2783,8 @@ fn appendTerminalTextInputChar(
     const text = try next.toOwnedSlice(allocator);
     defer allocator.free(text);
     try runtime.setTextInputValue(index, text);
+    try input_state.focused_text_input_value.resize(allocator, 0);
+    try input_state.focused_text_input_value.appendSlice(allocator, text);
     input_state.focused_text_input_cursor = cursor + 1;
 }
 
@@ -2672,8 +2794,7 @@ fn backspaceTerminalTextInput(
     input_state: *TerminalInputState,
     index: usize,
 ) !void {
-    const current = try runtime.textInputTextAlloc(allocator, index);
-    defer allocator.free(current);
+    const current = input_state.focused_text_input_value.items;
     const cursor = @min(input_state.focused_text_input_cursor, current.len);
     if (cursor == 0) return;
     var next: std.ArrayList(u8) = .empty;
@@ -2683,6 +2804,8 @@ fn backspaceTerminalTextInput(
     const text = try next.toOwnedSlice(allocator);
     defer allocator.free(text);
     try runtime.setTextInputValue(index, text);
+    try input_state.focused_text_input_value.resize(allocator, 0);
+    try input_state.focused_text_input_value.appendSlice(allocator, text);
     input_state.focused_text_input_cursor = cursor - 1;
 }
 
@@ -2690,10 +2813,74 @@ const RawTerminal = struct {
     original: std.posix.termios,
 
     fn restore(self: *const RawTerminal, io: std.Io) !void {
+        uninstallRawTerminalCrashGuard();
         try std.Io.File.stdout().writeStreamingAll(io, "\x1b[?25h\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l");
         try std.posix.tcsetattr(std.posix.STDIN_FILENO, .FLUSH, self.original);
     }
 };
+
+const raw_terminal_guard_signals = [_]std.posix.SIG{ .SEGV, .BUS, .ILL, .ABRT, .FPE };
+var raw_terminal_guard_active = false;
+var raw_terminal_guard_original: std.posix.termios = undefined;
+var raw_terminal_guard_previous: [raw_terminal_guard_signals.len]std.posix.Sigaction = undefined;
+
+fn installRawTerminalCrashGuard(original: std.posix.termios) void {
+    if (comptime std.posix.Sigaction == void) return;
+
+    raw_terminal_guard_original = original;
+    for (raw_terminal_guard_signals, 0..) |sig, index| {
+        const act: std.posix.Sigaction = .{
+            .handler = .{ .handler = rawTerminalCrashHandler },
+            .mask = std.posix.sigemptyset(),
+            .flags = 0,
+        };
+        std.posix.sigaction(sig, &act, &raw_terminal_guard_previous[index]);
+    }
+    raw_terminal_guard_active = true;
+}
+
+fn uninstallRawTerminalCrashGuard() void {
+    if (!raw_terminal_guard_active) return;
+    if (comptime std.posix.Sigaction == void) {
+        raw_terminal_guard_active = false;
+        return;
+    }
+    for (raw_terminal_guard_signals, 0..) |sig, index| {
+        std.posix.sigaction(sig, &raw_terminal_guard_previous[index], null);
+    }
+    raw_terminal_guard_active = false;
+}
+
+fn rawTerminalCrashWriteAll(text: []const u8) void {
+    var written: usize = 0;
+    while (written < text.len) {
+        const rc = std.posix.system.write(std.posix.STDOUT_FILENO, text[written..].ptr, text.len - written);
+        switch (std.posix.errno(rc)) {
+            .SUCCESS => written += @intCast(rc),
+            .INTR => continue,
+            else => return,
+        }
+    }
+}
+
+fn rawTerminalCrashHandler(sig: std.posix.SIG) callconv(.c) void {
+    if (raw_terminal_guard_active) {
+        rawTerminalCrashWriteAll("\x1b[?25h\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l");
+        std.posix.tcsetattr(std.posix.STDIN_FILENO, .FLUSH, raw_terminal_guard_original) catch {};
+        raw_terminal_guard_active = false;
+    }
+
+    if (comptime std.posix.Sigaction != void) {
+        const reset: std.posix.Sigaction = .{
+            .handler = .{ .handler = std.posix.SIG.DFL },
+            .mask = std.posix.sigemptyset(),
+            .flags = 0,
+        };
+        std.posix.sigaction(sig, &reset, null);
+    }
+    std.posix.raise(sig) catch {};
+    std.process.exit(@intCast(128 + @intFromEnum(sig)));
+}
 
 fn enableRawTerminal(io: std.Io) !?RawTerminal {
     const original = std.posix.tcgetattr(std.posix.STDIN_FILENO) catch |err| switch (err) {
@@ -2706,10 +2893,12 @@ fn enableRawTerminal(io: std.Io) !?RawTerminal {
     raw.iflag.IXON = false;
     raw.lflag.ICANON = false;
     raw.lflag.ECHO = false;
+    raw.lflag.ISIG = false;
     raw.cc[@intFromEnum(std.posix.V.MIN)] = 1;
     raw.cc[@intFromEnum(std.posix.V.TIME)] = 0;
     try std.posix.tcsetattr(std.posix.STDIN_FILENO, .FLUSH, raw);
     try std.Io.File.stdout().writeStreamingAll(io, "\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1006h");
+    installRawTerminalCrashGuard(original);
     return .{ .original = original };
 }
 
@@ -3132,6 +3321,39 @@ test "headless press_key dispatches element-owned terminal bindings" {
     defer runtime.deinit();
 
     try std.testing.expect(try dispatchHeadlessTerminalKey(std.testing.allocator, &runtime, "Enter"));
+
+    const render = try runtime.renderAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(render);
+    try std.testing.expect(std.mem.indexOf(u8, render, "Rally") != null);
+}
+
+test "compiled headless press_key dispatches pong terminal bindings with cli viewport options" {
+    const source = @embedFile("../examples/terminal/pong/pong.bn");
+    const compiled_outcome = try boon.headless.compileAlloc(std.testing.allocator, source);
+    const compiled = switch (compiled_outcome) {
+        .ok => |program| program,
+        .err => |failure| {
+            std.debug.print("unexpected compiled pong cli terminal failure: {s}\n", .{failure.message});
+            return error.UnexpectedHeadlessFailure;
+        },
+    };
+    const outcome = try boon.headless.runCompiledAlloc(std.testing.allocator, compiled, .{
+        .terminal_columns = 80,
+        .terminal_rows = 24,
+    });
+    const session_value = switch (outcome) {
+        .ok => |session| session,
+        .err => |failure| {
+            std.debug.print("unexpected compiled pong cli runtime failure: {s}\n", .{failure.message});
+            return error.UnexpectedHeadlessFailure;
+        },
+    };
+    var runtime = session_value;
+    defer runtime.deinit();
+
+    var input_state = TerminalInputState{};
+    defer input_state.deinit(std.testing.allocator);
+    try std.testing.expect(try dispatchHeadlessTerminalNamedKey(std.testing.allocator, &runtime, &input_state, "Enter"));
 
     const render = try runtime.renderAlloc(std.testing.allocator);
     defer std.testing.allocator.free(render);
@@ -3967,6 +4189,162 @@ test "terminal cells arrow key moves visible selection live-style" {
     try std.testing.expect(std.mem.indexOf(u8, snapshot, "[ 15 ]") != null);
 }
 
+test "terminal cells arrow navigation does not schedule text-input focus promotion" {
+    const source = @embedFile("../examples/terminal/cells/cells.bn");
+    const outcome = try boon.headless.runAlloc(std.testing.allocator, source, .{});
+    const session_value = switch (outcome) {
+        .ok => |session| session,
+        .err => |failure| {
+            std.debug.print("unexpected terminal cells arrow promotion failure: {s}\n", .{failure.message});
+            return error.UnexpectedHeadlessFailure;
+        },
+    };
+    var runtime = session_value;
+    defer runtime.deinit();
+
+    var input_state = TerminalInputState{};
+    defer input_state.deinit(std.testing.allocator);
+
+    var contract = (try runtime.terminalContractAlloc(std.testing.allocator)).?;
+    defer contract.deinit(std.testing.allocator);
+    _ = try dispatchTerminalNamedKey(std.testing.allocator, &runtime, &contract, &input_state, "Down");
+
+    try std.testing.expectEqual(@as(?usize, null), input_state.focused_text_input);
+    try std.testing.expect(!input_state.pending_focus_promote);
+}
+
+test "terminal cells partial formula typing does not crash on empty cell" {
+    const source = @embedFile("../examples/terminal/cells/cells.bn");
+    const outcome = try boon.headless.runAlloc(std.testing.allocator, source, .{});
+    const session_value = switch (outcome) {
+        .ok => |session| session,
+        .err => |failure| {
+            std.debug.print("unexpected terminal cells partial formula failure: {s}\n", .{failure.message});
+            return error.UnexpectedHeadlessFailure;
+        },
+    };
+    var runtime = session_value;
+    defer runtime.deinit();
+
+    var input_state = TerminalInputState{};
+    defer input_state.deinit(std.testing.allocator);
+
+    const keys = [_][]const u8{
+        "Down",  "Down",  "Down",  "Down",  "Down",  "Down",
+        "Right", "Right", "Right", "Right", "Right", "Right", "Right", "Right",
+        "Enter", "=",     "a",     "d",     "d",     "(",     "i",
+    };
+    for (keys) |key| {
+        _ = try dispatchHeadlessTerminalNamedKey(std.testing.allocator, &runtime, &input_state, key);
+    }
+
+    const render = try runtime.renderAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(render);
+    try std.testing.expect(std.mem.indexOf(u8, render, "Focus I6  Hover none Editing I6") != null);
+    try std.testing.expect(std.mem.indexOf(u8, render, "Formula  I6 : =add(i") != null);
+}
+
+test "terminal cells full lowercase formula typing does not crash on H5" {
+    const source = @embedFile("../examples/terminal/cells/cells.bn");
+    const outcome = try boon.headless.runAlloc(std.testing.allocator, source, .{});
+    const session_value = switch (outcome) {
+        .ok => |session| session,
+        .err => |failure| {
+            std.debug.print("unexpected terminal cells lowercase formula failure: {s}\n", .{failure.message});
+            return error.UnexpectedHeadlessFailure;
+        },
+    };
+    var runtime = session_value;
+    defer runtime.deinit();
+
+    var input_state = TerminalInputState{};
+    defer input_state.deinit(std.testing.allocator);
+
+    const keys = [_][]const u8{
+        "Down",  "Down",  "Down",  "Down",  "Down",
+        "Right", "Right", "Right", "Right", "Right", "Right", "Right",
+        "Enter", "=",     "m",     "u",     "l",     "(",     "f",     "5",
+        ",",     " ",     "g",     "5",     ")",
+    };
+    for (keys) |key| {
+        _ = try dispatchHeadlessTerminalNamedKey(std.testing.allocator, &runtime, &input_state, key);
+    }
+
+    const render = try runtime.renderAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(render);
+    try std.testing.expect(std.mem.indexOf(u8, render, "Focus H5  Hover none Editing H5") != null);
+    try std.testing.expect(std.mem.indexOf(u8, render, "Formula  H5 : =mul(f5, g5)") != null);
+}
+
+test "terminal cells uppercase references compute correctly after commit" {
+    const source = @embedFile("../examples/terminal/cells/cells.bn");
+    const outcome = try boon.headless.runAlloc(std.testing.allocator, source, .{});
+    const session_value = switch (outcome) {
+        .ok => |session| session,
+        .err => |failure| {
+            std.debug.print("unexpected terminal cells uppercase reference failure: {s}\n", .{failure.message});
+            return error.UnexpectedHeadlessFailure;
+        },
+    };
+    var runtime = session_value;
+    defer runtime.deinit();
+
+    var input_state = TerminalInputState{};
+    defer input_state.deinit(std.testing.allocator);
+
+    const keys = [_][]const u8{
+        "Down",  "Down",  "Down",  "Down",  "Down",
+        "Right", "Right", "Right", "Right", "Right", "Right", "Right",
+        "Enter", "=",     "m",     "u",     "l",     "(",     "F",     "5",
+        ",",     " ",     "G",     "5",     ")",     "Enter",
+    };
+    for (keys) |key| {
+        _ = try dispatchHeadlessTerminalNamedKey(std.testing.allocator, &runtime, &input_state, key);
+    }
+
+    const render = try runtime.renderAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(render);
+    try std.testing.expect(std.mem.indexOf(u8, render, "Focus H5  Hover none Ready") != null);
+    try std.testing.expect(std.mem.indexOf(u8, render, "| 5  |") != null);
+    try std.testing.expect(std.mem.indexOf(u8, render, "| 18 ") != null);
+}
+
+test "terminal cells typing into empty cell then snapshot then Right keeps editing stable" {
+    const source = @embedFile("../examples/terminal/cells/cells.bn");
+    const outcome = try boon.headless.runAlloc(std.testing.allocator, source, .{});
+    const session_value = switch (outcome) {
+        .ok => |session| session,
+        .err => |failure| {
+            std.debug.print("unexpected terminal cells right-after-typing failure: {s}\n", .{failure.message});
+            return error.UnexpectedHeadlessFailure;
+        },
+    };
+    var runtime = session_value;
+    defer runtime.deinit();
+
+    var input_state = TerminalInputState{};
+    defer input_state.deinit(std.testing.allocator);
+
+    const keys = [_][]const u8{
+        "Down", "Down", "Down", "Down", "Down",
+        "Right", "Right", "Right", "Right", "Right",
+        "Enter", "3",
+    };
+    for (keys) |key| {
+        _ = try dispatchHeadlessTerminalNamedKey(std.testing.allocator, &runtime, &input_state, key);
+    }
+
+    const snapshot = try runtime.snapshotAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(snapshot);
+
+    _ = try dispatchHeadlessTerminalNamedKey(std.testing.allocator, &runtime, &input_state, "Right");
+
+    const render = try runtime.renderAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(render);
+    try std.testing.expect(std.mem.indexOf(u8, render, "Editing F5") != null);
+    try std.testing.expect(std.mem.indexOf(u8, render, "Formula  F5 : 3") != null);
+}
+
 test "terminal cells coordinate mouse double click then type then enter commits edit" {
     const source = @embedFile("../examples/terminal/cells/cells.bn");
     const outcome = try boon.headless.runAlloc(std.testing.allocator, source, .{});
@@ -4383,6 +4761,18 @@ test "parseArgs accepts flow path" {
     switch (command) {
         .flow => |path| try std.testing.expectEqualStrings("examples/upstream/counter/counter.bn", path),
         else => return error.ExpectedFlowCommand,
+    }
+}
+
+test "parseArgs accepts example shorthand" {
+    const args = [_][]const u8{ "boon-zig", "example", "cells", "--trace" };
+    const command = try parseArgs(std.testing.allocator, &args);
+    switch (command) {
+        .example => |terminal_args| {
+            try std.testing.expectEqualStrings("examples/terminal/cells/cells.bn", terminal_args.path);
+            try std.testing.expect(terminal_args.trace);
+        },
+        else => return error.ExpectedExampleCommand,
     }
 }
 

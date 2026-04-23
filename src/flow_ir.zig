@@ -167,6 +167,9 @@ pub const Document = struct {
     }
 };
 
+const cache_magic = "BNCF";
+const cache_version: u32 = 1;
+
 pub fn lowerAlloc(allocator: std.mem.Allocator, source: []const u8) !Outcome {
     const lowered_hir = try hir.lowerAlloc(allocator, source);
     const hir_document = switch (lowered_hir) {
@@ -223,6 +226,371 @@ pub fn renderAlloc(allocator: std.mem.Allocator, document: *const Document) ![]u
     }
 
     return try output.toOwnedSlice(allocator);
+}
+
+pub fn serializeDocument(writer: anytype, document: *const Document) !void {
+    try writer.writeAll(cache_magic);
+    try writer.writeInt(u32, cache_version, .little);
+    try writer.writeInt(u32, @intCast(document.bindings.len), .little);
+    try writer.writeInt(u32, @intCast(document.functions.len), .little);
+    try writer.writeInt(u32, @intCast(document.nodes.len), .little);
+    try writeOptionalU32(writer, if (document.root_binding) |binding_id| @as(u32, binding_id) else null);
+    try writer.writeInt(u64, @intCast(document.source_len), .little);
+    try writer.writeInt(u64, @intCast(document.link_port_count), .little);
+    try writer.writeInt(u64, @intCast(document.stateful_count), .little);
+
+    for (document.bindings) |binding| {
+        try writeString(writer, binding.name);
+        try writer.writeInt(u32, binding.node, .little);
+        try writeSpan(writer, binding.span);
+    }
+
+    for (document.functions) |function| {
+        try writeString(writer, function.name);
+        try writer.writeInt(u32, @intCast(function.params.len), .little);
+        for (function.params) |param| try writeString(writer, param);
+        try writer.writeInt(u32, function.body, .little);
+        try writeSpan(writer, function.span);
+    }
+
+    for (document.nodes) |node| {
+        try writeSpan(writer, node.span);
+        switch (node.kind) {
+            .number => |number| {
+                try writer.writeByte(0);
+                try writeString(writer, number.text);
+                try writer.writeInt(u64, @bitCast(number.value), .little);
+            },
+            .atom => |text| {
+                try writer.writeByte(1);
+                try writeString(writer, text);
+            },
+            .symbol => |text| {
+                try writer.writeByte(2);
+                try writeString(writer, text);
+            },
+            .local_ref => |text| {
+                try writer.writeByte(3);
+                try writeString(writer, text);
+            },
+            .special => |special| {
+                try writer.writeByte(4);
+                try writer.writeByte(@intFromEnum(special));
+            },
+            .link_port => |text| {
+                try writer.writeByte(5);
+                try writeString(writer, text);
+            },
+            .binding_ref => |binding_id| {
+                try writer.writeByte(6);
+                try writer.writeInt(u32, binding_id, .little);
+            },
+            .text => |parts| {
+                try writer.writeByte(7);
+                try writeNodeIdSlice(writer, parts);
+            },
+            .list => |list| {
+                try writer.writeByte(8);
+                try writer.writeByte(@intFromEnum(list.kind));
+                try writeNodeIdSlice(writer, list.items);
+            },
+            .record => |fields| {
+                try writer.writeByte(9);
+                try writer.writeInt(u32, @intCast(fields.len), .little);
+                for (fields) |field| {
+                    try writeString(writer, field.name);
+                    try writer.writeInt(u32, field.value, .little);
+                }
+            },
+            .access => |access| {
+                try writer.writeByte(10);
+                try writer.writeInt(u32, access.target, .little);
+                try writeString(writer, access.field);
+                try writer.writeByte(@intFromEnum(access.kind));
+            },
+            .binary => |binary| {
+                try writer.writeByte(11);
+                try writer.writeByte(@intFromEnum(binary.operator));
+                try writer.writeInt(u32, binary.lhs, .little);
+                try writer.writeInt(u32, binary.rhs, .little);
+            },
+            .block => |block| {
+                try writer.writeByte(12);
+                try writer.writeInt(u32, @intCast(block.bindings.len), .little);
+                for (block.bindings) |binding| {
+                    try writeString(writer, binding.name);
+                    try writer.writeInt(u32, binding.value, .little);
+                }
+                try writer.writeInt(u32, block.result, .little);
+            },
+            .when => |when| {
+                try writer.writeByte(13);
+                try writer.writeInt(u32, when.input, .little);
+                try writer.writeInt(u32, @intCast(when.arms.len), .little);
+                for (when.arms) |arm| {
+                    try writer.writeInt(u32, arm.pattern, .little);
+                    try writer.writeInt(u32, arm.result, .little);
+                }
+            },
+            .latest => |latest| {
+                try writer.writeByte(14);
+                try writeOptionalU32(writer, latest.initial);
+                try writeNodeIdSlice(writer, latest.sources);
+            },
+            .then_value => |then_value| {
+                try writer.writeByte(15);
+                try writer.writeInt(u32, then_value.source, .little);
+                try writer.writeInt(u32, then_value.value, .little);
+            },
+            .hold => |hold| {
+                try writer.writeByte(16);
+                try writeString(writer, hold.state_name);
+                try writer.writeInt(u32, hold.initial, .little);
+                try writeNodeIdSlice(writer, hold.updates);
+            },
+            .linked_value => |linked| {
+                try writer.writeByte(17);
+                try writer.writeInt(u32, linked.value, .little);
+                try writer.writeInt(u32, linked.target, .little);
+            },
+            .builtin_call => |call| {
+                try writer.writeByte(18);
+                try writeString(writer, call.path);
+                try writeNodeIdSlice(writer, call.positional);
+                try writer.writeInt(u32, @intCast(call.named.len), .little);
+                for (call.named) |arg| {
+                    try writeString(writer, arg.name);
+                    try writer.writeInt(u32, arg.value, .little);
+                }
+            },
+            .user_call => |call| {
+                try writer.writeByte(19);
+                try writer.writeInt(u32, call.function, .little);
+                try writeNodeIdSlice(writer, call.positional);
+                try writer.writeInt(u32, @intCast(call.named.len), .little);
+                for (call.named) |arg| {
+                    try writeString(writer, arg.name);
+                    try writer.writeInt(u32, arg.value, .little);
+                }
+                try writeOptionalU32(writer, call.pass_context);
+            },
+        }
+    }
+}
+
+pub fn deserializeDocumentAlloc(allocator: std.mem.Allocator, reader: anytype) !Document {
+    var magic: [4]u8 = undefined;
+    try reader.readSliceAll(&magic);
+    if (!std.mem.eql(u8, &magic, cache_magic)) return error.InvalidCacheFormat;
+    const version = try reader.takeInt(u32, .little);
+    if (version != cache_version) return error.InvalidCacheFormat;
+
+    const binding_count: usize = @intCast(try reader.takeInt(u32, .little));
+    const function_count: usize = @intCast(try reader.takeInt(u32, .little));
+    const node_count: usize = @intCast(try reader.takeInt(u32, .little));
+    const root_binding_u32 = try readOptionalU32(reader);
+    const source_len: usize = @intCast(try reader.takeInt(u64, .little));
+    const link_port_count: usize = @intCast(try reader.takeInt(u64, .little));
+    const stateful_count: usize = @intCast(try reader.takeInt(u64, .little));
+
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    errdefer arena.deinit();
+    const a = arena.allocator();
+
+    const bindings = try a.alloc(Binding, binding_count);
+    for (bindings) |*binding| {
+        binding.* = .{
+            .name = try readString(a, reader),
+            .node = try reader.takeInt(u32, .little),
+            .span = try readSpan(reader),
+        };
+    }
+
+    const functions = try a.alloc(UserFunction, function_count);
+    for (functions) |*function| {
+        const name = try readString(a, reader);
+        const param_count: usize = @intCast(try reader.takeInt(u32, .little));
+        const params = try a.alloc([]const u8, param_count);
+        for (params) |*param| param.* = try readString(a, reader);
+        function.* = .{
+            .name = name,
+            .params = params,
+            .body = try reader.takeInt(u32, .little),
+            .span = try readSpan(reader),
+        };
+    }
+
+    const nodes = try a.alloc(Node, node_count);
+    for (nodes) |*node| {
+        const span = try readSpan(reader);
+        const tag = try reader.takeByte();
+        node.* = .{
+            .span = span,
+            .kind = switch (tag) {
+                0 => .{ .number = .{ .text = try readString(a, reader), .value = @bitCast(try reader.takeInt(u64, .little)) } },
+                1 => .{ .atom = try readString(a, reader) },
+                2 => .{ .symbol = try readString(a, reader) },
+                3 => .{ .local_ref = try readString(a, reader) },
+                4 => .{ .special = @enumFromInt(try reader.takeByte()) },
+                5 => .{ .link_port = try readString(a, reader) },
+                6 => .{ .binding_ref = try reader.takeInt(u32, .little) },
+                7 => .{ .text = try readNodeIdSlice(a, reader) },
+                8 => .{ .list = .{ .kind = @enumFromInt(try reader.takeByte()), .items = try readNodeIdSlice(a, reader) } },
+                9 => .{ .record = try readFieldSlice(a, reader) },
+                10 => .{ .access = .{
+                    .target = try reader.takeInt(u32, .little),
+                    .field = try readString(a, reader),
+                    .kind = @enumFromInt(try reader.takeByte()),
+                } },
+                11 => .{ .binary = .{
+                    .operator = @enumFromInt(try reader.takeByte()),
+                    .lhs = try reader.takeInt(u32, .little),
+                    .rhs = try reader.takeInt(u32, .little),
+                } },
+                12 => .{ .block = .{
+                    .bindings = try readBlockBindingSlice(a, reader),
+                    .result = try reader.takeInt(u32, .little),
+                } },
+                13 => .{ .when = .{
+                    .input = try reader.takeInt(u32, .little),
+                    .arms = try readWhenArmSlice(a, reader),
+                } },
+                14 => .{ .latest = .{
+                    .initial = try readOptionalU32(reader),
+                    .sources = try readNodeIdSlice(a, reader),
+                } },
+                15 => .{ .then_value = .{
+                    .source = try reader.takeInt(u32, .little),
+                    .value = try reader.takeInt(u32, .little),
+                } },
+                16 => .{ .hold = .{
+                    .state_name = try readString(a, reader),
+                    .initial = try reader.takeInt(u32, .little),
+                    .updates = try readNodeIdSlice(a, reader),
+                } },
+                17 => .{ .linked_value = .{
+                    .value = try reader.takeInt(u32, .little),
+                    .target = try reader.takeInt(u32, .little),
+                } },
+                18 => .{ .builtin_call = .{
+                    .path = try readString(a, reader),
+                    .positional = try readNodeIdSlice(a, reader),
+                    .named = try readNamedArgSlice(a, reader),
+                } },
+                19 => .{ .user_call = .{
+                    .function = try reader.takeInt(u32, .little),
+                    .positional = try readNodeIdSlice(a, reader),
+                    .named = try readNamedArgSlice(a, reader),
+                    .pass_context = try readOptionalU32(reader),
+                } },
+                else => return error.InvalidCacheFormat,
+            },
+        };
+    }
+
+    return .{
+        .arena = arena,
+        .bindings = bindings,
+        .functions = functions,
+        .nodes = nodes,
+        .root_binding = if (root_binding_u32) |binding_id| binding_id else null,
+        .source_len = source_len,
+        .link_port_count = link_port_count,
+        .stateful_count = stateful_count,
+    };
+}
+
+fn writeSpan(writer: anytype, span: ast.Span) !void {
+    try writer.writeInt(u64, @intCast(span.start), .little);
+    try writer.writeInt(u64, @intCast(span.end), .little);
+}
+
+fn readSpan(reader: anytype) !ast.Span {
+    return .{
+        .start = @intCast(try reader.takeInt(u64, .little)),
+        .end = @intCast(try reader.takeInt(u64, .little)),
+    };
+}
+
+fn writeString(writer: anytype, text: []const u8) !void {
+    try writer.writeInt(u32, @intCast(text.len), .little);
+    try writer.writeAll(text);
+}
+
+fn readString(allocator: std.mem.Allocator, reader: anytype) ![]const u8 {
+    const len: usize = @intCast(try reader.takeInt(u32, .little));
+    const text = try allocator.alloc(u8, len);
+    try reader.readSliceAll(text);
+    return text;
+}
+
+fn writeOptionalU32(writer: anytype, value: ?u32) !void {
+    try writer.writeByte(if (value != null) 1 else 0);
+    if (value) |resolved| try writer.writeInt(u32, resolved, .little);
+}
+
+fn readOptionalU32(reader: anytype) !?u32 {
+    return if (try reader.takeByte() == 0) null else try reader.takeInt(u32, .little);
+}
+
+fn writeNodeIdSlice(writer: anytype, items: []NodeId) !void {
+    try writer.writeInt(u32, @intCast(items.len), .little);
+    for (items) |item| try writer.writeInt(u32, item, .little);
+}
+
+fn readNodeIdSlice(allocator: std.mem.Allocator, reader: anytype) ![]NodeId {
+    const count: usize = @intCast(try reader.takeInt(u32, .little));
+    const items = try allocator.alloc(NodeId, count);
+    for (items) |*item| item.* = try reader.takeInt(u32, .little);
+    return items;
+}
+
+fn readFieldSlice(allocator: std.mem.Allocator, reader: anytype) ![]Field {
+    const count: usize = @intCast(try reader.takeInt(u32, .little));
+    const fields = try allocator.alloc(Field, count);
+    for (fields) |*field| {
+        field.* = .{
+            .name = try readString(allocator, reader),
+            .value = try reader.takeInt(u32, .little),
+        };
+    }
+    return fields;
+}
+
+fn readNamedArgSlice(allocator: std.mem.Allocator, reader: anytype) ![]NamedArg {
+    const count: usize = @intCast(try reader.takeInt(u32, .little));
+    const args = try allocator.alloc(NamedArg, count);
+    for (args) |*arg| {
+        arg.* = .{
+            .name = try readString(allocator, reader),
+            .value = try reader.takeInt(u32, .little),
+        };
+    }
+    return args;
+}
+
+fn readBlockBindingSlice(allocator: std.mem.Allocator, reader: anytype) ![]BlockBinding {
+    const count: usize = @intCast(try reader.takeInt(u32, .little));
+    const bindings = try allocator.alloc(BlockBinding, count);
+    for (bindings) |*binding| {
+        binding.* = .{
+            .name = try readString(allocator, reader),
+            .value = try reader.takeInt(u32, .little),
+        };
+    }
+    return bindings;
+}
+
+fn readWhenArmSlice(allocator: std.mem.Allocator, reader: anytype) ![]WhenArm {
+    const count: usize = @intCast(try reader.takeInt(u32, .little));
+    const arms = try allocator.alloc(WhenArm, count);
+    for (arms) |*arm| {
+        arm.* = .{
+            .pattern = try reader.takeInt(u32, .little),
+            .result = try reader.takeInt(u32, .little),
+        };
+    }
+    return arms;
 }
 
 fn renderNode(writer: std.Io.Writer, document: *const Document, node: Node) !void {

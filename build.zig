@@ -2,7 +2,7 @@ const std = @import("std");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
-    const optimize = b.option(std.builtin.OptimizeMode, "optimize", "Build optimize mode") orelse .ReleaseFast;
+    const optimize = b.option(std.builtin.OptimizeMode, "optimize", "Build optimize mode") orelse .Debug;
     const io_backend = b.option([]const u8, "io_backend", "Select std.Io backend: threaded or evented") orelse "threaded";
 
     const build_options = b.addOptions();
@@ -35,12 +35,43 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(exe);
 
+    const fast_exe = b.addExecutable(.{
+        .name = "boon-zig-fast",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+            .optimize = .ReleaseFast,
+            .imports = &.{
+                .{ .name = "boon", .module = boon_mod },
+                .{ .name = "browser_assets", .module = browser_assets_mod },
+            },
+        }),
+    });
+
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
     if (b.args) |args| run_cmd.addArgs(args);
 
     const run_step = b.step("run", "Run the Boon Zig CLI");
     run_step.dependOn(&run_cmd.step);
+
+    const run_fast_cmd = b.addRunArtifact(fast_exe);
+    if (b.args) |args| run_fast_cmd.addArgs(args);
+    const run_fast_step = b.step("run-fast", "Run the Boon Zig CLI in ReleaseFast mode");
+    run_fast_step.dependOn(&run_fast_cmd.step);
+
+    const run_ex_cmd = b.addRunArtifact(exe);
+    run_ex_cmd.step.dependOn(b.getInstallStep());
+    run_ex_cmd.addArg("example");
+    if (b.args) |args| run_ex_cmd.addArgs(args);
+    const run_ex_step = b.step("run_ex", "Run a built-in example by short name in the default optimize mode");
+    run_ex_step.dependOn(&run_ex_cmd.step);
+
+    const run_ex_fast_cmd = b.addRunArtifact(fast_exe);
+    run_ex_fast_cmd.addArg("example");
+    if (b.args) |args| run_ex_fast_cmd.addArgs(args);
+    const run_ex_fast_step = b.step("run_ex_fast", "Run a built-in example by short name in ReleaseFast mode");
+    run_ex_fast_step.dependOn(&run_ex_fast_cmd.step);
 
     const parse_cmd = b.addRunArtifact(exe);
     parse_cmd.step.dependOn(b.getInstallStep());
