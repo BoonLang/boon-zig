@@ -643,6 +643,32 @@ compact
 
 Only if both bind the same source shape and compatible host types.
 
+Host metadata producers count as binders too. A terminal `link:` field, timer
+`pulse:` field, browser event listener, or any other host boundary that can
+write into a source leaf participates in this cardinality check.
+
+Do not attach two simultaneously active host producers to one source leaf. If a
+keyboard event and timer loop both feed the same logical app event, declare
+separate source leaves and merge them explicitly in the graph:
+
+```boon
+store: [
+    sources: [
+        tick_key: [event: [press: SOURCE]]
+        tick_loop: SOURCE
+    ]
+
+    tick:
+        LATEST {
+            sources.tick_key.event.press
+            sources.tick_loop
+        }
+]
+```
+
+Downstream state listens to `store.tick`. The split leaves keep host binding
+ownership static and avoid a hidden event bus or implicit host fan-in.
+
 Example rejected:
 
 ```boon
@@ -934,8 +960,15 @@ Canonical button-like source records should therefore look like the browser/UI f
 store: [
     sources: [
         up_button: [event: [press: SOURCE]]
-        tick_button: [event: [press: SOURCE]]
+        tick_key: [event: [press: SOURCE]]
+        tick_loop: SOURCE
     ]
+
+    tick:
+        LATEST {
+            sources.tick_key.event.press
+            sources.tick_loop
+        }
 ]
 ```
 
@@ -949,7 +982,12 @@ Terminal/button(
 )
 
 Terminal/button(
-    pulse: store.sources.tick_button.event.press
+    link: store.sources.tick_key.event.press
+    ...
+)
+
+Terminal/loop(
+    pulse: store.sources.tick_loop
     ...
 )
 ```
@@ -977,9 +1015,10 @@ Rules:
 - Their values must point to a concrete `SOURCE` leaf unless the boundary schema explicitly says the parameter consumes a source record.
 - Button-like controls should expose `event.press: SOURCE`; metadata such as `link:` / `pulse:` should usually refer to `.event.press`.
 - They do not imply a second source-binding mechanism. They are boundary-specific names for consuming a source leaf.
+- If two host producers feed one logical app event, they must bind separate leaves and merge through ordinary graph semantics such as `LATEST`, as shown above. Do not bind both producers to one leaf.
 - The migration classifier must scan for legacy source paths outside pipe-link expressions, including terminal examples such as `pong` and `arkanoid`.
 - If a host metadata field points to a concrete element value, a source record where a leaf is required, or an incompatible source payload, emit a diagnostic and require an explicit rewrite based on the host schema.
-- Add regression tests that cover legacy shapes such as `link: store.elements.up_button` and `pulse: store.elements.tick_button` and verify the canonical rewrite to `store.sources.<name>.event.press` where appropriate.
+- Add regression tests that cover legacy shapes such as `link: store.elements.up_button` and `pulse: store.elements.tick_button`. A single producer may rewrite to `store.sources.<name>.event.press` where appropriate; keyboard-plus-loop cases must rewrite to split leaves plus an explicit merge.
 
 ### 5.9 Legacy non-UI pipe-link migration
 
@@ -1135,6 +1174,39 @@ Required behavior:
 
 This adapter lets current passing examples survive while canonical syntax and Physical IR move away from generic pipe-link assignment.
 
+### 7.1b Add explicit canonical/legacy mode plumbing
+
+The implementation must carry an explicit source syntax mode through the
+pipeline instead of relying on whichever legacy paths happen to parse.
+
+Required mode:
+
+```zig
+pub const SourceMode = enum {
+    canonical,
+    legacy_migration,
+};
+```
+
+Thread this mode through:
+
+```text
+parser options
+HIR lowering options
+Flow lowering options
+headless/example verification options
+compiler CLI options
+build.zig verification steps
+```
+
+Policy:
+
+- `canonical` rejects `LINK` and `|> LINK { ... }` with the diagnostics in this plan.
+- `legacy_migration` accepts legacy syntax only to classify, migrate, or report precise blockers.
+- Every branch acceptance command must state which mode it runs, either directly in the command name or in the `WORKLOG.md` mapping.
+- Canonical Physical IR and codegen tests must run in `canonical` mode.
+- Upstream compatibility/import tests may run in `legacy_migration` mode until the example has a committed canonical rewrite.
+
 ### 7.2 Add source interface nodes
 
 HIR/Flow should represent:
@@ -1164,6 +1236,19 @@ pub const SourceFieldKind = union(enum) {
     source_leaf: SourceLeafId,
 };
 ```
+
+Before emitting Physical IR, run a source-shape freezing pass:
+
+```text
+SOURCE records + spreads + host boundary schemas
+-> static SourceShape IDs
+-> SourceSlot IDs and payload types
+-> diagnostics for dynamic or incompatible shapes
+```
+
+The pass must normalize spreads and host schemas while still in compiler-owned
+data structures. Physical IR must not depend on runtime record evaluation,
+runtime spread expansion, or string-path lookup to discover source leaves.
 
 ### 7.3 Element binding site
 
@@ -1367,8 +1452,12 @@ unplug SourceSlot #43 if current binding belongs to ButtonNode #17
 When host event arrives:
 
 ```text
-event source_slot_id = #42
-event binding_id = #99
+RuntimeEvent {
+    source_slot_id = #42
+    binding_id_or_generation = #99
+    scope_or_instance_id = #17
+    payload = ...
+}
 ```
 
 Runtime checks:
@@ -1380,6 +1469,11 @@ source_slot[#42].state == plugged(#99)
 If true, enqueue event.
 
 If false, ignore as stale and optionally trace.
+
+The envelope must carry enough generation/scope identity to reject events from
+unmounted branches, stale list items, and re-created host bindings. Legacy
+terminal pulses may still be accepted in compatibility paths, but canonical
+runtime dispatch uses this explicit source-slot envelope.
 
 ### 9.4 No string lookup in hot path
 
@@ -1481,6 +1575,11 @@ ItemId
 MapSiteId
 MappedScopeId(parent_list, item_id, map_site)
 ```
+
+The runtime must not derive mapped identity from value equality alone. Duplicate
+equal values, reorder, remove, and remove-then-reinsert cases must preserve
+separate item keys/generations so stateful child scopes and stale-event rejection
+remain deterministic.
 
 ### 10.5 Browser renderer
 
@@ -1597,9 +1696,40 @@ Instruction: on ValueSlot #1, add to StateSlot #2
 
 The user-requested practical plan is mandatory for this branch.
 
-This v3 file is standalone. It intentionally keeps the six-phase branch plan below even though the repository root `PLAN.md` may use a different larger phase numbering. When working from this file, use the six phases here as the implementation driver for this branch. Map each branch phase to the root worklog when needed.
+This v4 file is standalone. It intentionally keeps the six implementation phases below even though the repository root `PLAN.md` may use a different larger phase numbering. When working from this file, use the branch phases here as the implementation driver for this branch. Map each branch phase to the root worklog when needed.
 
 All commands named in acceptance criteria must be treated as required deliverables. If a command does not exist yet, add it to `build.zig` or explicitly map it in `WORKLOG.md` to an existing command with equivalent coverage. Do not leave phase gates as imaginary commands.
+
+### Phase 0. Branch integration and guardrails
+
+**Goal:** make the branch plan discoverable and make its gates real before
+starting compiler/runtime work.
+
+Required work:
+
+1. Add a root `PLAN.md` pointer telling future sessions that branch
+   `source-physical-ir` is driven by this file.
+2. Add a `WORKLOG.md` entry naming this plan as the next implementation driver.
+3. Add or map these branch gates:
+   - `zig build test-physical-ir`
+   - `zig build test-runtime`
+   - `zig build test-headless-counter`
+   - `zig build test-headless-list-keys`
+   - `zig build test-headless-while`
+   - `zig build verify-examples-headless`
+   - `zig build verify-examples-terminal`
+   - `zig build test-codegen-zig`
+   - `zig build test-browser-smoke`
+   - `zig build test-browser-visual`
+4. Add tracked upstream pin metadata at `fixtures/upstream_pin.json` and either
+   make existing import/verify code read it or add a verifier that fails if
+   mirrored constants drift.
+5. Decide and document canonical/legacy source-mode CLI and build-step
+   plumbing before deleting any existing legacy support.
+
+If a named gate is temporarily mapped to an existing command, record that mapping
+in `WORKLOG.md` with the exact command and coverage. Replace mappings with
+dedicated `build.zig` steps as the branch implementation matures.
 
 ### Phase 1. Define Physical IR
 
@@ -1608,7 +1738,8 @@ All commands named in acceptance criteria must be treated as required deliverabl
 Required work:
 
 1. Create `physical_ir.zig`.
-2. Define:
+2. Add the source-shape freezing pass described in section 7.2.
+3. Define:
    - `PhysicalProgram`
    - `PhysicalSlot`
    - `SourceSlot`
@@ -1620,16 +1751,16 @@ Required work:
    - `RenderBlueprint`
    - `SemanticId`
    - `PhysicalId`
-3. Add lowering:
+4. Add lowering:
    - Flow IR → Physical IR
-4. Add golden tests:
+5. Add golden tests:
    - `counter`
    - `complex_counter` after migration
    - `todo_mvc` source interface slices
    - `list_map_block`
    - `while`
    - `text_interpolation_update`
-5. Add diagnostics for:
+6. Add diagnostics for:
    - invalid `SOURCE`
    - legacy `|> LINK`
    - incompatible source binding
@@ -1655,7 +1786,8 @@ No generic pipe-link assignment exists in canonical Physical IR.
 Required work:
 
 1. Implement typed slot arrays.
-2. Implement explicit dirty/event queue.
+2. Implement explicit dirty/event queue using the generation-aware `RuntimeEvent`
+   envelope from section 9.3.
 3. Implement source slot state:
    - unplugged
    - plugged(binding_id)
@@ -1667,6 +1799,9 @@ Required work:
    - item IDs
    - generational IDs
    - mapped scope reuse
+   - duplicate equal values remain distinct
+   - reorder preserves item scope
+   - removed-item events are rejected after generation changes
 8. Implement deterministic virtual time.
 9. Implement `List/latest` fan-in with stale child event rejection.
 10. Implement trace log.
@@ -1731,6 +1866,11 @@ zig build verify-examples-terminal
 ```
 
 Each required example is marked `DONE` in the corpus manifest with evidence.
+
+For this branch, `DONE` may be represented by per-host or branch-specific fields
+such as `source_physical_ir_status` and `source_physical_ir_evidence`. Do not
+overload an existing top-level `status` field if that field still represents the
+broader all-host corpus state and currently remains `PARTIAL`.
 
 ### Phase 4. Add Boon → Zig codegen from the same Physical IR
 
@@ -2502,7 +2642,9 @@ Diagnostic when a terminal/timer/game host field still points to `store.elements
 legacy terminal host source reference
 
 `link:` / `pulse:` host metadata must point to a `SOURCE` slot under `sources`.
-Rewrite `store.elements.tick_button` to `store.sources.tick_button.event.press` and declare that slot as `[event: [press: SOURCE]]`, using the host boundary schema to infer payload type.
+For a single button-like host producer, rewrite `store.elements.tick_button` to `store.sources.tick_button.event.press` and declare that slot as `[event: [press: SOURCE]]`.
+If keyboard and loop/timer producers both use the same legacy link, split them into separate leaves such as `store.sources.tick_key.event.press` and `store.sources.tick_loop`, then merge them explicitly with ordinary graph semantics such as `LATEST`.
+Use the host boundary schema to infer payload type.
 ```
 
 ### 16.2 `LINK` keyword in canonical mode
@@ -2762,10 +2904,24 @@ fixtures/corpus_manifest.json
 fixtures/upstream_pin.json
 ```
 
+Integration notes:
+
+- `src/physical.zig` already exists for scene/renderer support. Do not overload it
+  with compiler Physical IR; use the dedicated `physical_ir.zig` path or record a
+  deliberate rename in `WORKLOG.md`.
+- Browser files currently live under `browser/`. Integrate retained browser work
+  with that existing path unless a move is explicitly documented.
+- Current headless/runtime behavior is concentrated in `src/headless.zig`; new
+  `src/runtime/*` modules should extract or share behavior, not become an unused
+  parallel runtime.
+
 Pinned corpus metadata rule:
 
 - The upstream checkout directory may live under `third_party/boon-upstream/` and may remain ignored by `.gitignore`.
 - The tracked pin must live outside ignored third-party checkout paths, preferably `fixtures/upstream_pin.json`.
+- Existing mirrored constants in `src/cli.zig`, `tools/corpus.py`, or future tools
+  must either be read from this file or be verified against it by a required
+  command so the commit cannot drift silently.
 - `fixtures/upstream_pin.json` must include at least:
 
 ```json
@@ -2808,6 +2964,11 @@ NOT_STARTED
 ```
 
 No silent skips.
+
+If the existing top-level manifest status remains broader than this branch, add
+branch-specific status/evidence fields instead of pretending a globally
+`PARTIAL` example is fully complete. The branch review must be able to distinguish
+legacy/current corpus status from source-physical-IR readiness.
 
 ---
 
@@ -2877,7 +3038,7 @@ formatter should prefer element: [...sources] for clarity
 
 ### 22.2 Element references and source records
 
-Resolved for v3:
+Resolved for v4:
 
 ```text
 sources records are not element values

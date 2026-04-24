@@ -1,0 +1,11 @@
+{
+  "repo": "https://github.com/BoonLang/boon",
+  "commit": "c924d9f7d7e1c156604c9377e0487db48c278353",
+  "source_root": "third_party/boon-upstream/playground/frontend/src/examples",
+  "imported_root": "examples/upstream",
+  "override_root": "examples/upstream_overrides",
+  "tree_hash": "b775e0edf621b01e55637b16b471297adcbd494b3e3958f79cb20e5fc29bfff9",
+  "tree_hash_command": "git ls-files -s examples/upstream examples/upstream_overrides | sha256sum",
+  "generated_at": "2026-04-24T03:32:44Z",
+  "notes": "Pinned corpus used for the source-physical-ir branch."
+}

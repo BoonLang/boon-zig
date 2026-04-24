@@ -134,6 +134,12 @@ pub fn build(b: *std.Build) void {
     const verify_corpus_step = b.step("verify-corpus", "Verify imported upstream corpus tree and parser coverage");
     verify_corpus_step.dependOn(&verify_corpus_cmd.step);
 
+    const verify_upstream_pin_cmd = b.addRunArtifact(exe);
+    verify_upstream_pin_cmd.step.dependOn(b.getInstallStep());
+    verify_upstream_pin_cmd.addArg("verify-upstream-pin");
+    const verify_upstream_pin_step = b.step("verify-upstream-pin", "Verify tracked upstream pin metadata matches compiled constants");
+    verify_upstream_pin_step.dependOn(&verify_upstream_pin_cmd.step);
+
     const verify_examples_cmd = b.addRunArtifact(exe);
     verify_examples_cmd.step.dependOn(b.getInstallStep());
     verify_examples_cmd.addArg("verify-examples");

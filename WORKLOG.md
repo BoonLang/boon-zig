@@ -4094,3 +4094,52 @@
   - none beyond the already-documented intentional `PARTIAL` scope for non-P0 lanes and `todo_mvc_physical`
 - Next step:
   - none; the implementation and the plan text are now aligned on Zig `0.17.0-dev.9+046002d1a`
+
+### Source Physical IR Plan Activation - 2026-04-24
+
+- Phase/subphase:
+  - branch `source-physical-ir`, Phase 0 plan-integration cleanup after deep plan review
+- Active branch plan:
+  - `plans/boon_zig_source_physical_ir_plan.md`
+  - commit before this cleanup: `b156111 Update source physical IR branch plan`
+- Files changed:
+  - `PLAN.md`
+  - `WORKLOG.md`
+  - `build.zig`
+  - `plans/boon_zig_source_physical_ir_plan.md`
+  - `fixtures/upstream_pin.json`
+  - `src/cli.zig`
+  - `prompter.json`
+- Branch gate mapping status:
+  - `zig build verify-examples-headless` maps to `zig build verify-examples -- --headless --all`
+  - `zig build verify-examples-terminal` maps to `zig build verify-examples -- --terminal-grid --all`
+  - `zig build test-browser-smoke` maps to `zig build verify-examples -- --browser-smoke --all`
+  - `zig build test-browser-visual` maps to `zig build verify-visual -- --all-with-reference-assets`
+  - `zig build test-runtime` temporarily maps to `zig build test` until Physical IR runtime tests are split out
+  - `zig build test-headless-counter`, `zig build test-headless-list-keys`, and `zig build test-headless-while` need dedicated branch aliases or exact filter mappings before Phase 2/3 acceptance
+  - `zig build test-physical-ir` and `zig build test-codegen-zig` need dedicated branch aliases once those modules exist
+- Commands run:
+  - `git ls-files -s examples/upstream examples/upstream_overrides | sha256sum`
+  - `date -u +%Y-%m-%dT%H:%M:%SZ`
+  - `rg -n "v3|tick_button|test-physical-ir|SourceMode|RuntimeEvent|source_physical_ir_status|upstream_pin" plans/boon_zig_source_physical_ir_plan.md PLAN.md WORKLOG.md fixtures/upstream_pin.json`
+  - `node -e 'JSON.parse(require("fs").readFileSync("prompter.json", "utf8")); console.log("prompter.json ok")'`
+  - `git diff --check`
+  - `zig build verify-corpus`
+  - `zig build test`
+  - `zig build run -- verify-upstream-pin`
+  - `zig build verify-upstream-pin`
+- Result:
+  - `prompter.json` validates as JSON and now stores the branch continuous/checking prompts
+  - `git diff --check` passed
+  - `zig build verify-corpus` passed
+  - `zig build test` passed
+  - `zig build run -- verify-upstream-pin` passed
+  - `zig build verify-upstream-pin` passed
+  - root `PLAN.md` now points future sessions at the branch plan on `source-physical-ir`
+  - branch plan now records the source-leaf cardinality rule, canonical/legacy mode plumbing, source-shape freezing pass, generation-aware runtime events, list identity constraints, manifest status semantics, repo integration notes, and upstream pin metadata requirements
+  - `fixtures/upstream_pin.json` records the pinned upstream commit and imported corpus tree hash
+  - `src/cli.zig` and `build.zig` add a required `verify-upstream-pin` guardrail so compiled corpus constants and tracked pin metadata cannot drift silently
+- Remaining risks:
+  - several branch gate names remain documented mappings or required future aliases, not dedicated `build.zig` steps yet
+- Next exact step:
+  - start Phase 0 implementation by adding canonical/legacy source-mode CLI/build plumbing and dedicated or verified build aliases for the branch gates before deleting legacy link support

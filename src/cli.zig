@@ -12,6 +12,7 @@ pub const Command = union(enum) {
     flow: []const u8,
     sync_corpus,
     verify_corpus: VerifyCorpusArgs,
+    verify_upstream_pin,
     verify_examples: VerifyExamplesArgs,
     build_browser: BuildBrowserArgs,
     verify_visual: VerifyVisualArgs,
@@ -98,6 +99,7 @@ pub fn run(
         .flow => |path| return try runFlow(allocator, io, path, stdout, stderr),
         .sync_corpus => return try runSyncCorpus(allocator, io, stdout, stderr),
         .verify_corpus => |verify_corpus_args| return try runVerifyCorpus(allocator, io, verify_corpus_args, stdout, stderr),
+        .verify_upstream_pin => return try runVerifyUpstreamPin(allocator, io, stdout, stderr),
         .verify_examples => |verify_args| return try runVerifyExamples(allocator, io, verify_args, stdout, stderr),
         .build_browser => |build_browser_args| return try runBuildBrowser(allocator, io, build_browser_args, stdout, stderr),
         .verify_visual => |verify_visual_args| return try runVerifyVisual(allocator, io, verify_visual_args, stdout, stderr),
@@ -152,6 +154,10 @@ fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) !Command {
             }
         }
         return .{ .verify_corpus = .{ .parse_only = parse_only } };
+    }
+    if (std.mem.eql(u8, arg, "verify-upstream-pin")) {
+        if (args.len != 2) return error.UnknownCommand;
+        return .verify_upstream_pin;
     }
     if (std.mem.eql(u8, arg, "verify-examples")) {
         var mode: ?VerifyExamplesMode = null;
@@ -427,6 +433,7 @@ pub fn writeHelp(writer: *std.Io.Writer) !void {
         \\  boon-zig flow <path>
         \\  boon-zig sync-corpus
         \\  boon-zig verify-corpus [--parse-only]
+        \\  boon-zig verify-upstream-pin
         \\  boon-zig verify-examples --headless|--terminal-grid [--filter <name|p0>]
         \\  boon-zig build-browser --out-dir <path>
         \\  boon-zig verify-visual --filter <name>|--all-with-reference-assets
@@ -444,6 +451,7 @@ pub fn writeHelp(writer: *std.Io.Writer) !void {
         \\  flow     Lower a Boon source file into Flow IR and print graph stats.
         \\  sync-corpus  Sync the pinned upstream playground example tree into examples/upstream.
         \\  verify-corpus  Verify the imported upstream tree and parser coverage.
+        \\  verify-upstream-pin  Verify fixtures/upstream_pin.json matches compiled corpus constants.
         \\  verify-examples  Run Zig-native example verification lanes.
         \\  build-browser  Export the browser host bundle and manifest.
         \\  verify-visual  Run the browser visual comparison lane.
@@ -494,6 +502,7 @@ const corpus_upstream_root = "third_party/boon-upstream";
 const corpus_upstream_examples_root = "third_party/boon-upstream/playground/frontend/src/examples";
 const corpus_imported_examples_root = "examples/upstream";
 const corpus_override_root = "examples/upstream_overrides";
+const corpus_upstream_pin_path = "fixtures/upstream_pin.json";
 const browser_todo_physical_path = "examples/upstream/todo_mvc_physical/RUN.bn";
 const browser_visual_reference_path = "examples/upstream/todo_mvc/reference_700x700_(1400x1400).png";
 const browser_visual_output_dir = ".artifacts/browser_visual";
@@ -797,6 +806,100 @@ fn runVerifyCorpus(
 
     try stdout.print("verify-corpus ok\n", .{});
     return 0;
+}
+
+fn runVerifyUpstreamPin(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    stdout: *std.Io.Writer,
+    stderr: *std.Io.Writer,
+) !u8 {
+    const data = try std.Io.Dir.cwd().readFileAlloc(
+        io,
+        corpus_upstream_pin_path,
+        allocator,
+        .limited(std.math.maxInt(usize)),
+    );
+    defer allocator.free(data);
+
+    var parsed = try std.json.parseFromSlice(std.json.Value, allocator, data, .{});
+    defer parsed.deinit();
+
+    const object = switch (parsed.value) {
+        .object => |object| object,
+        else => return error.InvalidUpstreamPin,
+    };
+
+    var failures: std.ArrayList([]u8) = .empty;
+    defer {
+        for (failures.items) |item| allocator.free(item);
+        failures.deinit(allocator);
+    }
+
+    try verifyPinString(allocator, &failures, object, "repo", corpus_upstream_url);
+    try verifyPinString(allocator, &failures, object, "commit", corpus_pinned_commit);
+    try verifyPinString(allocator, &failures, object, "source_root", corpus_upstream_examples_root);
+    try verifyPinString(allocator, &failures, object, "imported_root", corpus_imported_examples_root);
+    try verifyPinString(allocator, &failures, object, "override_root", corpus_override_root);
+
+    const expected_tree_hash = try importedCorpusTreeHashAlloc(allocator, io);
+    defer allocator.free(expected_tree_hash);
+    try verifyPinString(allocator, &failures, object, "tree_hash", expected_tree_hash);
+
+    if (failures.items.len != 0) {
+        try stderr.print("verify-upstream-pin failed\n", .{});
+        for (failures.items) |failure| {
+            try stderr.print("- {s}\n", .{failure});
+        }
+        return 1;
+    }
+
+    try stdout.print("verify-upstream-pin ok\n", .{});
+    return 0;
+}
+
+fn verifyPinString(
+    allocator: std.mem.Allocator,
+    failures: *std.ArrayList([]u8),
+    object: anytype,
+    field: []const u8,
+    expected: []const u8,
+) !void {
+    const value = object.get(field) orelse {
+        try failures.append(allocator, try std.fmt.allocPrint(allocator, "{s}: missing field", .{field}));
+        return;
+    };
+    const actual = switch (value) {
+        .string => |text| text,
+        else => {
+            try failures.append(allocator, try std.fmt.allocPrint(allocator, "{s}: expected string field", .{field}));
+            return;
+        },
+    };
+    if (!std.mem.eql(u8, actual, expected)) {
+        try failures.append(
+            allocator,
+            try std.fmt.allocPrint(allocator, "{s}: expected `{s}`, found `{s}`", .{ field, expected, actual }),
+        );
+    }
+}
+
+fn importedCorpusTreeHashAlloc(allocator: std.mem.Allocator, io: std.Io) ![]u8 {
+    const result = try std.process.run(allocator, io, .{
+        .argv = &.{ "git", "ls-files", "-s", corpus_imported_examples_root, corpus_override_root },
+        .stderr_limit = .limited(8 * 1024),
+        .stdout_limit = .limited(1024 * 1024),
+    });
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+    switch (result.term) {
+        .exited => |code| if (code != 0) return error.UpstreamPinGitLsFilesFailed,
+        else => return error.UpstreamPinGitLsFilesFailed,
+    }
+
+    var digest: [32]u8 = undefined;
+    std.crypto.hash.sha2.Sha256.hash(result.stdout, &digest, .{});
+    return try std.fmt.allocPrint(allocator, "{x}", .{digest});
 }
 
 fn runBuildBrowser(
@@ -4762,6 +4865,11 @@ test "parseArgs accepts flow path" {
         .flow => |path| try std.testing.expectEqualStrings("examples/upstream/counter/counter.bn", path),
         else => return error.ExpectedFlowCommand,
     }
+}
+
+test "parseArgs accepts verify-upstream-pin" {
+    const args = [_][]const u8{ "boon-zig", "verify-upstream-pin" };
+    try std.testing.expectEqual(.verify_upstream_pin, try parseArgs(std.testing.allocator, &args));
 }
 
 test "parseArgs accepts example shorthand" {

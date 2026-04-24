@@ -4,6 +4,12 @@ This file is intended to be the only bootstrap document in a new GitHub reposito
 
 The work is intentionally split into resumable phases because interactive Codex sessions may stop too early. Every session must continue from the earliest incomplete phase, update `WORKLOG.md`, and leave the repository in a verified state or with a concrete blocker.
 
+Active branch override: on branch `source-physical-ir`, implementation work is
+driven by `plans/boon_zig_source_physical_ir_plan.md`. Read this root plan for
+baseline project context, then use the branch plan and the latest `WORKLOG.md`
+entry for next steps. Do not treat the root completion status as closing
+source-physical-IR branch work.
+
 ---
 
 ## 0. Highest-priority outcome
