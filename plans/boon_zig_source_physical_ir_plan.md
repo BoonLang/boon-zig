@@ -1,8 +1,8 @@
-# Boon-on-Zig Production Branch Plan: `SOURCE`, No Pipe-`LINK`, Physical IR, Zig Compiler, and Zig Playground
+# Boon-on-Zig Production Branch Plan v4: `SOURCE`, No Pipe-`LINK`, Physical IR, Zig Compiler, and Zig Playground
 
 **Audience:** Boon / `boon-zig` implementers  
 **Purpose:** bootstrap a new `boon-zig` branch toward a production-ready runtime, compiler, and browser/edge playground  
-**Status:** planning document, not yet an implemented spec  
+**Status:** standalone branch plan; supersedes v3, the earlier long plan, the short v2 review-resolution file, and the v1/v2 amendments
 **Date:** 2026-04-24
 
 ---
@@ -69,7 +69,7 @@ The production implementation should then focus on the required six-step practic
 
 1. **Define Physical IR.**
 2. **Build a fast Zig interpreter for Physical IR.**
-3. **Make terminal/headless examples pass: `counter`, `cells`, `todo_mvc`, `pong`, and `arkanoid`.**
+3. **Make terminal/headless examples pass: `counter`, `interval`, `cells`, `cells_dynamic` or equivalent non-UI pipe-link regression, `todo_mvc`, `pong`, and `arkanoid`.**
 4. **Add Boon → Zig code generation from the same Physical IR.**
 5. **Add retained browser renderer with no Virtual DOM.**
 6. **Add required Zig playground support, including Boon → Zig → Wasm/native playground compilation path.**
@@ -102,6 +102,26 @@ Existing `boon-zig` already emphasizes:
 - terminal/headless first, browser last
 
 This branch keeps that direction but updates the language model around `LINK`.
+
+### 1.1 v4 review resolutions baked into this file
+
+This v4 document is standalone. It merges the original long branch plan, the v2 corrections, the v3 standalone plan, and the follow-up Codex reviews. Do not read it as a short amendment.
+
+Codex review findings resolved here:
+
+1. **Standalone plan:** the full six-phase implementation plan is included in this file. It does not rely on the short v2 amendment.
+2. **Non-UI pipe-link:** legacy computed event routing is not replaced with a channel or publish operation. It must be rewritten to ordinary graph values, returned fields, and list fan-in and existing source-of-truth list combinators.
+3. **`interval` and `cells_dynamic`:** `interval` is restored as a hard headless/terminal gate, and `cells_dynamic` or a named equivalent non-UI pipe-link regression is also a hard gate together with `counter`, `cells`, `todo_mvc`, `pong`, and `arkanoid`.
+4. **Element identity:** `SOURCE` records do not carry hidden element identity. `Reference[element: ...]` requires a real element value.
+5. **Migration grounding:** existing HIR/Flow/runtime link support stays during migration behind a classifier/adapter stage. Canonical Physical IR must not contain generic pipe-link assignment.
+6. **Build commands:** every named gate must be added to `build.zig` or mapped explicitly in `WORKLOG.md` to an existing equivalent command.
+7. **Pinned corpus metadata:** tracked pin metadata belongs in `fixtures/upstream_pin.json` or another tracked fixtures file, not inside an ignored third-party checkout path.
+8. **Terminal host binding metadata:** legacy `link:` / `pulse:` style source references in terminal/game examples must be migrated explicitly, not only pipe-link expressions.
+9. **Terminal host binding shape:** terminal metadata fields such as `link:` and `pulse:` consume a concrete `SOURCE` leaf, not a whole button-shaped source record, unless the host boundary schema explicitly says otherwise. Canonical button-like sources are records such as `[event: [press: SOURCE]]`, and terminal metadata points at `.event.press`.
+10. **`cells_dynamic` gate:** `cells_dynamic` or a named equivalent non-UI pipe-link regression is a required Phase 3 / DoD gate, not only a test matrix item.
+11. **`List/latest` semantics:** list-of-stream fan-in must be specified and tested for empty lists, deterministic ordering, removed items, stale child events, payload shape unification, and implementation in the builtin maps.
+12. **Ignored checkout conflict:** if the upstream checkout lives under ignored `third_party/boon-upstream/`, keep the tracked pin in `fixtures/upstream_pin.json` or explicitly unignore only the metadata file.
+13. **No accidental API expansion:** `List/update` is not introduced by this plan. If a future source-of-truth update combinator is needed, it requires a separate spec.
 
 ---
 
@@ -159,7 +179,7 @@ Element/button(
 Meaning:
 
 ```text
-SOURCE is a compile-time marker for a runtime-provided source of values/events/identity.
+SOURCE is a compile-time marker for a runtime-provided source of values/events into Boon. It is not an element identity/handle and it must not carry hidden user-space data.
 ```
 
 A source may represent:
@@ -167,9 +187,31 @@ A source may represent:
 - event pulse, e.g. `event.press`
 - event payload, e.g. `event.key_down.key`
 - reactive host state, e.g. `hovered`, `focused`
-- element identity/handle for things like `Reference[element: ...]`
+- timer/frame/keyboard/terminal sources when a host boundary schema exposes them
 
 The word `SOURCE` is chosen because the field is a source of runtime/host values into the Boon graph.
+
+Do **not** add new Boon surface keywords to fix legacy pipe-link cases. In particular, this branch must not add:
+
+```text
+IDENTITY
+CHANNEL
+BINDING
+PORT
+PORTAL
+```
+
+Do **not** add event-bus or mutability workaround operations such as:
+
+```text
+Source/publish
+Source/send
+Source/emit
+Stream/emit
+Event/publish
+```
+
+Non-UI computed event routing must be represented as ordinary graph values, returned fields, and list fan-in and existing source-of-truth list combinators. The runtime may have internal physical node IDs, source slot IDs, retained node IDs, list item keys, and mapped-scope IDs, but those are implementation details and must not leak into Boon user-space values.
 
 ### 3.2 Remove `|> LINK { ... }`
 
@@ -233,6 +275,8 @@ Element/button(
     label: TEXT { Save }
 )
 ```
+
+Important: the removed pipe-link form was also used in some examples for non-UI computed event routing. Do **not** replace those uses with a mutable channel, `Source/publish`, or a new keyword. During migration, classify legacy pipe-link uses and rewrite non-UI computed routing into ordinary returned graph fields and list fan-in and existing source-of-truth list combinators. Details are in the migration and `List/latest` sections below.
 
 ### 3.3 Keep `element` as the single element bag
 
@@ -444,6 +488,8 @@ x: SOURCE + 1
 ### 4.2 Source interface records
 
 A record containing `SOURCE` leaves is a **source interface record**.
+
+A source interface record is not an element value. It does not secretly carry an element identity. `Reference[element: ...]` must receive an actual element value created by an `Element/*` expression, not a source interface record.
 
 Example:
 
@@ -867,6 +913,111 @@ pipe LINK assignment was removed.
 Declare a source interface and pass/spread it into the element bag instead.
 ```
 
+### 5.8 Legacy terminal host binding metadata
+
+Some terminal/game examples use legacy source references outside `|> LINK { ... }`, for example host metadata fields such as:
+
+```boon
+link: store.elements.up_button
+pulse: store.elements.tick_button
+```
+
+These are not pipe-link expressions, but they are still legacy `LINK`/`elements` source-reference sites. The migration must handle them explicitly.
+
+#### Canonical terminal source shape
+
+Terminal metadata fields such as `link:` and `pulse:` consume a **source leaf**, not a whole element/button source record, unless the exact host boundary schema explicitly says it consumes a record.
+
+Canonical button-like source records should therefore look like the browser/UI form:
+
+```boon
+store: [
+    sources: [
+        up_button: [event: [press: SOURCE]]
+        tick_button: [event: [press: SOURCE]]
+    ]
+]
+```
+
+Then terminal host metadata points to the concrete leaf:
+
+```boon
+-- terminal/host constructor names are examples; use the actual boundary schema.
+Terminal/button(
+    link: store.sources.up_button.event.press
+    ...
+)
+
+Terminal/button(
+    pulse: store.sources.tick_button.event.press
+    ...
+)
+```
+
+If a boundary truly represents a bare non-button source, the source may be declared as a leaf, but that must come from the boundary schema:
+
+```boon
+store: [
+    sources: [
+        timer_tick: SOURCE
+    ]
+]
+
+Timer/interval(
+    pulse: store.sources.timer_tick
+    ...
+)
+```
+
+Do not mix these two forms implicitly. A button/control record is not automatically a source leaf.
+
+Rules:
+
+- Host-specific metadata arguments such as `link:` and `pulse:` may remain as constructor parameters when they are part of the terminal/timer boundary schema.
+- Their values must point to a concrete `SOURCE` leaf unless the boundary schema explicitly says the parameter consumes a source record.
+- Button-like controls should expose `event.press: SOURCE`; metadata such as `link:` / `pulse:` should usually refer to `.event.press`.
+- They do not imply a second source-binding mechanism. They are boundary-specific names for consuming a source leaf.
+- The migration classifier must scan for legacy source paths outside pipe-link expressions, including terminal examples such as `pong` and `arkanoid`.
+- If a host metadata field points to a concrete element value, a source record where a leaf is required, or an incompatible source payload, emit a diagnostic and require an explicit rewrite based on the host schema.
+- Add regression tests that cover legacy shapes such as `link: store.elements.up_button` and `pulse: store.elements.tick_button` and verify the canonical rewrite to `store.sources.<name>.event.press` where appropriate.
+
+### 5.9 Legacy non-UI pipe-link migration
+
+Some existing pipe-link uses route computed events rather than binding UI elements. Do not replace these with a channel or publish/emit operation.
+
+Preferred rewrite patterns:
+
+1. Return the computed event/value from the child component as an ordinary field.
+2. Derive the parent event/value from child fields.
+3. For dynamic lists, use `List/map` plus `List/latest` or an existing source-of-truth list operator such as `List/remove` or another compiler-known list combinator already present in the repo. Do not introduce `List/update` in this branch without a separate spec.
+
+Example shape:
+
+```boon
+cell_views:
+    cells
+    |> List/map(cell, new: cell_view(cell: cell))
+
+cell_committed:
+    cell_views
+    |> List/map(view, new: view.committed)
+    |> List/latest()
+```
+
+If the downstream code needs to know which item emitted, map the child event into an explicit payload before fan-in:
+
+```boon
+remove_requests:
+    todo_views
+    |> List/map(view, new:
+        view.remove_requested
+        |> THEN { [todo: view.todo] }
+    )
+    |> List/latest()
+```
+
+No hidden runtime identity is exposed. The payload contains exactly what user code explicitly returns.
+
 ---
 
 ## 6. Parser and formatter changes
@@ -961,6 +1112,28 @@ LinkAssign(value_expr, target_path)
 ```
 
 That is the dynamic operation being removed.
+
+### 7.1a Add a legacy adapter/classifier stage before deletion
+
+Do not delete existing HIR/Flow/runtime link support as the first implementation step. Existing examples still rely on legacy forms. Add a migration/classifier stage that runs after parsing legacy syntax and before canonical Flow IR / Physical IR emission.
+
+Classifier result kinds:
+
+```text
+LegacyUiSourceBinding
+LegacyTerminalHostSourceMetadata
+LegacyComputedGraphBacklink
+LegacyUnsupportedDynamicLink
+```
+
+Required behavior:
+
+- `LegacyUiSourceBinding` rewrites to `sources` records spread into `element`.
+- `LegacyTerminalHostSourceMetadata` rewrites `store.elements.*` style source paths to `store.sources.*` when the host schema confirms the argument consumes a source slot.
+- `LegacyComputedGraphBacklink` must not become a channel. It must be rewritten manually or by a migration helper into returned fields plus list fan-in and existing source-of-truth list combinators.
+- `LegacyUnsupportedDynamicLink` produces a precise diagnostic and keeps the example marked `BLOCKED` or `PARTIAL` in the corpus manifest until rewritten.
+
+This adapter lets current passing examples survive while canonical syntax and Physical IR move away from generic pipe-link assignment.
 
 ### 7.2 Add source interface nodes
 
@@ -1061,7 +1234,7 @@ field names
 nested shape
 source payload type
 source cardinality/pulse semantics
-element identity semantics
+boundary element kind/schema compatibility
 ```
 
 Reject incompatible binders.
@@ -1296,11 +1469,11 @@ For:
 todos |> List/map(item, new: todo_item(todo: item))
 ```
 
-renderer must use stable item identity.
+renderer must use stable item keys.
 
 No full list rebuild unless unavoidable.
 
-Required internal identity:
+Required internal list handles/keys:
 
 ```text
 ListId
@@ -1365,7 +1538,7 @@ typed value slots
 typed source slots
 state/HOLD slots
 branch activation tables
-list identity tables
+list key/scope tables
 map/retain scope tables
 dependency edges
 dirty propagation instructions
@@ -1423,6 +1596,10 @@ Instruction: on ValueSlot #1, add to StateSlot #2
 ## 12. Required practical plan
 
 The user-requested practical plan is mandatory for this branch.
+
+This v3 file is standalone. It intentionally keeps the six-phase branch plan below even though the repository root `PLAN.md` may use a different larger phase numbering. When working from this file, use the six phases here as the implementation driver for this branch. Map each branch phase to the root worklog when needed.
+
+All commands named in acceptance criteria must be treated as required deliverables. If a command does not exist yet, add it to `build.zig` or explicitly map it in `WORKLOG.md` to an existing command with equivalent coverage. Do not leave phase gates as imaginary commands.
 
 ### Phase 1. Define Physical IR
 
@@ -1485,21 +1662,22 @@ Required work:
 4. Implement `HOLD` state arenas.
 5. Implement `LATEST`, `THEN`, `WHEN`, `WHILE`, `SKIP`, `BLOCK`.
 6. Implement `PASS/PASSED` lowering before runtime.
-7. Implement list identity:
+7. Implement list key/scope preservation:
    - list IDs
    - item IDs
    - generational IDs
    - mapped scope reuse
 8. Implement deterministic virtual time.
-9. Implement trace log.
-10. Implement persistence behind runtime interface, but allow disabled persistence for benchmarks/playground.
+9. Implement `List/latest` fan-in with stale child event rejection.
+10. Implement trace log.
+11. Implement persistence behind runtime interface, but allow disabled persistence for benchmarks/playground.
 
 Acceptance criteria:
 
 ```text
 zig build test-runtime
 zig build test-headless-counter
-zig build test-headless-list-identity
+zig build test-headless-list-keys
 zig build test-headless-while
 ```
 
@@ -1513,7 +1691,9 @@ Required examples:
 
 ```text
 counter
+interval
 cells
+cells_dynamic or equivalent non-UI pipe-link regression
 todo_mvc
 pong
 arkanoid
@@ -1536,7 +1716,9 @@ Required work:
 5. Implement terminal grid snapshot renderer.
 6. Add deterministic tests for:
    - counter clicks and persistence on/off
+   - interval deterministic virtual-time ticks, pause/reset if applicable, no real-time flakiness
    - cells formulas, edits, enter/escape, recomputation
+   - cells_dynamic or equivalent non-UI pipe-link regression using `List/latest` fan-in, removed-item stale-event rejection, and no event-bus/publish workaround
    - todo_mvc add/edit/toggle/remove/filter
    - pong frames/keyboard/score/reset
    - arkanoid ball/paddle/bricks/reset
@@ -1988,59 +2170,94 @@ FUNCTION new_todo(title) {
 
 ### 13.6 TodoMVC per-item view
 
+`Reference[element: ...]` must receive an actual element value, not a `sources` record. Therefore the title label should be bound to a local element value before it is referenced by the checkbox.
+
 ```boon
 FUNCTION todo_item(todo) {
-    Element/stripe(
-        element: [hovered: SOURCE]
-        direction: Row
-        gap: 10
+    BLOCK {
+        title_label:
+            Element/label(
+                element: [
+                    ...todo.sources.todo_title_element
+                ]
 
-        items: LIST {
+                style: [
+                    width: Fill
+
+                    font: [
+                        size: 24
+
+                        color:
+                            todo.completed
+                            |> WHILE {
+                                True => Oklch[lightness: 0.647]
+                                False => Oklch[lightness: 0.42]
+                            }
+
+                        line: [strikethrough: todo.completed]
+                    ]
+                ]
+
+                label: todo.title
+            )
+
+        edit_input:
+            Element/text_input(
+                element: [
+                    ...todo.sources.editing_todo_title_element
+                ]
+
+                label: Hidden[text: TEXT { Edit todo }]
+                text: ...
+                focus: True
+            )
+
+        checkbox:
             Element/checkbox(
                 element: [
                     ...todo.sources.todo_checkbox
                 ]
 
-                label: Reference[element: todo.sources.todo_title_element]
+                label: Reference[element: title_label]
                 checked: todo.completed
                 icon: ...
             )
 
-            todo.editing
-            |> WHILE {
-                True => Element/text_input(
-                    element: [
-                        ...todo.sources.editing_todo_title_element
-                    ]
+        Element/stripe(
+            element: [hovered: SOURCE]
+            direction: Row
+            gap: 10
 
-                    label: Hidden[text: TEXT { Edit todo }]
-                    text: ...
-                    focus: True
-                )
+            items: LIST {
+                checkbox
 
-                False => Element/label(
-                    element: [
-                        ...todo.sources.todo_title_element
-                    ]
+                todo.editing
+                |> WHILE {
+                    True => edit_input
+                    False => title_label
+                }
 
-                    label: todo.title
-                )
+                element.hovered
+                |> WHILE {
+                    True => remove_todo_button(
+                        sources: todo.sources.remove_todo_button
+                    )
+
+                    False => NoElement
+                }
             }
-
-            element.hovered
-            |> WHILE {
-                True => remove_todo_button(
-                    sources: todo.sources.remove_todo_button
-                )
-
-                False => NoElement
-            }
-        }
-    )
+        )
+    }
 }
 ```
 
-Note: In this function, `element.hovered` refers to the inline source declared on the stripe itself. The compiler must continue supporting inline source fields that are read through the local returned element value.
+Important rules:
+
+- `todo.sources.todo_title_element` is only a source bag.
+- `title_label` is the actual element value.
+- `Reference[element: title_label]` is valid.
+- `Reference[element: todo.sources.todo_title_element]` is invalid.
+- Runtime retained node handles are internal Physical IR data, not hidden Boon values.
 
 ---
 
@@ -2094,9 +2311,72 @@ FUNCTION visible_todos(todos, selected_filter) {
 
 But users cannot define a brand-new map-like binder as an ordinary function yet.
 
-### 14.3 Future feature
+### 14.3 `List/latest` fan-in semantics
 
-If needed later, design a separate construct:
+`List/latest` is required because removing generic pipe-link cannot leave dynamic child-to-parent computed events without a graph-native replacement. It is a compiler-known dynamic fan-in combinator, not a user-defined event bus.
+
+Input shape:
+
+```boon
+streams |> List/latest()
+```
+
+where `streams` is a list whose items are reactive/event values with compatible payload shapes. If the parent needs item context, the child stream must be mapped to an explicit payload before fan-in:
+
+```boon
+views
+|> List/map(view, new:
+    view.remove_requested
+    |> THEN { [todo: view.todo] }
+)
+|> List/latest()
+```
+
+Required semantics:
+
+1. **Empty list**: emits nothing. It is not an error.
+2. **Added item**: subscribes to the new child stream after the item and mapped scope are created. No same-turn feedback should be observable unless an explicit host/source event occurs after the binding becomes active.
+3. **Removed item**: unsubscribes before removed-child events can affect later turns. Late events from removed item scopes are stale and ignored.
+4. **Reordered item**: keeps the child's mapped scope and `HOLD` state by stable list item key; only output ordering changes.
+5. **Multiple child emissions in one atomic turn**: emit deterministically in list order as observed at the beginning of the fan-in delivery phase, with stable item key as tie-breaker if needed. Do not use hash-map order.
+6. **Payload**: output exactly the child payload. There is no implicit item ID or hidden identity in the user value.
+7. **Compatibility**: all child payload shapes must unify statically. If they do not, produce a compile error.
+8. **Backpressure/coalescing**: `List/latest` itself must not silently drop child emissions. If a downstream `LATEST` or `HOLD` collapses several events according to normal Boon turn semantics, that behavior belongs to the downstream combinator and must be tested separately.
+
+Operational lowering requirements:
+
+- Add `List/latest` deliberately to the parser/lowering/runtime builtin map and Zig codegen support. Do not assume it already exists.
+- Lower the input list to a fan-in table keyed by `(list_id, map_site_id, stable_item_key, item_generation)`.
+- Each child subscription records the item generation active at subscription time.
+- A delivery from a child whose item generation no longer matches is stale and must be ignored.
+- Empty fan-in has no current value and emits no event. It must not emit `[]`, `False`, `UNPLUGGED`, or a synthetic placeholder.
+- Multiple child deliveries in one turn are delivered in deterministic list order based on the list snapshot at the beginning of the fan-in delivery phase. If two deliveries come from the same item in the same turn, preserve normal source delivery order for that item.
+- Reordering a list does not recreate mapped child scopes. It only changes deterministic fan-in order for later multi-child turns.
+- Removing an item tears down its fan-in subscription before later turns. Queued deliveries from the removed item are rejected by generation/epoch checks.
+- Payload values contain no implicit item identity. If user code needs the item/cell/todo, it must return it explicitly in the payload.
+
+Required tests:
+
+```text
+list_latest_empty_emits_nothing
+list_latest_single_child_forwards_payload
+list_latest_multiple_children_deterministic_order
+list_latest_removed_child_stale_event_ignored
+list_latest_reordered_child_preserves_state
+list_latest_payload_shape_mismatch_diagnostic
+list_latest_with_todo_remove_payload
+list_latest_cells_dynamic_fan_in_regression
+```
+
+Implementation notes:
+
+- `List/latest` may not currently exist in every runtime builtin map. Add it deliberately to parser/lowering/runtime/codegen instead of assuming it exists.
+- The fast interpreter should lower it to a list fan-in table keyed by list ID + map site + item key, not to dynamic source lookup.
+- The Zig backend should emit static fan-in code where possible and reuse existing source-of-truth list operation code where needed, with a compact runtime table for dynamic lists.
+
+### 14.4 Future feature
+
+If needed later, design a separate construct. This branch must not introduce `List/update` or another new source-of-truth update operator without a separate spec:
 
 ```text
 COMBINATOR
@@ -2214,6 +2494,17 @@ or spread it into the element bag:
     Element/button(element: [...store.sources.button])
 ```
 
+### 16.1a Legacy terminal host source reference
+
+Diagnostic when a terminal/timer/game host field still points to `store.elements.*` or another legacy `LINK` path:
+
+```text
+legacy terminal host source reference
+
+`link:` / `pulse:` host metadata must point to a `SOURCE` slot under `sources`.
+Rewrite `store.elements.tick_button` to `store.sources.tick_button.event.press` and declare that slot as `[event: [press: SOURCE]]`, using the host boundary schema to infer payload type.
+```
+
 ### 16.2 `LINK` keyword in canonical mode
 
 Input:
@@ -2314,6 +2605,21 @@ Use distinct source slots or make the binders mutually exclusive.
   - per-item checkbox/title/edit/remove events
 - `WHILE` branch source binding/unbinding is deterministic.
 - list map scopes are stable across append/remove/filter.
+
+### 17.3a List fan-in tests
+
+Required `List/latest` tests:
+
+```text
+list_latest_empty_emits_nothing
+list_latest_single_child_forwards_payload
+list_latest_multiple_children_deterministic_order
+list_latest_removed_child_stale_event_ignored
+list_latest_reordered_child_preserves_state
+list_latest_payload_shape_mismatch_diagnostic
+list_latest_with_todo_remove_payload
+list_latest_cells_dynamic_fan_in_regression
+```
 
 ### 17.4 Runtime tests
 
@@ -2424,7 +2730,7 @@ src/
     physical_interpreter.zig
     slots.zig
     source_slots.zig
-    list_identity.zig
+    list_keys.zig
     branch_activation.zig
   render/
     retained_document.zig
@@ -2442,6 +2748,7 @@ fixtures/
   source_migration/
   physical_ir_golden/
   generated_zig_golden/
+  upstream_pin.json
 ```
 
 Update:
@@ -2452,7 +2759,26 @@ WORKLOG.md
 fixtures/syntax_inventory.json
 fixtures/feature_matrix.md
 fixtures/corpus_manifest.json
+fixtures/upstream_pin.json
 ```
+
+Pinned corpus metadata rule:
+
+- The upstream checkout directory may live under `third_party/boon-upstream/` and may remain ignored by `.gitignore`.
+- The tracked pin must live outside ignored third-party checkout paths, preferably `fixtures/upstream_pin.json`.
+- `fixtures/upstream_pin.json` must include at least:
+
+```json
+{
+  "repo": "https://github.com/BoonLang/boon",
+  "commit": "<exact upstream commit>",
+  "tree_hash": "<computed imported corpus hash>",
+  "generated_at": "<iso timestamp>",
+  "notes": "Pinned corpus used for this branch."
+}
+```
+
+Do not require a tracked `third_party/boon-upstream/COMMIT` file unless `.gitignore` explicitly unignores that metadata path.
 
 ---
 
@@ -2495,23 +2821,28 @@ This branch is done when:
 4. `SOURCE` source slots lower to static Physical IR.
 5. Physical IR exists and has golden tests.
 6. Fast interpreter executes Physical IR without hot string lookup.
-7. Required headless/terminal examples pass:
+7. `List/latest` dynamic fan-in has runtime and codegen tests for empty lists, ordering, removed items, stale events, and payload shape mismatch.
+8. Required headless/terminal examples pass:
    - `counter`
+   - `interval`
    - `cells`
+   - `cells_dynamic` or named equivalent non-UI pipe-link regression
    - `todo_mvc`
    - `pong`
    - `arkanoid`
-8. Boon → Zig codegen exists from the same Physical IR.
-9. Generated Zig passes semantic tests for at least `counter` and `todo_mvc`.
-10. Browser renderer is retained and does not use Virtual DOM.
-11. Browser smoke/visual tests pass for required UI examples.
-12. Required Zig playground support exists:
+9. Boon → Zig codegen exists from the same Physical IR.
+10. Generated Zig passes semantic tests for at least `counter` and `todo_mvc`.
+11. Browser renderer is retained and does not use Virtual DOM.
+12. Browser smoke/visual tests pass for required UI examples.
+13. Required Zig playground support exists:
     - interpreter preview
     - generated Zig view
     - compile-to-Zig path
     - Boon → Zig → Wasm/native preview via browser Zig or edge/server fallback
-13. Diagnostics map to Boon source.
-14. Worklog and corpus manifest show no skipped required items.
+14. Diagnostics map to Boon source.
+15. No hidden element identity exists in source records; `Reference[element: ...]` accepts real element values only.
+16. No new user-facing `IDENTITY`, `CHANNEL`, `Source/publish`, `Stream/emit`, or event-bus workaround exists.
+17. Worklog and corpus manifest show no skipped required items.
 
 ---
 
@@ -2544,25 +2875,40 @@ parser may accept both
 formatter should prefer element: [...sources] for clarity
 ```
 
-### 22.2 Element identity source naming
+### 22.2 Element references and source records
 
-For `Reference[element: todo.sources.title_label]`, is `sources.title_label` acceptable, or should identity handles have a nested field?
-
-Options:
-
-```boon
-todo.sources.title_label
-todo.sources.title_label.element
-todo.sources.title_label.identity
-```
-
-Recommendation for now:
+Resolved for v3:
 
 ```text
-keep todo.sources.title_label
+sources records are not element values
+Reference[element: ...] accepts real element values only
+no IDENTITY keyword
+no hidden element handle inside sources
 ```
 
-because the existing `Reference[element: ...]` call clarifies intended use.
+Use local element values or explicit returned element fields when a component needs to pass an element reference outward.
+
+Valid:
+
+```boon
+BLOCK {
+    title_label: Element/label(...)
+
+    Element/checkbox(
+        element: [...]
+        label: Reference[element: title_label]
+        checked: todo.completed
+    )
+}
+```
+
+Invalid:
+
+```boon
+Reference[element: todo.sources.title_label]
+```
+
+Internal retained node IDs are Physical IR/runtime implementation details only.
 
 ### 22.3 Compatibility with upstream examples
 
@@ -2628,6 +2974,12 @@ No Virtual DOM.
 No hot string lookup.
 ```
 
+
+---
+
+## 24.1 Corpus pinning vs external links
+
+External reference URLs are context only. The implementation source of truth for upstream Boon examples is the pinned imported corpus recorded in `fixtures/upstream_pin.json` and `fixtures/corpus_manifest.json`. Do not depend on mutable `main` URLs during implementation or verification.
 
 ---
 
