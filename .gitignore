@@ -3,3 +3,5 @@ zig-out/
 third_party/boon-upstream/
 tools/__pycache__/
 .artifacts/
+prompt_log.jsonl
+prompter.log
