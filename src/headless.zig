@@ -7753,8 +7753,8 @@ fn booleanValue(value: bool) Value {
 
 fn valueAsBoolLoose(value: Value) bool {
     return switch (value) {
-        .symbol => |text| std.mem.eql(u8, text, "True"),
-        .text => |text| std.mem.eql(u8, text, "True"),
+        .symbol => |text| std.ascii.eqlIgnoreCase(text, "True"),
+        .text => |text| std.ascii.eqlIgnoreCase(text, "True"),
         .number => |number| number != 0,
         else => false,
     };
