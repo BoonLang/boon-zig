@@ -355,10 +355,7 @@ pub const BoonRuntimeHost = struct {
         switch (event) {
             .press, .click => |link| try session.clickButton(@intCast(link)),
             .double_click => |link| try session.doubleClickLabel(@intCast(link)),
-            .hover => |payload| {
-                _ = payload.hovered;
-                try session.triggerLink(@intCast(payload.link));
-            },
+            .hover => |payload| try session.setHover(@intCast(payload.link), payload.hovered),
             .change_text => |payload| try session.setTextInputValue(@intCast(payload.link), payload.text),
             .key_down => |payload| try session.pressTextInputKey(@intCast(payload.link), @tagName(payload.key)),
             .blur => |link| try session.blurTextInput(@intCast(link)),
