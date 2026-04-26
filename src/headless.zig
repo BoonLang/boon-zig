@@ -1066,6 +1066,13 @@ pub const Session = struct {
         try self.enqueueExternalNodePulse(event.link, scope);
     }
 
+    pub fn clickCheckbox(self: *Session, index: usize) !void {
+        const event = try self.checkboxLinkAt(index);
+        const scope = canonicalControlScope(event.scope);
+        try self.logf("external click checkbox[{d}] -> n{d}", .{ index, event.link });
+        try self.enqueueExternalNodePulse(event.link, scope);
+    }
+
     pub fn clickButtonAt(self: *Session, index: usize, x: usize, y: usize) !void {
         const event = try self.buttonLinkAt(index);
         const scope = canonicalControlScope(event.scope);
@@ -3067,6 +3074,20 @@ pub const Session = struct {
         const links = try self.cachedControlRefs(.button);
         if (index >= links.len) return error.InvalidButtonIndex;
         return links[index];
+    }
+
+    fn checkboxLinkAt(self: *Session, index: usize) anyerror!ControlEventRef {
+        try self.flushPendingQueue();
+        var scratch = std.heap.ArenaAllocator.init(self.backing_allocator);
+        defer scratch.deinit();
+
+        const root_binding = self.flow.root_binding orelse return error.MissingDocumentRoot;
+        const value = try self.evalNode(scratch.allocator(), self.flow.bindings[root_binding].node, null);
+        var links: std.ArrayList(ControlEventRef) = .empty;
+        defer links.deinit(scratch.allocator());
+        try collectCheckboxLinks(self, &links, scratch.allocator(), value);
+        if (index >= links.items.len) return error.InvalidButtonIndex;
+        return links.items[index];
     }
 
     fn sliderLinkAt(self: *Session, index: usize) anyerror!ControlEventRef {
@@ -5752,6 +5773,7 @@ pub const Session = struct {
 
     const ControlKind = enum {
         click,
+        checkbox,
         double_click,
         text_input,
         hover,
@@ -5773,6 +5795,13 @@ pub const Session = struct {
                 var links: std.ArrayList(ControlEventRef) = .empty;
                 defer links.deinit(scratch.allocator());
                 try collectButtonLinks(self, &links, scratch.allocator(), value);
+                if (ordinal >= links.items.len) return error.MissingVisibleControl;
+                break :blk ordinal;
+            },
+            .checkbox => blk: {
+                var links: std.ArrayList(ControlEventRef) = .empty;
+                defer links.deinit(scratch.allocator());
+                try collectCheckboxLinks(self, &links, scratch.allocator(), value);
                 if (ordinal >= links.items.len) return error.MissingVisibleControl;
                 break :blk ordinal;
             },
@@ -5811,6 +5840,7 @@ pub const Session = struct {
 
         const items = switch (kind) {
             .click => summary.clicks.items,
+            .checkbox => summary.clicks.items,
             .double_click => summary.double_clicks.items,
             .text_input => summary.text_inputs.items,
             .hover => summary.hovers.items,
@@ -8135,6 +8165,19 @@ fn collectButtonLinks(self: *Session, list: *std.ArrayList(ControlEventRef), all
         .checkbox => |checkbox| if (checkbox.click_link) |link| try list.append(allocator, try cloneControlEventRefForCache(allocator, .{ .link = link, .scope = checkbox.event_scope })),
         .button => |button| if (button.press_link) |link| try list.append(allocator, try cloneControlEventRefForCache(allocator, .{ .link = link, .scope = button.event_scope })),
         .scoped_node => |deferred| try collectButtonLinks(self, list, allocator, try self.evalNode(allocator, deferred.node_id, deferred.scope)),
+        else => {},
+    }
+}
+
+fn collectCheckboxLinks(self: *Session, list: *std.ArrayList(ControlEventRef), allocator: std.mem.Allocator, value: Value) !void {
+    switch (value) {
+        .list => |items| for (items) |item| try collectCheckboxLinks(self, list, allocator, item),
+        .document => |document| try collectCheckboxLinks(self, list, allocator, document.root),
+        .terminal => |terminal| try collectCheckboxLinks(self, list, allocator, terminal.root),
+        .stripe => |stripe| for (stripe.items) |item| try collectCheckboxLinks(self, list, allocator, item),
+        .container => |container| try collectCheckboxLinks(self, list, allocator, container.child),
+        .checkbox => |checkbox| if (checkbox.click_link) |link| try list.append(allocator, try cloneControlEventRefForCache(allocator, .{ .link = link, .scope = checkbox.event_scope })),
+        .scoped_node => |deferred| try collectCheckboxLinks(self, list, allocator, try self.evalNode(allocator, deferred.node_id, deferred.scope)),
         else => {},
     }
 }

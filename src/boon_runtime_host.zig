@@ -365,7 +365,7 @@ pub const BoonRuntimeHost = struct {
             .focus => |link| try session.focusTextInput(@intCast(link)),
             .checkbox_change => |payload| {
                 _ = payload.checked;
-                try session.triggerLink(@intCast(payload.link));
+                try session.clickCheckbox(@intCast(payload.link));
             },
             .select_change => |payload| try session.setSelectValue(@intCast(payload.link), payload.value),
             .slider_change => |payload| try session.setSliderValue(@intCast(payload.link), payload.value),
