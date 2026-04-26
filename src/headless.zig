@@ -1693,12 +1693,14 @@ pub const Session = struct {
                 },
                 .hold => |hold| {
                     for (hold.updates) |update| {
-                        if (self.nodeNeedsScope(update)) {
-                            self.runtime_subscribers[subscriber] = true;
-                            continue;
-                        }
                         const source = self.holdTriggerSource(update) catch |err| switch (err) {
-                            error.UnsupportedEventSource => if (self.nodeNeedsScope(subscriber)) continue else return err,
+                            error.UnsupportedEventSource => {
+                                if (self.nodeNeedsScope(update)) {
+                                    self.runtime_subscribers[subscriber] = true;
+                                    continue;
+                                }
+                                if (self.nodeNeedsScope(subscriber)) continue else return err;
+                            },
                             else => return err,
                         };
                         counts[source] += 1;
@@ -1809,9 +1811,8 @@ pub const Session = struct {
                 },
                 .hold => |hold| {
                     for (hold.updates) |update| {
-                        if (self.nodeNeedsScope(update)) continue;
                         const source = self.holdTriggerSource(update) catch |err| switch (err) {
-                            error.UnsupportedEventSource => if (self.nodeNeedsScope(subscriber)) continue else return err,
+                            error.UnsupportedEventSource => if (self.nodeNeedsScope(update) or self.nodeNeedsScope(subscriber)) continue else return err,
                             else => return err,
                         };
                         try self.addSubscriber(source, subscriber, filled);
@@ -2554,6 +2555,7 @@ pub const Session = struct {
     fn dispatchPulseToSubscriber(self: *Session, subscriber: flow_ir.NodeId, pulse: Pulse) !void {
         const node = self.flow.nodes[subscriber];
         if (self.nodeNeedsScope(subscriber) and pulse.scope == null) switch (node.kind) {
+            .hold => {},
             .builtin_call => if (self.builtinOp(subscriber) != .router_go_to) return,
             else => return,
         };
