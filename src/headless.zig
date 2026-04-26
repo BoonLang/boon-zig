@@ -2185,6 +2185,51 @@ pub const Session = struct {
         return try self.eventLinkFromResolvedValue(self.arena.allocator(), value, event_name);
     }
 
+    fn eventScopeForSource(self: *Session, node_id: flow_ir.NodeId, scope: ?*const EvalScope) anyerror!?*const EvalScope {
+        const node = self.flow.nodes[node_id];
+        return switch (node.kind) {
+            .binding_ref => |binding_id| try self.eventScopeForSource(self.flow.bindings[binding_id].node, scope),
+            .then_value => |then_value| try self.eventScopeForSource(then_value.source, scope),
+            .block => |block| try self.eventScopeForSource(block.result, scope),
+            .access => |access| blk: {
+                if (isEventAccessField(access.field)) {
+                    const target = self.flow.nodes[access.target];
+                    if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "event")) {
+                        const value = try self.evalNode(self.arena.allocator(), target.kind.access.target, scope);
+                        break :blk eventScopeFromValue(value);
+                    }
+                }
+                break :blk null;
+            },
+            else => null,
+        };
+    }
+
+    fn isEventAccessField(field: []const u8) bool {
+        return std.mem.eql(u8, field, "press") or
+            std.mem.eql(u8, field, "change") or
+            std.mem.eql(u8, field, "click") or
+            std.mem.eql(u8, field, "double_click") or
+            std.mem.eql(u8, field, "key_down") or
+            std.mem.eql(u8, field, "blur") or
+            std.mem.eql(u8, field, "focus") or
+            std.mem.eql(u8, field, "hovered");
+    }
+
+    fn eventScopeFromValue(value: Value) ?*const EvalScope {
+        return switch (value) {
+            .stripe => |stripe| stripe.event_scope,
+            .label => |label| label.event_scope,
+            .container => |container| container.event_scope,
+            .checkbox => |checkbox| checkbox.event_scope,
+            .button => |button| button.event_scope,
+            .text_input => |input| input.event_scope,
+            .select => |select| select.event_scope,
+            .slider => |slider| slider.event_scope,
+            else => null,
+        };
+    }
+
     fn eventLinkFromResolvedValue(self: *Session, allocator: std.mem.Allocator, value: Value, event_name: []const u8) anyerror!?flow_ir.NodeId {
         return switch (value) {
             .record => |fields| blk: {
@@ -2568,6 +2613,25 @@ pub const Session = struct {
         };
         switch (node.kind) {
             .then_value => |then_value| {
+                if (pulse.scope) |scope| {
+                    const source = self.scopedEventDependencySource(then_value.source, scope) catch |err| switch (err) {
+                        error.MissingLocalBinding,
+                        error.MissingRecordField,
+                        error.ExpectedRecordNode,
+                        error.ExpectedLinkNode,
+                        error.ExpectedLinkValue,
+                        error.UnsupportedFieldAccess,
+                        error.UnsupportedEventSource,
+                        => return,
+                        else => return err,
+                    };
+                    if (source != pulse.source) return;
+                    if (try self.eventScopeForSource(then_value.source, scope)) |expected_scope| {
+                        const canonical_expected = canonicalControlScope(expected_scope) orelse expected_scope;
+                        const canonical_actual = canonicalControlScope(scope) orelse scope;
+                        if (canonical_expected.id != canonical_actual.id) return;
+                    }
+                }
                 try self.logf("then n{d} -> n{d}", .{ subscriber, then_value.value });
                 try self.queue.append(self.arena.allocator(), .{
                     .source = subscriber,
@@ -2576,7 +2640,8 @@ pub const Session = struct {
                 });
             },
             .latest => {
-                try self.setLatestPayload(subscriber, pulse.scope, pulse.payload);
+                const latest_scope = if (self.nodeNeedsScope(subscriber)) pulse.scope else null;
+                try self.setLatestPayload(subscriber, latest_scope, pulse.payload);
                 switch (pulse.payload) {
                     .node => |payload_node| try self.logf("latest n{d} <- n{d}", .{ subscriber, payload_node }),
                     .value => try self.logf("latest n{d} <- <value>", .{subscriber}),
@@ -2584,7 +2649,7 @@ pub const Session = struct {
                 try self.queue.append(self.arena.allocator(), .{
                     .source = subscriber,
                     .payload = pulse.payload,
-                    .scope = pulse.scope,
+                    .scope = latest_scope,
                 });
             },
             .hold => |hold| {
@@ -2621,10 +2686,14 @@ pub const Session = struct {
                     .stream_skip => try self.processSkipPulse(subscriber, call, pulse.payload, pulse.scope),
                     .math_sum => {
                         const value = try valueAsNumber(try valueFromPulsePayload(self, self.arena.allocator(), pulse.payload, pulse.scope));
-                        self.sum_values[subscriber] += value;
+                        if (self.sumSourceIsLatest(call)) {
+                            self.sum_values[subscriber] = value;
+                        } else {
+                            self.sum_values[subscriber] += value;
+                        }
                         self.sum_inited[subscriber] = true;
                         self.noteTopLevelMutation(subscriber);
-                        try self.logf("sum n{d} += {d} -> {d}", .{
+                        try self.logf("sum n{d} <- {d} -> {d}", .{
                             subscriber,
                             value,
                             self.sum_values[subscriber],
@@ -2639,6 +2708,19 @@ pub const Session = struct {
             },
             else => {},
         }
+    }
+
+    fn sumSourceIsLatest(self: *Session, call: flow_ir.BuiltinCall) bool {
+        if (call.positional.len == 0) return false;
+        return self.sourceIsLatest(call.positional[0]);
+    }
+
+    fn sourceIsLatest(self: *Session, node_id: flow_ir.NodeId) bool {
+        return switch (self.flow.nodes[node_id].kind) {
+            .binding_ref => |binding_id| self.sourceIsLatest(self.flow.bindings[binding_id].node),
+            .latest => true,
+            else => false,
+        };
     }
 
     fn dispatchRouterGoTo(
