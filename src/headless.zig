@@ -67,6 +67,7 @@ const BuiltinOp = enum(u8) {
     element_select,
     element_link,
     scene_element_link,
+    reference,
     assets_icon,
     element_slider,
     math_sum,
@@ -115,7 +116,8 @@ pub const CompileOutcome = union(enum) {
 };
 
 const compiled_cache_magic = "BNCP";
-const compiled_cache_version: u32 = 1;
+// Serialized builtin op metadata uses enum ordinals; bump this when layout changes.
+const compiled_cache_version: u32 = 2;
 
 const Pulse = struct {
     source: flow_ir.NodeId,
@@ -193,6 +195,9 @@ const LabelValue = struct {
 
 const ContainerValue = struct {
     child: Value,
+    click_link: ?flow_ir.NodeId = null,
+    terminal_width: usize = 0,
+    terminal_height: usize = 0,
     terminal_bindings: Value = .none,
     event_scope: ?*const EvalScope = null,
 };
@@ -322,6 +327,7 @@ pub const TerminalHitRegion = struct {
     width: usize,
     height: usize,
     button_index: ?usize = null,
+    button_coordinate_payload: bool = false,
     label_double_click_index: ?usize = null,
     text_input_index: ?usize = null,
     hover_index: ?usize = null,
@@ -546,6 +552,7 @@ fn builtinOpFromPath(path: []const u8) BuiltinOp {
     if (std.mem.eql(u8, path, "Element/select")) return .element_select;
     if (std.mem.eql(u8, path, "Element/link")) return .element_link;
     if (std.mem.eql(u8, path, "Scene/Element/link")) return .scene_element_link;
+    if (std.mem.eql(u8, path, "Reference")) return .reference;
     if (std.mem.eql(u8, path, "Assets/icon")) return .assets_icon;
     if (std.mem.eql(u8, path, "Element/slider")) return .element_slider;
     if (std.mem.eql(u8, path, "Math/sum")) return .math_sum;
@@ -748,7 +755,7 @@ pub const Session = struct {
         const root_binding = self.flow.root_binding orelse return error.MissingDocumentRoot;
         const scratch = self.resetScratchArena();
 
-        const value = try self.evalNode(scratch, self.flow.bindings[root_binding].node, null);
+        const value = try self.evalNode(self.arena.allocator(), self.flow.bindings[root_binding].node, null);
         if (try self.livePhysicalRenderTarget(scratch)) |target| {
             return try target.textAlloc(allocator);
         }
@@ -1033,6 +1040,18 @@ pub const Session = struct {
         const event = try self.buttonLinkAt(index);
         const scope = canonicalControlScope(event.scope);
         try self.logf("external click button[{d}] -> n{d}", .{ index, event.link });
+        try self.enqueueExternalNodePulse(event.link, scope);
+    }
+
+    pub fn clickButtonAt(self: *Session, index: usize, x: usize, y: usize) !void {
+        const event = try self.buttonLinkAt(index);
+        const scope = canonicalControlScope(event.scope);
+        const payload = try allocRecordValue(self.arena.allocator(), &.{
+            .{ .name = "x", .value = .{ .number = @floatFromInt(x) } },
+            .{ .name = "y", .value = .{ .number = @floatFromInt(y) } },
+        });
+        try self.setLinkValue(event.link, scope, payload);
+        try self.logf("external click button[{d}] -> n{d} at {d},{d}", .{ index, event.link, x, y });
         try self.enqueueExternalNodePulse(event.link, scope);
     }
 
@@ -3191,8 +3210,8 @@ pub const Session = struct {
         var current = scope orelse return null;
         var candidate: ?*const EvalScope = null;
         while (true) {
-            if (current.bindings.len == 1 and std.mem.eql(u8, current.bindings[0].name, "element") and current.parent != null) {
-                current = current.parent.?;
+            if (current.bindings.len == 1 and std.mem.eql(u8, current.bindings[0].name, "element")) {
+                current = current.parent orelse return candidate;
                 continue;
             }
             if (current.bindings.len == 0 and current.parent != null) {
@@ -3559,13 +3578,10 @@ pub const Session = struct {
             },
             .stripe => |stripe| blk: {
                 if (std.mem.eql(u8, access.field, "hovered")) {
-                    break :blk if (stripe.hovered_link) |link|
-                        hovered_blk: {
-                            try self.recordLinkDependencies(link, stripe.event_scope orelse scope, false);
-                            break :hovered_blk self.getLinkValue(link, stripe.event_scope orelse scope) orelse .{ .link = link };
-                        }
-                    else
-                        .none;
+                    break :blk if (stripe.hovered_link) |link| hovered_blk: {
+                        try self.recordLinkDependencies(link, stripe.event_scope orelse scope, false);
+                        break :hovered_blk self.getLinkValue(link, stripe.event_scope orelse scope) orelse .{ .link = link };
+                    } else .none;
                 }
                 break :blk error.UnsupportedFieldAccess;
             },
@@ -3575,13 +3591,10 @@ pub const Session = struct {
                 }
                 if (std.mem.eql(u8, access.field, "hovered")) {
                     break :blk switch (target) {
-                        .button => |button| if (button.hovered_link) |link|
-                            hovered_blk: {
-                                try self.recordLinkDependencies(link, button.event_scope orelse scope, false);
-                                break :hovered_blk self.getLinkValue(link, button.event_scope orelse scope) orelse .{ .link = link };
-                            }
-                        else
-                            .none,
+                        .button => |button| if (button.hovered_link) |link| hovered_blk: {
+                            try self.recordLinkDependencies(link, button.event_scope orelse scope, false);
+                            break :hovered_blk self.getLinkValue(link, button.event_scope orelse scope) orelse .{ .link = link };
+                        } else .none,
                         else => error.UnsupportedFieldAccess,
                     };
                 }
@@ -3861,11 +3874,17 @@ pub const Session = struct {
         if (op == .element_svg) {
             const element_node = findNamed(call.named, "element") orelse return error.MissingElementArg;
             const children_node = findNamed(call.named, "children") orelse return error.MissingItemsArg;
+            const style_node = findNamed(call.named, "style");
             const element_value = try self.evalNode(allocator, element_node, scope);
             var element_scope = try withLocalBinding(allocator, scope, "element", element_value);
+            const style_value = if (style_node) |node| try self.evalNode(allocator, node, scope) else .none;
+            const style_size = terminalStyleSizeFromValue(style_value);
             const container = try allocator.create(ContainerValue);
             container.* = .{
                 .child = try self.evalNode(allocator, children_node, &element_scope),
+                .click_link = try self.resolveElementEventLink(element_node, "click", scope),
+                .terminal_width = style_size.width,
+                .terminal_height = style_size.height,
                 .terminal_bindings = extractTerminalMetadata(element_value),
                 .event_scope = try captureControlScope(allocator, &element_scope),
             };
@@ -4257,6 +4276,40 @@ pub const Session = struct {
             label.terminal_bindings = extractTerminalMetadata(element_value);
             label.event_scope = try captureControlScope(allocator, &element_scope);
             return .{ .label = label };
+        }
+        if (op == .reference) {
+            const element_node = findNamed(call.named, "element") orelse return error.MissingElementArg;
+            const element_value = try self.evalNode(allocator, element_node, scope);
+            return switch (element_value) {
+                .stripe,
+                .label,
+                .container,
+                .checkbox,
+                .button,
+                .text_input,
+                .select,
+                .slider,
+                => element_value,
+                .link => |link| blk: {
+                    try self.recordLinkDependencies(link, scope, false);
+                    const resolved = self.getLinkValue(link, scope) orelse break :blk .none;
+                    break :blk switch (resolved) {
+                        .stripe,
+                        .label,
+                        .container,
+                        .checkbox,
+                        .button,
+                        .text_input,
+                        .select,
+                        .slider,
+                        => resolved,
+                        .record => error.SourceRecordIsNotElementValue,
+                        else => error.ExpectedElementValue,
+                    };
+                },
+                .record => error.SourceRecordIsNotElementValue,
+                else => error.ExpectedElementValue,
+            };
         }
         if (op == .assets_icon) {
             const icons = try allocator.alloc(RecordField, 2);
@@ -5046,7 +5099,12 @@ pub const Session = struct {
                 label.terminal_width,
                 label.terminal_height,
             ),
-            .container => |container| try self.snapshotBlock(allocator, container.child),
+            .container => |container| try self.snapshotSizedBlock(
+                allocator,
+                try self.snapshotBlock(allocator, container.child),
+                container.terminal_width,
+                container.terminal_height,
+            ),
             .checkbox => |checkbox| try self.snapshotSizedBlock(
                 allocator,
                 try self.snapshotCheckboxBlock(allocator, checkbox),
@@ -5334,7 +5392,27 @@ pub const Session = struct {
                 }
                 break :blk size;
             },
-            .container => |container| try self.collectTerminalHitRegions(allocator, regions, counters, container.child, x, y),
+            .container => |container| blk: {
+                const button_index = if (container.click_link != null) blk_click: {
+                    const next = counters.button;
+                    counters.button += 1;
+                    break :blk_click next;
+                } else null;
+                const child_size = try self.collectTerminalHitRegions(allocator, regions, counters, container.child, x, y);
+                const width = @max(child_size.width, container.terminal_width);
+                const height = @max(child_size.height, if (container.terminal_height == 0) @as(usize, 1) else container.terminal_height);
+                if (button_index) |index| {
+                    try regions.append(allocator, .{
+                        .x = x,
+                        .y = y,
+                        .width = width,
+                        .height = height,
+                        .button_index = index,
+                        .button_coordinate_payload = true,
+                    });
+                }
+                break :blk .{ .width = width, .height = height };
+            },
             .checkbox => |checkbox| blk: {
                 const index = if (checkbox.click_link != null) blk_click: {
                     const next = counters.button;
@@ -5571,7 +5649,7 @@ pub const Session = struct {
         if (call.positional.len == 0) return error.MissingArgument;
         const count = @max(@as(i64, 0), @as(i64, @intFromFloat(try self.numberFromNode(call.positional[0], scope))));
         if (count == 0) return;
-        for (1..@as(u64, @intCast(count)) + 1) |pulse_index| {
+        for (1..@as(usize, @intCast(count)) + 1) |pulse_index| {
             try self.logf("pulses n{d} -> {d}", .{ node_id, pulse_index });
             try self.queue.append(self.arena.allocator(), .{
                 .source = node_id,
@@ -6201,6 +6279,11 @@ pub const Session = struct {
 };
 
 pub fn compileAlloc(allocator: std.mem.Allocator, source: []const u8) !CompileOutcome {
+    return compileAllocWithOptions(allocator, source, .{});
+}
+
+pub fn compileAllocWithOptions(allocator: std.mem.Allocator, source: []const u8, options: flow_ir.Options) !CompileOutcome {
+    _ = options;
     const lowered_flow = try flow_ir.lowerAlloc(allocator, source);
     const document = switch (lowered_flow) {
         .ok => |document| document,
@@ -6628,11 +6711,15 @@ fn withLocalBinding(allocator: std.mem.Allocator, parent: ?*const EvalScope, nam
         .value = value,
     };
     const passed = if (parent) |frame| frame.passed else null;
+    const id = if (std.mem.eql(u8, name, "element"))
+        extendScopeIdShallow(scopeIdBase(parent, passed), bindings[0])
+    else
+        extendScopeId(scopeIdBase(parent, passed), bindings[0]);
     return .{
         .bindings = bindings,
         .parent = parent,
         .passed = passed,
-        .id = extendScopeId(scopeIdBase(parent, passed), bindings[0]),
+        .id = id,
     };
 }
 
@@ -6771,6 +6858,13 @@ fn extendScopeId(base: u64, binding: RecordField) u64 {
     return hasher.final();
 }
 
+fn extendScopeIdShallow(base: u64, binding: RecordField) u64 {
+    var hasher = std.hash.Wyhash.init(base);
+    hasher.update(binding.name);
+    hashShallowValueIdentity(&hasher, binding.value);
+    return hasher.final();
+}
+
 fn extendRecordScopeId(base: u64, binding: RecordField) u64 {
     var hasher = std.hash.Wyhash.init(base);
     hasher.update(binding.name);
@@ -6808,6 +6902,85 @@ fn hashValueIdentity(hasher: *std.hash.Wyhash, value: Value) void {
                 hasher.update(std.mem.asBytes(&name_len));
                 hashValueIdentity(hasher, field.value);
             }
+        },
+        .binding_ref => |binding_id| hasher.update(std.mem.asBytes(&binding_id)),
+        .terminal => |terminal| {
+            const ptr_value: usize = @intFromPtr(terminal);
+            hasher.update(std.mem.asBytes(&ptr_value));
+        },
+        .document => |document| {
+            const ptr_value: usize = @intFromPtr(document);
+            hasher.update(std.mem.asBytes(&ptr_value));
+        },
+        .stripe => |stripe| {
+            const ptr_value: usize = @intFromPtr(stripe);
+            hasher.update(std.mem.asBytes(&ptr_value));
+        },
+        .label => |label| {
+            const ptr_value: usize = @intFromPtr(label);
+            hasher.update(std.mem.asBytes(&ptr_value));
+        },
+        .container => |container| {
+            const ptr_value: usize = @intFromPtr(container);
+            hasher.update(std.mem.asBytes(&ptr_value));
+        },
+        .checkbox => |checkbox| {
+            const ptr_value: usize = @intFromPtr(checkbox);
+            hasher.update(std.mem.asBytes(&ptr_value));
+        },
+        .button => |button| {
+            const ptr_value: usize = @intFromPtr(button);
+            hasher.update(std.mem.asBytes(&ptr_value));
+        },
+        .text_input => |input| {
+            const ptr_value: usize = @intFromPtr(input);
+            hasher.update(std.mem.asBytes(&ptr_value));
+        },
+        .select => |select| {
+            const ptr_value: usize = @intFromPtr(select);
+            hasher.update(std.mem.asBytes(&ptr_value));
+        },
+        .slider => |slider| {
+            const ptr_value: usize = @intFromPtr(slider);
+            hasher.update(std.mem.asBytes(&ptr_value));
+        },
+        .scoped_node => |deferred| {
+            hasher.update(std.mem.asBytes(&deferred.node_id));
+            const scope_id = if (deferred.scope) |scope| scope.id else @as(u64, 0);
+            hasher.update(std.mem.asBytes(&scope_id));
+        },
+        .link => |link| hasher.update(std.mem.asBytes(&link)),
+        .none => {},
+    }
+}
+
+fn hashShallowValueIdentity(hasher: *std.hash.Wyhash, value: Value) void {
+    const tag = std.meta.activeTag(value);
+    hasher.update(@tagName(tag));
+    switch (value) {
+        .number => |number| hasher.update(std.mem.asBytes(&number)),
+        .text => |text| {
+            hasher.update(text);
+            const len = text.len;
+            hasher.update(std.mem.asBytes(&len));
+        },
+        .symbol => |text| {
+            hasher.update(text);
+            const len = text.len;
+            hasher.update(std.mem.asBytes(&len));
+        },
+        .duration_ms => |duration_ms| hasher.update(std.mem.asBytes(&duration_ms)),
+        .list => |items| {
+            const ptr_value: usize = @intFromPtr(items.ptr);
+            const len = items.len;
+            hasher.update(std.mem.asBytes(&ptr_value));
+            hasher.update(std.mem.asBytes(&len));
+        },
+        .record => |fields| {
+            const ptr_value: usize = @intFromPtr(fields.ptr);
+            const len = fields.len;
+            hasher.update(std.mem.asBytes(&ptr_value));
+            hasher.update(std.mem.asBytes(&len));
         },
         .binding_ref => |binding_id| hasher.update(std.mem.asBytes(&binding_id)),
         .terminal => |terminal| {
@@ -7752,7 +7925,10 @@ fn collectButtonLinks(self: *Session, list: *std.ArrayList(ControlEventRef), all
         .document => |document| try collectButtonLinks(self, list, allocator, document.root),
         .terminal => |terminal| try collectButtonLinks(self, list, allocator, terminal.root),
         .stripe => |stripe| for (stripe.items) |item| try collectButtonLinks(self, list, allocator, item),
-        .container => |container| try collectButtonLinks(self, list, allocator, container.child),
+        .container => |container| {
+            if (container.click_link) |link| try list.append(allocator, try cloneControlEventRefForCache(allocator, .{ .link = link, .scope = container.event_scope }));
+            try collectButtonLinks(self, list, allocator, container.child);
+        },
         .label => |label| if (label.click_link) |link| try list.append(allocator, try cloneControlEventRefForCache(allocator, .{ .link = link, .scope = label.event_scope })),
         .checkbox => |checkbox| if (checkbox.click_link) |link| try list.append(allocator, try cloneControlEventRefForCache(allocator, .{ .link = link, .scope = checkbox.event_scope })),
         .button => |button| if (button.press_link) |link| try list.append(allocator, try cloneControlEventRefForCache(allocator, .{ .link = link, .scope = button.event_scope })),
@@ -8493,7 +8669,7 @@ test "scene element aliases render through headless runtime" {
         \\        items: LIST {
         \\            Scene/Element/text(element: [], text: TEXT { Hello })
         \\            Scene/Element/button(
-        \\                element: [event: [press: LINK]]
+        \\                element: [event: [press: SOURCE]]
         \\                label: Scene/Element/text(element: [], text: TEXT { World })
         \\            )
         \\        }
@@ -8648,7 +8824,7 @@ test "counter_hold persistence survives node id shifts via stable ids" {
         \\}
         \\
         \\increment_button: Element/button(
-        \\    element: [event: [press: LINK]]
+        \\    element: [event: [press: SOURCE]]
         \\    style: []
         \\    label: TEXT { + }
         \\)
@@ -8673,7 +8849,7 @@ test "counter_hold persistence survives node id shifts via stable ids" {
         \\}
         \\
         \\increment_button: Element/button(
-        \\    element: [event: [press: LINK]]
+        \\    element: [event: [press: SOURCE]]
         \\    style: []
         \\    label: TEXT { + }
         \\)
@@ -8737,7 +8913,7 @@ test "stored button element in record exposes press events through headless runt
         \\store: [
         \\    elements: [
         \\        increment: Element/button(
-        \\            element: [event: [press: LINK]]
+        \\            element: [event: [press: SOURCE]]
         \\            style: []
         \\            label: TEXT { + }
         \\        )
@@ -8779,12 +8955,63 @@ test "stored button element in record exposes press events through headless runt
     try std.testing.expectEqualStrings("1+", updated);
 }
 
+test "Reference accepts real element values and renders referenced label" {
+    const source =
+        \\title_label: Element/label(
+        \\    element: []
+        \\    style: []
+        \\    label: TEXT { Title }
+        \\)
+        \\
+        \\document: Document/new(root: Element/checkbox(
+        \\    element: [event: [click: SOURCE]]
+        \\    icon: TEXT { [ ] }
+        \\    label: Reference[element: title_label]
+        \\    checked: False
+        \\    style: []
+        \\))
+    ;
+
+    const outcome = try runAlloc(std.testing.allocator, source, .{ .trace = true });
+    const session_value = switch (outcome) {
+        .ok => |session| session,
+        .err => |failure| {
+            std.debug.print("unexpected Reference element failure: {s}\n", .{failure.message});
+            return error.UnexpectedHeadlessFailure;
+        },
+    };
+    var session = session_value;
+    defer session.deinit();
+
+    const rendered = try session.renderAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(rendered);
+    try std.testing.expect(std.mem.indexOf(u8, rendered, "Title") != null);
+}
+
+test "Reference rejects source interface records as element values" {
+    const source =
+        \\sources: [
+        \\    title_label: [event: [press: SOURCE]]
+        \\]
+        \\
+        \\document: Document/new(root: Element/checkbox(
+        \\    element: [event: [click: SOURCE]]
+        \\    icon: TEXT { [ ] }
+        \\    label: Reference[element: sources.title_label]
+        \\    checked: False
+        \\    style: []
+        \\))
+    ;
+
+    try std.testing.expectError(error.SourceRecordIsNotElementValue, runAlloc(std.testing.allocator, source, .{ .trace = true }));
+}
+
 test "stored text input element in record exposes change and key events through headless runtime" {
     const source =
         \\store: [
         \\    elements: [
         \\        input: Element/text_input(
-        \\            element: [event: [change: LINK, key_down: LINK]]
+        \\            element: [event: [change: SOURCE, key_down: SOURCE]]
         \\            style: []
         \\            label: Hidden[text: TEXT { Input }]
         \\            text: draft
@@ -8839,8 +9066,8 @@ test "stored text input element in record exposes change and key events through 
 test "custom record event links preserve key_down.text access after key press" {
     const source =
         \\event_ports: [
-        \\    edit_text_event: LINK
-        \\    edit_committed: LINK
+        \\    edit_text_event: SOURCE
+        \\    edit_committed: SOURCE
         \\]
         \\
         \\draft: TEXT {} |> HOLD draft {
@@ -8852,12 +9079,12 @@ test "custom record event links preserve key_down.text access after key press" {
         \\}
         \\
         \\input: BLOCK {
-        \\    editing_element: [event: [change: LINK, key_down: LINK]]
+        \\    editing_element: [event: [change: SOURCE, key_down: SOURCE]]
         \\
         \\    edit_changed_link:
         \\        editing_element.event.change
         \\        |> THEN { editing_element.event.change.text }
-        \\        |> LINK { event_ports.edit_text_event }
+        \\        |> SOURCE { event_ports.edit_text_event }
         \\
         \\    edit_committed_link:
         \\        editing_element.event.key_down.key
@@ -8865,7 +9092,7 @@ test "custom record event links preserve key_down.text access after key press" {
         \\            Enter => editing_element.event.key_down.text
         \\            __ => SKIP
         \\        }
-        \\        |> LINK { event_ports.edit_committed }
+        \\        |> SOURCE { event_ports.edit_committed }
         \\
         \\    Element/text_input(
         \\        element: editing_element
@@ -8908,7 +9135,7 @@ test "custom record event links preserve key_down.text access after key press" {
 test "terminal root exposes element-owned terminal binding and scoped link pulses" {
     const source =
         \\store: [
-        \\    elements: [launch: LINK]
+        \\    elements: [launch: SOURCE]
         \\    count: 0 |> HOLD count {
         \\        store.elements.launch.event.press |> THEN { count + 1 }
         \\    }
@@ -9095,7 +9322,7 @@ test "nested store hold field exposes sibling derived value through headless run
         \\store: [
         \\    elements: [
         \\        increment: Element/button(
-        \\            element: [event: [press: LINK]]
+        \\            element: [event: [press: SOURCE]]
         \\            style: []
         \\            label: TEXT { + }
         \\        )
@@ -9147,7 +9374,7 @@ test "deeply nested store hold field remains interactive through headless runtim
         \\    ui: [
         \\        controls: [
         \\            increment: Element/button(
-        \\                element: [event: [press: LINK]]
+        \\                element: [event: [press: SOURCE]]
         \\                style: []
         \\                label: TEXT { + }
         \\            )
@@ -9198,7 +9425,7 @@ test "deeply nested store hold field remains interactive through headless runtim
 test "nested store hold field can read sibling hold value on unscoped tick" {
     const source =
         \\store: [
-        \\    elements: [ serve: LINK tick: LINK ]
+        \\    elements: [ serve: SOURCE tick: SOURCE ]
         \\    x: -1 |> HOLD x {
         \\        store.elements.serve.event.press |> THEN { 8 }
         \\        store.elements.tick.event.press |> THEN { store.y }
@@ -9260,7 +9487,7 @@ test "nested store hold field can read sibling hold value inside block on unscop
         \\}
         \\
         \\store: [
-        \\    elements: [ serve: LINK tick: LINK ]
+        \\    elements: [ serve: SOURCE tick: SOURCE ]
         \\    x: -1 |> HOLD x {
         \\        store.elements.serve.event.press |> THEN { 8 }
         \\        store.elements.tick.event.press |> THEN {

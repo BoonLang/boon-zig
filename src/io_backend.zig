@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const build_options = @import("boon_build_options");
 
 pub const Backend = enum {
@@ -18,11 +19,12 @@ pub const Runtime = switch (selected) {
 };
 
 pub fn init() !Runtime {
+    const allocator = if (comptime builtin.single_threaded) std.heap.c_allocator else std.heap.smp_allocator;
     return switch (selected) {
-        .threaded => Runtime.init(std.heap.smp_allocator, .{}),
+        .threaded => Runtime.init(allocator, .{}),
         .evented => blk: {
             var runtime: Runtime = undefined;
-            try runtime.init(std.heap.smp_allocator, .{});
+            try runtime.init(allocator, .{});
             break :blk runtime;
         },
     };
