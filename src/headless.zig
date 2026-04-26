@@ -1572,11 +1572,14 @@ pub const Session = struct {
                             }
                         },
                         .stream_skip => {
-                            if (!self.nodeNeedsScope(index)) {
-                                try self.initSkipNode(allocator, index, call, null);
-                            } else {
-                                try self.logf("defer scoped skip n{d}", .{index});
-                            }
+                            self.initSkipNode(allocator, index, call, null) catch |err| switch (err) {
+                                error.MissingLocalBinding,
+                                error.MissingRecordField,
+                                error.ExpectedRecordNode,
+                                error.UnsupportedFieldAccess,
+                                => try self.logf("defer scoped skip n{d}", .{index}),
+                                else => return err,
+                            };
                         },
                         .list_append => {
                             if (!self.nodeNeedsScope(index)) try self.initListAppendNode(allocator, index, call);
@@ -1720,15 +1723,17 @@ pub const Session = struct {
                 .builtin_call => |call| {
                     switch (self.builtinOp(subscriber)) {
                         .stream_pulses, .stream_skip, .math_sum => if (call.positional.len != 0) {
-                            if (self.nodeNeedsScope(call.positional[0])) {
-                                self.runtime_subscribers[subscriber] = true;
-                            } else {
-                                const source = self.eventDependencySource(call.positional[0]) catch |err| switch (err) {
-                                    error.UnsupportedEventSource => if (self.nodeNeedsScope(subscriber)) continue else return err,
-                                    else => return err,
-                                };
-                                counts[source] += 1;
-                            }
+                            const source = self.eventDependencySource(call.positional[0]) catch |err| switch (err) {
+                                error.UnsupportedEventSource => {
+                                    if (self.nodeNeedsScope(call.positional[0])) {
+                                        self.runtime_subscribers[subscriber] = true;
+                                        continue;
+                                    }
+                                    if (self.nodeNeedsScope(subscriber)) continue else return err;
+                                },
+                                else => return err,
+                            };
+                            counts[source] += 1;
                         },
                         .list_append => if (!self.nodeNeedsScope(subscriber)) {
                             if (call.positional.len != 0) counts[try self.listSourceDependency(call.positional[0])] += 1;
@@ -1829,9 +1834,8 @@ pub const Session = struct {
                 .builtin_call => |call| {
                     switch (self.builtinOp(subscriber)) {
                         .stream_pulses, .stream_skip, .math_sum => if (call.positional.len != 0) {
-                            if (self.nodeNeedsScope(call.positional[0])) continue;
                             const source = self.eventDependencySource(call.positional[0]) catch |err| switch (err) {
-                                error.UnsupportedEventSource => if (self.nodeNeedsScope(subscriber)) continue else return err,
+                                error.UnsupportedEventSource => if (self.nodeNeedsScope(call.positional[0]) or self.nodeNeedsScope(subscriber)) continue else return err,
                                 else => return err,
                             };
                             try self.addSubscriber(source, subscriber, filled);
@@ -2556,7 +2560,10 @@ pub const Session = struct {
         const node = self.flow.nodes[subscriber];
         if (self.nodeNeedsScope(subscriber) and pulse.scope == null) switch (node.kind) {
             .hold => {},
-            .builtin_call => if (self.builtinOp(subscriber) != .router_go_to) return,
+            .builtin_call => switch (self.builtinOp(subscriber)) {
+                .router_go_to, .stream_skip => {},
+                else => return,
+            },
             else => return,
         };
         switch (node.kind) {
