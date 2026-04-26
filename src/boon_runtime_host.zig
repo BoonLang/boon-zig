@@ -1,6 +1,7 @@
 const std = @import("std");
 const diag = @import("diag.zig");
 const headless = @import("headless.zig");
+const parser = @import("parser.zig");
 
 pub const ValueId = u32;
 pub const LinkId = u64;
@@ -184,6 +185,8 @@ pub const BoonRuntimeHost = struct {
     snapshot_values: []RuntimeValue = &.{},
     snapshot_events: []EventBinding = &.{},
     diagnostics: []Diagnostic = &.{},
+    build_generated_files: [][]const u8 = &.{},
+    build_logs: []Diagnostic = &.{},
 
     pub fn init(
         allocator: std.mem.Allocator,
@@ -203,12 +206,14 @@ pub const BoonRuntimeHost = struct {
         self.clearRuntime();
         self.clearProject();
         self.clearDiagnostics();
+        self.clearBuildSummary();
     }
 
     pub fn loadProject(self: *BoonRuntimeHost, project: Project) !void {
         self.clearRuntime();
         self.clearProject();
         self.clearDiagnostics();
+        self.clearBuildSummary();
         self.project_loaded = true;
         self.has_build_file = false;
         self.project_name = try self.allocator.dupe(u8, project.name);
@@ -228,9 +233,58 @@ pub const BoonRuntimeHost = struct {
 
     pub fn runBuildFile(self: *BoonRuntimeHost) !BuildResult {
         self.clearDiagnostics();
+        self.clearBuildSummary();
         if (!self.project_loaded) return .{ .diagnostics = try self.unsupported("BoonRuntimeHost.loadProject must be called before runBuildFile") };
         if (!self.has_build_file) return .not_present;
-        return .{ .diagnostics = try self.unsupported("BoonRuntimeHost BUILD.bn execution is not implemented yet") };
+        const build_file = self.projectFileContents("BUILD.bn") orelse {
+            return .{ .diagnostics = try self.unsupported("BoonRuntimeHost BUILD.bn was marked present but could not be read") };
+        };
+
+        const parsed = try parser.parseAlloc(self.allocator, build_file);
+        switch (parsed) {
+            .ok => |document| {
+                var cleanup = document;
+                cleanup.deinit();
+            },
+            .err => |failure| return .{ .diagnostics = try self.diagnosticFromHeadless(failure) },
+        }
+
+        if (std.mem.indexOf(u8, build_file, "Directory/entries") == null or
+            std.mem.indexOf(u8, build_file, "File/write_text") == null or
+            std.mem.indexOf(u8, build_file, "FUNCTION icon_code") == null)
+        {
+            return .{ .diagnostics = try self.unsupported("BoonRuntimeHost BUILD.bn host supports the pinned icon asset build script only") };
+        }
+
+        const generated = self.generateIconAssetsFile() catch |err| switch (err) {
+            error.NoIconSvgFiles => return .{ .diagnostics = try self.unsupported("BoonRuntimeHost BUILD.bn found no SVG files under ./assets/icons") },
+            else => return err,
+        };
+        defer self.allocator.free(generated);
+
+        const output_path = "Generated/Assets.bn";
+        if (self.projectFileContents(output_path)) |expected| {
+            const normalized_generated = try normalizeLfAlloc(self.allocator, generated);
+            defer self.allocator.free(normalized_generated);
+            const normalized_expected = try normalizeLfAlloc(self.allocator, expected);
+            defer self.allocator.free(normalized_expected);
+            if (!std.mem.eql(u8, normalized_generated, normalized_expected)) {
+                return .{ .diagnostics = try self.unsupported("BoonRuntimeHost BUILD.bn generated ./Generated/Assets.bn, but it does not match the pinned checked-in file") };
+            }
+        }
+
+        try self.writeProjectFile(output_path, generated, true);
+        self.build_generated_files = try self.allocator.alloc([]const u8, 1);
+        self.build_generated_files[0] = try self.allocator.dupe(u8, output_path);
+        self.build_logs = try self.allocator.alloc(Diagnostic, 1);
+        self.build_logs[0] = .{
+            .severity = .info,
+            .message = try std.fmt.allocPrint(self.allocator, "Included {d} icons", .{self.iconSvgCount()}),
+        };
+        return .{ .ok = .{
+            .generated_files = self.build_generated_files,
+            .logs = self.build_logs,
+        } };
     }
 
     pub fn compileEntry(self: *BoonRuntimeHost) !CompileResult {
@@ -400,10 +454,128 @@ pub const BoonRuntimeHost = struct {
     }
 
     fn entryContents(self: *const BoonRuntimeHost) ?[]const u8 {
+        return self.projectFileContents(self.entry_file);
+    }
+
+    fn projectFileContents(self: *const BoonRuntimeHost, path: []const u8) ?[]const u8 {
         for (self.files) |file| {
-            if (std.mem.eql(u8, file.path, self.entry_file)) return file.contents;
+            if (std.mem.eql(u8, file.path, path)) return file.contents;
         }
         return null;
+    }
+
+    fn projectFileIndex(self: *const BoonRuntimeHost, path: []const u8) ?usize {
+        for (self.files, 0..) |file, index| {
+            if (std.mem.eql(u8, file.path, path)) return index;
+        }
+        return null;
+    }
+
+    fn writeProjectFile(self: *BoonRuntimeHost, path: []const u8, contents: []const u8, generated: bool) !void {
+        if (self.projectFileIndex(path)) |index| {
+            self.allocator.free(self.files[index].contents);
+            self.files[index].contents = try self.allocator.dupe(u8, contents);
+            self.files[index].generated = generated;
+            return;
+        }
+
+        const old_files = self.files;
+        const next = try self.allocator.alloc(ProjectFile, old_files.len + 1);
+        @memcpy(next[0..old_files.len], old_files);
+        next[old_files.len] = .{
+            .path = try self.allocator.dupe(u8, path),
+            .contents = try self.allocator.dupe(u8, contents),
+            .generated = generated,
+        };
+        self.allocator.free(old_files);
+        self.files = next;
+    }
+
+    fn generateIconAssetsFile(self: *BoonRuntimeHost) ![]u8 {
+        var icons = std.ArrayList(ProjectFile).empty;
+        defer icons.deinit(self.allocator);
+        for (self.files) |file| {
+            if (!isDirectIconSvg(file.path)) continue;
+            try icons.append(self.allocator, file);
+        }
+        if (icons.items.len == 0) return error.NoIconSvgFiles;
+        std.mem.sort(ProjectFile, icons.items, {}, iconPathLessThan);
+
+        var out = std.Io.Writer.Allocating.init(self.allocator);
+        errdefer out.deinit();
+        const writer = &out.writer;
+        try writer.writeAll("-- Generated from ./assets/icons\n\n        icon: [\n");
+        for (icons.items) |icon| {
+            const stem = iconStem(icon.path);
+            const encoded = try percentEncode(self.allocator, icon.contents);
+            defer self.allocator.free(encoded);
+            try writer.print("            {s}: data:image/svg+xml;utf8,{s}\n", .{ stem, encoded });
+        }
+        try writer.writeAll("        ]\n");
+        return try out.toOwnedSlice();
+    }
+
+    fn iconSvgCount(self: *const BoonRuntimeHost) usize {
+        var count: usize = 0;
+        for (self.files) |file| {
+            if (isDirectIconSvg(file.path)) count += 1;
+        }
+        return count;
+    }
+
+    fn isDirectIconSvg(path: []const u8) bool {
+        const prefix = "assets/icons/";
+        if (!std.mem.startsWith(u8, path, prefix)) return false;
+        const rest = path[prefix.len..];
+        if (rest.len == 0 or std.mem.indexOfScalar(u8, rest, '/') != null) return false;
+        return std.mem.endsWith(u8, rest, ".svg");
+    }
+
+    fn iconPathLessThan(_: void, lhs: ProjectFile, rhs: ProjectFile) bool {
+        return std.mem.lessThan(u8, lhs.path, rhs.path);
+    }
+
+    fn iconStem(path: []const u8) []const u8 {
+        const name = std.fs.path.basename(path);
+        return if (std.mem.lastIndexOfScalar(u8, name, '.')) |dot| name[0..dot] else name;
+    }
+
+    fn percentEncode(allocator: std.mem.Allocator, text: []const u8) ![]u8 {
+        var out = std.Io.Writer.Allocating.init(allocator);
+        errdefer out.deinit();
+        const writer = &out.writer;
+        const hex = "0123456789ABCDEF";
+        for (text) |byte| {
+            const allowed = (byte >= 'a' and byte <= 'z') or
+                (byte >= 'A' and byte <= 'Z') or
+                (byte >= '0' and byte <= '9') or
+                byte == '-' or byte == '_' or byte == '.' or byte == '~' or
+                byte == '/' or byte == ':';
+            if (allowed) {
+                try writer.writeByte(byte);
+            } else {
+                try writer.writeByte('%');
+                try writer.writeByte(hex[byte >> 4]);
+                try writer.writeByte(hex[byte & 0x0f]);
+            }
+        }
+        return try out.toOwnedSlice();
+    }
+
+    fn normalizeLfAlloc(allocator: std.mem.Allocator, text: []const u8) ![]u8 {
+        var out = std.Io.Writer.Allocating.init(allocator);
+        errdefer out.deinit();
+        const writer = &out.writer;
+        var index: usize = 0;
+        while (index < text.len) : (index += 1) {
+            if (text[index] == '\r') {
+                if (index + 1 < text.len and text[index + 1] == '\n') continue;
+                try writer.writeByte('\n');
+            } else {
+                try writer.writeByte(text[index]);
+            }
+        }
+        return try out.toOwnedSlice();
     }
 
     fn importableModuleCount(self: *const BoonRuntimeHost) usize {
@@ -434,6 +606,7 @@ pub const BoonRuntimeHost = struct {
     }
 
     fn clearProject(self: *BoonRuntimeHost) void {
+        self.clearBuildSummary();
         for (self.files) |file| {
             self.allocator.free(file.path);
             self.allocator.free(file.contents);
@@ -446,6 +619,15 @@ pub const BoonRuntimeHost = struct {
         self.entry_file = &.{};
         self.project_loaded = false;
         self.has_build_file = false;
+    }
+
+    fn clearBuildSummary(self: *BoonRuntimeHost) void {
+        for (self.build_generated_files) |path| self.allocator.free(path);
+        self.allocator.free(self.build_generated_files);
+        self.build_generated_files = &.{};
+        for (self.build_logs) |log| self.allocator.free(log.message);
+        self.allocator.free(self.build_logs);
+        self.build_logs = &.{};
     }
 
     fn clearSnapshotValues(self: *BoonRuntimeHost) void {
