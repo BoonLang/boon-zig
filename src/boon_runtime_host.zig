@@ -425,12 +425,19 @@ pub const BoonRuntimeHost = struct {
         defer self.allocator.free(rendered);
         self.clearSnapshotValues();
         self.clearSnapshotEvents();
-        self.snapshot_values = try self.allocator.alloc(RuntimeValue, 1);
-        self.snapshot_values[0] = .{ .text = try self.allocator.dupe(u8, rendered) };
+
+        var builder = SnapshotBuilder.init(self.allocator, session);
+        const semantic_root = try builder.appendValue(try session.semanticRootValue());
+        const rendered_text = try builder.appendValue(.{ .text = rendered });
+        const root = try builder.appendElementIds("document", &.{
+            .{ .name = "rendered_text", .value = rendered_text },
+            .{ .name = "root", .value = semantic_root },
+        });
+        self.snapshot_values = try builder.finish();
         self.snapshot_events = try self.collectEventBindings(session);
         const document = DocumentSnapshot{
             .revision = self.compiled_revision,
-            .root = 0,
+            .root = root,
             .values = self.snapshot_values,
             .events = self.snapshot_events,
             .route = session.routeTextView() catch self.route.current(self.route.ptr),
@@ -859,18 +866,144 @@ pub const BoonRuntimeHost = struct {
 
     fn clearSnapshotValues(self: *BoonRuntimeHost) void {
         for (self.snapshot_values) |value| {
-            switch (value) {
-                .text => |text| self.allocator.free(text),
-                else => {},
-            }
+            self.freeRuntimeValue(value);
         }
         self.allocator.free(self.snapshot_values);
         self.snapshot_values = &.{};
     }
 
+    fn freeRuntimeValue(self: *BoonRuntimeHost, value: RuntimeValue) void {
+        switch (value) {
+            .text => |text| self.allocator.free(text),
+            .symbol => |symbol| self.allocator.free(symbol),
+            .list => |items| self.allocator.free(items),
+            .record => |fields| {
+                for (fields) |field| self.allocator.free(field.name);
+                self.allocator.free(fields);
+            },
+            .element => |element| {
+                self.allocator.free(element.kind);
+                for (element.args) |field| self.allocator.free(field.name);
+                self.allocator.free(element.args);
+                self.allocator.free(element.stable_id);
+            },
+            else => {},
+        }
+    }
+
     fn clearSnapshotEvents(self: *BoonRuntimeHost) void {
         self.allocator.free(self.snapshot_events);
         self.snapshot_events = &.{};
+    }
+};
+
+const SnapshotBuilder = struct {
+    allocator: std.mem.Allocator,
+    session: *headless.Session,
+    values: std.ArrayList(RuntimeValue),
+
+    fn init(allocator: std.mem.Allocator, session: *headless.Session) SnapshotBuilder {
+        return .{
+            .allocator = allocator,
+            .session = session,
+            .values = std.ArrayList(RuntimeValue).empty,
+        };
+    }
+
+    fn finish(self: *SnapshotBuilder) ![]RuntimeValue {
+        return try self.values.toOwnedSlice(self.allocator);
+    }
+
+    fn appendValue(self: *SnapshotBuilder, value: headless.Value) anyerror!ValueId {
+        const converted = try self.convertValue(value);
+        const id: ValueId = @intCast(self.values.items.len);
+        try self.values.append(self.allocator, converted);
+        return id;
+    }
+
+    fn convertValue(self: *SnapshotBuilder, value: headless.Value) anyerror!RuntimeValue {
+        return switch (value) {
+            .none => .none,
+            .number => |number| .{ .number = number },
+            .duration_ms => |duration_ms| .{ .number = @floatFromInt(duration_ms) },
+            .text => |text| .{ .text = try self.allocator.dupe(u8, text) },
+            .symbol => |symbol| if (std.mem.eql(u8, symbol, "True"))
+                .{ .bool = true }
+            else if (std.mem.eql(u8, symbol, "False"))
+                .{ .bool = false }
+            else
+                .{ .symbol = try self.allocator.dupe(u8, symbol) },
+            .list => |items| .{ .list = try self.appendValueList(items) },
+            .record => |fields| .{ .record = try self.appendRecordFields(fields) },
+            .binding_ref => |binding_id| try self.convertValue(try self.session.semanticBindingValue(binding_id)),
+            .document => |document| try self.elementValue("document", &.{.{ .name = "root", .value = document.root }}),
+            .terminal => |terminal| try self.elementValue("terminal", &.{.{ .name = "root", .value = terminal.root }}),
+            .stripe => |stripe| blk: {
+                const direction: headless.Value = .{ .text = switch (stripe.direction) {
+                    .row => "row",
+                    .column => "column",
+                } };
+                break :blk try self.elementValue("stripe", &.{
+                    .{ .name = "items", .value = .{ .list = stripe.items } },
+                    .{ .name = "direction", .value = direction },
+                });
+            },
+            .label => |label| try self.elementValue("label", &.{.{ .name = "label", .value = label.label }}),
+            .container => |container| try self.elementValue("container", &.{.{ .name = "child", .value = container.child }}),
+            .checkbox => |checkbox| try self.elementValue("checkbox", &.{
+                .{ .name = "icon", .value = checkbox.icon },
+                .{ .name = "label", .value = checkbox.label },
+                .{ .name = "checked", .value = checkbox.checked },
+            }),
+            .button => |button| try self.elementValue("button", &.{.{ .name = "label", .value = button.label }}),
+            .text_input => |input| try self.elementValue("text_input", &.{.{ .name = "text", .value = input.text }}),
+            .select => |select| try self.elementValue("select", &.{.{ .name = "selected", .value = select.selected }}),
+            .slider => try self.elementValue("slider", &.{}),
+            .scoped_node => |deferred| try self.convertValue(try self.session.evalSemanticNode(deferred.node_id, deferred.scope)),
+            .link => |link| .{ .symbol = try std.fmt.allocPrint(self.allocator, "link:{d}", .{link}) },
+        };
+    }
+
+    fn appendValueList(self: *SnapshotBuilder, items: []const headless.Value) ![]ValueId {
+        const ids = try self.allocator.alloc(ValueId, items.len);
+        for (items, 0..) |item, index| ids[index] = try self.appendValue(item);
+        return ids;
+    }
+
+    fn appendRecordFields(self: *SnapshotBuilder, fields: []const headless.RecordField) ![]RecordField {
+        const out = try self.allocator.alloc(RecordField, fields.len);
+        for (fields, 0..) |field, index| {
+            out[index] = .{
+                .name = try self.allocator.dupe(u8, field.name),
+                .value = try self.appendValue(field.value),
+            };
+        }
+        return out;
+    }
+
+    fn elementValue(self: *SnapshotBuilder, kind: []const u8, fields: []const headless.RecordField) !RuntimeValue {
+        return .{ .element = .{
+            .kind = try self.allocator.dupe(u8, kind),
+            .args = try self.appendRecordFields(fields),
+            .stable_id = try self.allocator.dupe(u8, ""),
+        } };
+    }
+
+    fn appendElementIds(self: *SnapshotBuilder, kind: []const u8, fields: []const RecordField) !ValueId {
+        const id: ValueId = @intCast(self.values.items.len);
+        const args = try self.allocator.alloc(RecordField, fields.len);
+        for (fields, 0..) |field, index| {
+            args[index] = .{
+                .name = try self.allocator.dupe(u8, field.name),
+                .value = field.value,
+            };
+        }
+        try self.values.append(self.allocator, .{ .element = .{
+            .kind = try self.allocator.dupe(u8, kind),
+            .args = args,
+            .stable_id = try self.allocator.dupe(u8, ""),
+        } });
+        return id;
     }
 };
 

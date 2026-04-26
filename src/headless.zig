@@ -137,7 +137,7 @@ const PulsePayload = union(enum) {
     value: Value,
 };
 
-const RecordField = struct {
+pub const RecordField = struct {
     name: []const u8,
     value: Value,
 };
@@ -162,26 +162,26 @@ const EvalFrame = struct {
     deps: std.ArrayListUnmanaged(ScopedNodeKey) = .empty,
 };
 
-const ScopedNodeValue = struct {
+pub const ScopedNodeValue = struct {
     node_id: flow_ir.NodeId,
     scope: ?*const EvalScope,
 };
 
-const DocumentValue = struct {
+pub const DocumentValue = struct {
     root: Value,
 };
 
-const TerminalValue = struct {
+pub const TerminalValue = struct {
     root: Value,
     loop: Value = .none,
 };
 
-const StripeDirection = enum {
+pub const StripeDirection = enum {
     row,
     column,
 };
 
-const StripeValue = struct {
+pub const StripeValue = struct {
     items: []Value,
     direction: StripeDirection,
     gap: usize = 0,
@@ -190,7 +190,7 @@ const StripeValue = struct {
     event_scope: ?*const EvalScope = null,
 };
 
-const LabelValue = struct {
+pub const LabelValue = struct {
     label: Value,
     click_link: ?flow_ir.NodeId = null,
     double_click_link: ?flow_ir.NodeId = null,
@@ -200,7 +200,7 @@ const LabelValue = struct {
     event_scope: ?*const EvalScope = null,
 };
 
-const ContainerValue = struct {
+pub const ContainerValue = struct {
     child: Value,
     click_link: ?flow_ir.NodeId = null,
     terminal_width: usize = 0,
@@ -209,7 +209,7 @@ const ContainerValue = struct {
     event_scope: ?*const EvalScope = null,
 };
 
-const CheckboxValue = struct {
+pub const CheckboxValue = struct {
     icon: Value,
     label: Value = .none,
     checked: Value = .none,
@@ -220,7 +220,7 @@ const CheckboxValue = struct {
     event_scope: ?*const EvalScope = null,
 };
 
-const ButtonValue = struct {
+pub const ButtonValue = struct {
     label: Value,
     press_link: ?flow_ir.NodeId,
     hovered_link: ?flow_ir.NodeId = null,
@@ -230,7 +230,7 @@ const ButtonValue = struct {
     event_scope: ?*const EvalScope = null,
 };
 
-const TextInputValue = struct {
+pub const TextInputValue = struct {
     text: Value,
     change_link: ?flow_ir.NodeId,
     key_link: ?flow_ir.NodeId = null,
@@ -242,7 +242,7 @@ const TextInputValue = struct {
     event_scope: ?*const EvalScope = null,
 };
 
-const SelectValue = struct {
+pub const SelectValue = struct {
     selected: Value,
     change_link: ?flow_ir.NodeId,
     terminal_width: usize = 0,
@@ -251,13 +251,13 @@ const SelectValue = struct {
     event_scope: ?*const EvalScope = null,
 };
 
-const SliderValue = struct {
+pub const SliderValue = struct {
     change_link: ?flow_ir.NodeId,
     terminal_bindings: Value = .none,
     event_scope: ?*const EvalScope = null,
 };
 
-const EvalScope = struct {
+pub const EvalScope = struct {
     bindings: []const RecordField,
     parent: ?*const EvalScope,
     passed: ?Value = null,
@@ -265,7 +265,7 @@ const EvalScope = struct {
     transparent_state_scope: bool = false,
 };
 
-const Value = union(enum) {
+pub const Value = union(enum) {
     number: f64,
     text: []const u8,
     symbol: []const u8,
@@ -3121,6 +3121,18 @@ pub const Session = struct {
         try self.flushPendingQueue();
         const root_binding = self.flow.root_binding orelse return error.MissingDocumentRoot;
         return try self.evalNode(self.arena.allocator(), self.flow.bindings[root_binding].node, null);
+    }
+
+    pub fn semanticRootValue(self: *Session) anyerror!Value {
+        return try self.interactionRootValue();
+    }
+
+    pub fn semanticBindingValue(self: *Session, binding_id: flow_ir.BindingId) anyerror!Value {
+        return try self.evalNode(self.arena.allocator(), self.flow.bindings[binding_id].node, null);
+    }
+
+    pub fn evalSemanticNode(self: *Session, node_id: flow_ir.NodeId, scope: ?*const EvalScope) anyerror!Value {
+        return try self.evalNode(self.arena.allocator(), node_id, scope);
     }
 
     fn scopedNodeKey(self: *Session, node_id: flow_ir.NodeId, scope: ?*const EvalScope) ?ScopedNodeKey {
