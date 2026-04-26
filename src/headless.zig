@@ -938,6 +938,10 @@ pub const Session = struct {
         return .unknown;
     }
 
+    pub fn routeTextView(self: *Session) ![]const u8 {
+        return try valueAsText(self.route_value);
+    }
+
     pub fn triggerLink(self: *Session, link: flow_ir.NodeId) !void {
         return self.triggerLinkWithScope(link, null);
     }
@@ -2548,8 +2552,11 @@ pub const Session = struct {
     }
 
     fn dispatchPulseToSubscriber(self: *Session, subscriber: flow_ir.NodeId, pulse: Pulse) !void {
-        if (self.nodeNeedsScope(subscriber) and pulse.scope == null) return;
         const node = self.flow.nodes[subscriber];
+        if (self.nodeNeedsScope(subscriber) and pulse.scope == null) switch (node.kind) {
+            .builtin_call => if (self.builtinOp(subscriber) != .router_go_to) return,
+            else => return,
+        };
         switch (node.kind) {
             .then_value => |then_value| {
                 try self.logf("then n{d} -> n{d}", .{ subscriber, then_value.value });
@@ -2617,19 +2624,48 @@ pub const Session = struct {
                     },
                     .list_append => try self.processListAppendPulse(subscriber, call, pulse.source),
                     .list_clear => try self.processListClearPulse(subscriber, call, pulse.source),
-                    .router_go_to => if (call.positional.len != 0) {
-                        const route = try self.evalNode(self.arena.allocator(), call.positional[0], null);
-                        if (route != .none) {
-                            self.route_value = route;
-                            self.noteTopLevelMutation(subscriber);
-                            try self.logf("router_go_to n{d} -> {s}", .{ subscriber, try valueAsText(route) });
-                            try self.queue.append(self.arena.allocator(), .{ .source = subscriber, .payload = .{ .node = subscriber } });
-                        }
-                    },
+                    .router_go_to => try self.dispatchRouterGoTo(subscriber, call, pulse.scope, pulse.payload),
                     else => {},
                 }
             },
             else => {},
+        }
+    }
+
+    fn dispatchRouterGoTo(
+        self: *Session,
+        subscriber: flow_ir.NodeId,
+        call: flow_ir.BuiltinCall,
+        scope: ?*const EvalScope,
+        pulse_payload: ?PulsePayload,
+    ) !void {
+        if (call.positional.len == 0) return;
+        const route = if (pulse_payload) |payload|
+            valueFromPulsePayload(self, self.arena.allocator(), payload, scope) catch |err| switch (err) {
+                error.MissingLocalBinding => return,
+                else => return err,
+            }
+        else
+            self.evalNode(self.arena.allocator(), call.positional[0], scope) catch |err| switch (err) {
+                error.MissingLocalBinding => return,
+                else => return err,
+            };
+        if (route == .none) return;
+        self.route_value = route;
+        self.noteRouteMutation(subscriber);
+        try self.logf("router_go_to n{d} -> {s}", .{ subscriber, try valueAsText(route) });
+        try self.queue.append(self.arena.allocator(), .{ .source = subscriber, .payload = .{ .node = subscriber } });
+    }
+
+    fn noteRouteMutation(self: *Session, source: flow_ir.NodeId) void {
+        self.noteTopLevelMutation(source);
+        for (self.flow.nodes, 0..) |node, index| {
+            if (node.kind != .builtin_call) continue;
+            const node_id: flow_ir.NodeId = @intCast(index);
+            switch (self.builtinOp(node_id)) {
+                .router_route, .router_go_to => if (node_id != source) self.noteTopLevelMutation(node_id),
+                else => {},
+            }
         }
     }
 
@@ -10374,6 +10410,37 @@ test "todo_mvc headless session adds, toggles, clears, and filters todos" {
     try std.testing.expect(std.mem.indexOf(u8, trace, "external text_input[0]") != null);
     try std.testing.expect(std.mem.indexOf(u8, trace, "external text_input_key[0]") != null);
     try std.testing.expect(std.mem.indexOf(u8, trace, "list_remove n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, trace, "router_go_to") != null);
+}
+
+test "pages headless session routes through navigation links" {
+    const source = @embedFile("../examples/upstream/pages/pages.bn");
+    const outcome = try runAlloc(std.testing.allocator, source, .{ .trace = true });
+    const session_value = switch (outcome) {
+        .ok => |session| session,
+        .err => |failure| {
+            std.debug.print("unexpected pages router failure: {s}\n", .{failure.message});
+            return error.UnexpectedHeadlessFailure;
+        },
+    };
+    var session = session_value;
+    defer session.deinit();
+
+    try std.testing.expectEqualStrings("/", try session.routeTextView());
+    try session.clickButton(1);
+    try std.testing.expectEqualStrings("/about", try session.routeTextView());
+    const about = try session.renderAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(about);
+    try std.testing.expect(std.mem.indexOf(u8, about, "A multi-page Boon app") != null);
+
+    try session.clickButton(2);
+    try std.testing.expectEqualStrings("/contact", try session.routeTextView());
+    const contact = try session.renderAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(contact);
+    try std.testing.expect(std.mem.indexOf(u8, contact, "Get in touch!") != null);
+
+    const trace = try session.traceAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(trace);
     try std.testing.expect(std.mem.indexOf(u8, trace, "router_go_to") != null);
 }
 

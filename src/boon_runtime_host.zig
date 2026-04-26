@@ -424,7 +424,7 @@ pub const BoonRuntimeHost = struct {
             .root = 0,
             .values = self.snapshot_values,
             .events = self.snapshot_events,
-            .route = self.route.current(self.route.ptr),
+            .route = session.routeTextView() catch self.route.current(self.route.ptr),
         };
         return .{ .document = document };
     }
