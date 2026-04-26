@@ -2686,7 +2686,7 @@ pub const Session = struct {
                     .stream_skip => try self.processSkipPulse(subscriber, call, pulse.payload, pulse.scope),
                     .math_sum => {
                         const value = try valueAsNumber(try valueFromPulsePayload(self, self.arena.allocator(), pulse.payload, pulse.scope));
-                        if (self.sumSourceIsLatest(call)) {
+                        if (self.sumSourceIsMultiSourceLatest(call)) {
                             self.sum_values[subscriber] = value;
                         } else {
                             self.sum_values[subscriber] += value;
@@ -2710,15 +2710,15 @@ pub const Session = struct {
         }
     }
 
-    fn sumSourceIsLatest(self: *Session, call: flow_ir.BuiltinCall) bool {
+    fn sumSourceIsMultiSourceLatest(self: *Session, call: flow_ir.BuiltinCall) bool {
         if (call.positional.len == 0) return false;
-        return self.sourceIsLatest(call.positional[0]);
+        return self.sourceIsMultiSourceLatest(call.positional[0]);
     }
 
-    fn sourceIsLatest(self: *Session, node_id: flow_ir.NodeId) bool {
+    fn sourceIsMultiSourceLatest(self: *Session, node_id: flow_ir.NodeId) bool {
         return switch (self.flow.nodes[node_id].kind) {
-            .binding_ref => |binding_id| self.sourceIsLatest(self.flow.bindings[binding_id].node),
-            .latest => true,
+            .binding_ref => |binding_id| self.sourceIsMultiSourceLatest(self.flow.bindings[binding_id].node),
+            .latest => |latest| latest.sources.len > 1,
             else => false,
         };
     }
@@ -2775,7 +2775,7 @@ pub const Session = struct {
             .latest => |latest| blk: {
                 for (latest.sources) |source_node| {
                     if (!self.nodeNeedsScope(source_node)) continue;
-                    if (try self.safeScopedEventSourceEquals(source_node, scope, pulse_source)) break :blk true;
+                    if (try self.safeScopedLatestSourceEquals(source_node, scope, pulse_source)) break :blk true;
                 }
                 break :blk false;
             },
@@ -2832,6 +2832,16 @@ pub const Session = struct {
             else => return err,
         };
         return source == pulse_source;
+    }
+
+    fn safeScopedLatestSourceEquals(self: *Session, node_id: flow_ir.NodeId, scope: *const EvalScope, pulse_source: flow_ir.NodeId) anyerror!bool {
+        const node = self.flow.nodes[node_id];
+        return switch (node.kind) {
+            .binding_ref => |binding_id| try self.safeScopedLatestSourceEquals(self.flow.bindings[binding_id].node, scope, pulse_source),
+            .block => |block| try self.safeScopedLatestSourceEquals(block.result, scope, pulse_source),
+            .then_value, .when, .latest, .hold, .linked_value, .builtin_call => node_id == pulse_source,
+            else => try self.safeScopedEventSourceEquals(node_id, scope, pulse_source),
+        };
     }
 
     fn safeScopedHoldTriggerEquals(self: *Session, node_id: flow_ir.NodeId, scope: *const EvalScope, pulse_source: flow_ir.NodeId) anyerror!bool {
