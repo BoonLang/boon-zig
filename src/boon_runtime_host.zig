@@ -333,8 +333,12 @@ pub const BoonRuntimeHost = struct {
         self.session = null;
         const compiled = self.compiled orelse return .{ .diagnostics = try self.unsupported("BoonRuntimeHost compileEntry did not produce a compiled project") };
         self.compiled = null;
+        try ensureStateDir();
+        const state_file_path = try self.stateFilePathAlloc(self.project_name);
+        defer self.allocator.free(state_file_path);
         const outcome = try headless.runCompiledAlloc(self.allocator, compiled, .{
             .virtual_time_ms = self.currentVirtualTime(),
+            .state_file_path = state_file_path,
         });
         switch (outcome) {
             .ok => |session| {
@@ -381,6 +385,11 @@ pub const BoonRuntimeHost = struct {
     pub fn clearState(self: *BoonRuntimeHost, project_name: []const u8) !void {
         self.clearDiagnostics();
         try self.persist.deletePrefix(self.persist.ptr, project_name);
+        const state_file_path = try self.stateFilePathAlloc(project_name);
+        defer self.allocator.free(state_file_path);
+        const state_file_path_z = try self.allocator.dupeZ(u8, state_file_path);
+        defer self.allocator.free(state_file_path_z);
+        _ = c_unlink(state_file_path_z.ptr);
     }
 
     fn unsupported(self: *BoonRuntimeHost, message: []const u8) ![]const Diagnostic {
@@ -807,6 +816,13 @@ pub const BoonRuntimeHost = struct {
         };
     }
 
+    fn stateFilePathAlloc(self: *BoonRuntimeHost, project_name: []const u8) ![]u8 {
+        var hasher = std.hash.Wyhash.init(0);
+        hasher.update(project_name);
+        const digest = hasher.final();
+        return try std.fmt.allocPrint(self.allocator, "zig-out/boon-runtime-state/{x}.json", .{digest});
+    }
+
     fn clearRuntime(self: *BoonRuntimeHost) void {
         if (self.session) |*session| session.deinit();
         self.session = null;
@@ -857,6 +873,17 @@ pub const BoonRuntimeHost = struct {
         self.snapshot_events = &.{};
     }
 };
+
+fn ensureStateDir() !void {
+    _ = c_mkdir("zig-out", 0o777);
+    _ = c_mkdir("zig-out/boon-runtime-state", 0o777);
+}
+
+extern fn mkdir(path: [*:0]const u8, mode: c_uint) c_int;
+extern fn unlink(path: [*:0]const u8) c_int;
+
+const c_mkdir = mkdir;
+const c_unlink = unlink;
 
 test "BoonRuntimeHost bridge exposes explicit unsupported diagnostics" {
     const testing = std.testing;
