@@ -623,6 +623,7 @@ pub const Session = struct {
     builtin_ops: []BuiltinOp = &.{},
     node_needs_scope: []bool = &.{},
     node_needs_deferred_field: []bool = &.{},
+    top_level_owned_nodes: []bool = &.{},
     list_remove_nodes: []flow_ir.NodeId = &.{},
     list_remove_last_nodes: []flow_ir.NodeId = &.{},
     trace_enabled: bool,
@@ -1313,6 +1314,12 @@ pub const Session = struct {
 
         self.top_level_eval_deps = try allocator.alloc([]CachedDependency, node_count);
         for (self.top_level_eval_deps) |*slot| slot.* = &.{};
+
+        self.top_level_owned_nodes = try allocator.alloc(bool, node_count);
+        @memset(self.top_level_owned_nodes, false);
+        const top_level_visiting = try allocator.alloc(bool, node_count);
+        @memset(top_level_visiting, false);
+        for (self.flow.bindings) |binding| self.markTopLevelOwnedNode(binding.node, top_level_visiting);
 
         self.scene_specs = try allocator.alloc(?physical.SceneSpec, node_count);
         for (self.scene_specs) |*slot| slot.* = null;
@@ -3404,67 +3411,71 @@ pub const Session = struct {
     }
 
     fn isTopLevelOwnedNode(self: *Session, node_id: flow_ir.NodeId) bool {
-        for (self.flow.bindings) |binding| {
-            if (self.nodeTreeContains(binding.node, node_id)) return true;
-        }
-        return false;
+        return node_id < self.top_level_owned_nodes.len and self.top_level_owned_nodes[node_id];
     }
 
-    fn nodeTreeContains(self: *Session, root_id: flow_ir.NodeId, needle_id: flow_ir.NodeId) bool {
-        if (root_id == needle_id) return true;
-        const node = self.flow.nodes[root_id];
-        return switch (node.kind) {
-            .binding_ref => |binding_id| self.nodeTreeContains(self.flow.bindings[binding_id].node, needle_id),
-            .text => |parts| blk: {
-                for (parts) |part| if (self.nodeTreeContains(part, needle_id)) break :blk true;
-                break :blk false;
+    fn markTopLevelOwnedNode(self: *Session, node_id: flow_ir.NodeId, visiting: []bool) void {
+        if (node_id >= self.top_level_owned_nodes.len) return;
+        if (visiting[node_id]) return;
+        self.top_level_owned_nodes[node_id] = true;
+        visiting[node_id] = true;
+        defer visiting[node_id] = false;
+
+        const node = self.flow.nodes[node_id];
+        switch (node.kind) {
+            .binding_ref => |binding_id| self.markTopLevelOwnedNode(self.flow.bindings[binding_id].node, visiting),
+            .text => |parts| {
+                for (parts) |part| self.markTopLevelOwnedNode(part, visiting);
             },
-            .list => |list| blk: {
-                for (list.items) |item| if (self.nodeTreeContains(item, needle_id)) break :blk true;
-                break :blk false;
+            .list => |list| {
+                for (list.items) |item| self.markTopLevelOwnedNode(item, visiting);
             },
-            .record => |fields| blk: {
-                for (fields) |field| if (self.nodeTreeContains(field.value, needle_id)) break :blk true;
-                break :blk false;
+            .record => |fields| {
+                for (fields) |field| self.markTopLevelOwnedNode(field.value, visiting);
             },
-            .access => |access| self.nodeTreeContains(access.target, needle_id),
-            .binary => |binary| self.nodeTreeContains(binary.lhs, needle_id) or self.nodeTreeContains(binary.rhs, needle_id),
-            .block => |block| blk: {
-                for (block.bindings) |binding| if (self.nodeTreeContains(binding.value, needle_id)) break :blk true;
-                break :blk self.nodeTreeContains(block.result, needle_id);
+            .access => |access| self.markTopLevelOwnedNode(access.target, visiting),
+            .binary => |binary| {
+                self.markTopLevelOwnedNode(binary.lhs, visiting);
+                self.markTopLevelOwnedNode(binary.rhs, visiting);
             },
-            .when => |when| blk: {
-                if (self.nodeTreeContains(when.input, needle_id)) break :blk true;
+            .block => |block| {
+                for (block.bindings) |binding| self.markTopLevelOwnedNode(binding.value, visiting);
+                self.markTopLevelOwnedNode(block.result, visiting);
+            },
+            .when => |when| {
+                self.markTopLevelOwnedNode(when.input, visiting);
                 for (when.arms) |arm| {
-                    if (self.nodeTreeContains(arm.pattern, needle_id) or self.nodeTreeContains(arm.result, needle_id)) break :blk true;
+                    self.markTopLevelOwnedNode(arm.pattern, visiting);
+                    self.markTopLevelOwnedNode(arm.result, visiting);
                 }
-                break :blk false;
             },
-            .latest => |latest| blk: {
-                if (latest.initial) |initial| if (self.nodeTreeContains(initial, needle_id)) break :blk true;
-                for (latest.sources) |source| if (self.nodeTreeContains(source, needle_id)) break :blk true;
-                break :blk false;
+            .latest => |latest| {
+                if (latest.initial) |initial| self.markTopLevelOwnedNode(initial, visiting);
+                for (latest.sources) |source| self.markTopLevelOwnedNode(source, visiting);
             },
-            .then_value => |then_value| self.nodeTreeContains(then_value.source, needle_id) or self.nodeTreeContains(then_value.value, needle_id),
-            .hold => |hold| blk: {
-                if (self.nodeTreeContains(hold.initial, needle_id)) break :blk true;
-                for (hold.updates) |update| if (self.nodeTreeContains(update, needle_id)) break :blk true;
-                break :blk false;
+            .then_value => |then_value| {
+                self.markTopLevelOwnedNode(then_value.source, visiting);
+                self.markTopLevelOwnedNode(then_value.value, visiting);
             },
-            .linked_value => |linked| self.nodeTreeContains(linked.value, needle_id) or self.nodeTreeContains(linked.target, needle_id),
-            .builtin_call => |call| blk: {
-                for (call.positional) |argument| if (self.nodeTreeContains(argument, needle_id)) break :blk true;
-                for (call.named) |argument| if (self.nodeTreeContains(argument.value, needle_id)) break :blk true;
-                break :blk false;
+            .hold => |hold| {
+                self.markTopLevelOwnedNode(hold.initial, visiting);
+                for (hold.updates) |update| self.markTopLevelOwnedNode(update, visiting);
             },
-            .user_call => |call| blk: {
-                for (call.positional) |argument| if (self.nodeTreeContains(argument, needle_id)) break :blk true;
-                for (call.named) |argument| if (self.nodeTreeContains(argument.value, needle_id)) break :blk true;
-                if (call.pass_context) |pass_context| if (self.nodeTreeContains(pass_context, needle_id)) break :blk true;
-                break :blk false;
+            .linked_value => |linked| {
+                self.markTopLevelOwnedNode(linked.value, visiting);
+                self.markTopLevelOwnedNode(linked.target, visiting);
             },
-            else => false,
-        };
+            .builtin_call => |call| {
+                for (call.positional) |argument| self.markTopLevelOwnedNode(argument, visiting);
+                for (call.named) |argument| self.markTopLevelOwnedNode(argument.value, visiting);
+            },
+            .user_call => |call| {
+                for (call.positional) |argument| self.markTopLevelOwnedNode(argument, visiting);
+                for (call.named) |argument| self.markTopLevelOwnedNode(argument.value, visiting);
+                if (call.pass_context) |pass_context| self.markTopLevelOwnedNode(pass_context, visiting);
+            },
+            else => {},
+        }
     }
 
     fn holdStorageScope(self: *Session, node_id: flow_ir.NodeId, hold: flow_ir.Hold, scope: ?*const EvalScope) ?*const EvalScope {
