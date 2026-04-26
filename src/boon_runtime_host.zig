@@ -182,6 +182,7 @@ pub const BoonRuntimeHost = struct {
     compiled: ?headless.CompiledProgram = null,
     session: ?headless.Session = null,
     snapshot_values: []RuntimeValue = &.{},
+    snapshot_events: []EventBinding = &.{},
     diagnostics: []Diagnostic = &.{},
 
     pub fn init(
@@ -282,22 +283,22 @@ pub const BoonRuntimeHost = struct {
         self.clearDiagnostics();
         var session = if (self.session) |*session| session else return .{ .diagnostics = try self.unsupported("BoonRuntimeHost.start must be called before dispatch") };
         switch (event) {
-            .press, .click => |link| try session.triggerLink(@intCast(link)),
-            .double_click => |link| try session.triggerLink(@intCast(link)),
+            .press, .click => |link| try session.clickButton(@intCast(link)),
+            .double_click => |link| try session.doubleClickLabel(@intCast(link)),
             .hover => |payload| {
                 _ = payload.hovered;
                 try session.triggerLink(@intCast(payload.link));
             },
-            .change_text => |payload| try session.triggerLink(@intCast(payload.link)),
-            .key_down => |payload| try session.triggerLink(@intCast(payload.link)),
-            .blur => |link| try session.triggerLink(@intCast(link)),
-            .focus => |link| try session.triggerLink(@intCast(link)),
+            .change_text => |payload| try session.setTextInputValue(@intCast(payload.link), payload.text),
+            .key_down => |payload| try session.pressTextInputKey(@intCast(payload.link), @tagName(payload.key)),
+            .blur => |link| try session.blurTextInput(@intCast(link)),
+            .focus => |link| try session.focusTextInput(@intCast(link)),
             .checkbox_change => |payload| {
                 _ = payload.checked;
                 try session.triggerLink(@intCast(payload.link));
             },
-            .select_change => |payload| try session.triggerLink(@intCast(payload.link)),
-            .slider_change => |payload| try session.triggerLink(@intCast(payload.link)),
+            .select_change => |payload| try session.setSelectValue(@intCast(payload.link), payload.value),
+            .slider_change => |payload| try session.setSliderValue(@intCast(payload.link), payload.value),
             .svg_click => |payload| try session.triggerLink(@intCast(payload.link)),
         }
         return try self.snapshotOutput();
@@ -348,15 +349,54 @@ pub const BoonRuntimeHost = struct {
         const rendered = try session.snapshotAlloc(self.allocator);
         defer self.allocator.free(rendered);
         self.clearSnapshotValues();
+        self.clearSnapshotEvents();
         self.snapshot_values = try self.allocator.alloc(RuntimeValue, 1);
         self.snapshot_values[0] = .{ .text = try self.allocator.dupe(u8, rendered) };
+        self.snapshot_events = try self.collectEventBindings(session);
         const document = DocumentSnapshot{
             .revision = self.compiled_revision,
             .root = 0,
             .values = self.snapshot_values,
+            .events = self.snapshot_events,
             .route = self.route.current(self.route.ptr),
         };
         return .{ .document = document };
+    }
+
+    fn collectEventBindings(self: *BoonRuntimeHost, session: *headless.Session) ![]EventBinding {
+        const controls = try session.controlsAlloc(self.allocator);
+        defer self.allocator.free(controls);
+
+        var events = std.ArrayList(EventBinding).empty;
+        defer events.deinit(self.allocator);
+        try appendSectionEvents(self.allocator, &events, controls, "click", "click");
+        try appendSectionEvents(self.allocator, &events, controls, "dblclick", "double_click");
+        try appendSectionEvents(self.allocator, &events, controls, "text", "change_text");
+        try appendSectionEvents(self.allocator, &events, controls, "select", "select_change");
+        try appendSectionEvents(self.allocator, &events, controls, "hover", "hover");
+        return try events.toOwnedSlice(self.allocator);
+    }
+
+    fn appendSectionEvents(
+        allocator: std.mem.Allocator,
+        events: *std.ArrayList(EventBinding),
+        controls: []const u8,
+        section_name: []const u8,
+        event_name: []const u8,
+    ) !void {
+        const header = try std.fmt.allocPrint(allocator, "{s} (", .{section_name});
+        defer allocator.free(header);
+        const section_start = std.mem.indexOf(u8, controls, header) orelse return;
+        const after_header = controls[section_start + header.len ..];
+        const count_end = std.mem.indexOfScalar(u8, after_header, ')') orelse return;
+        const count = std.fmt.parseUnsigned(usize, after_header[0..count_end], 10) catch return;
+        for (0..count) |index| {
+            try events.append(allocator, .{
+                .id = @intCast(index),
+                .source_value = 0,
+                .event_name = event_name,
+            });
+        }
     }
 
     fn entryContents(self: *const BoonRuntimeHost) ?[]const u8 {
@@ -390,6 +430,7 @@ pub const BoonRuntimeHost = struct {
         if (self.compiled) |*compiled| compiled.deinit();
         self.compiled = null;
         self.clearSnapshotValues();
+        self.clearSnapshotEvents();
     }
 
     fn clearProject(self: *BoonRuntimeHost) void {
@@ -416,6 +457,11 @@ pub const BoonRuntimeHost = struct {
         }
         self.allocator.free(self.snapshot_values);
         self.snapshot_values = &.{};
+    }
+
+    fn clearSnapshotEvents(self: *BoonRuntimeHost) void {
+        self.allocator.free(self.snapshot_events);
+        self.snapshot_events = &.{};
     }
 };
 
