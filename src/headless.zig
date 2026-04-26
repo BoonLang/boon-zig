@@ -33,6 +33,11 @@ const BuiltinOp = enum(u8) {
     router_go_to,
     theme_geometry,
     theme_lights,
+    theme_material,
+    theme_font,
+    theme_text,
+    theme_number,
+    theme_spring_range,
     light_prefixed,
     element_stripe,
     scene_element_stripe,
@@ -60,6 +65,7 @@ const BuiltinOp = enum(u8) {
     bool_not,
     bool_or,
     bool_and,
+    bool_toggle,
     element_button,
     scene_element_button,
     element_text_input,
@@ -90,6 +96,7 @@ const BuiltinOp = enum(u8) {
     list_any,
     list_every,
     list_sum,
+    list_latest,
     stream_pulses,
     stream_skip,
     timer_interval,
@@ -518,6 +525,16 @@ fn builtinOpFromPath(path: []const u8) BuiltinOp {
     if (std.mem.eql(u8, path, "Router/go_to")) return .router_go_to;
     if (std.mem.eql(u8, path, "Theme/geometry")) return .theme_geometry;
     if (std.mem.eql(u8, path, "Theme/lights")) return .theme_lights;
+    if (std.mem.eql(u8, path, "Theme/material")) return .theme_material;
+    if (std.mem.eql(u8, path, "Theme/font")) return .theme_font;
+    if (std.mem.eql(u8, path, "Theme/text")) return .theme_text;
+    if (std.mem.eql(u8, path, "Theme/depth") or
+        std.mem.eql(u8, path, "Theme/elevation") or
+        std.mem.eql(u8, path, "Theme/corners") or
+        std.mem.eql(u8, path, "Theme/sizing") or
+        std.mem.eql(u8, path, "Theme/spacing"))
+        return .theme_number;
+    if (std.mem.eql(u8, path, "Theme/spring_range")) return .theme_spring_range;
     if (std.mem.startsWith(u8, path, "Light/")) return .light_prefixed;
     if (std.mem.eql(u8, path, "Element/stripe")) return .element_stripe;
     if (std.mem.eql(u8, path, "Scene/Element/stripe")) return .scene_element_stripe;
@@ -545,6 +562,7 @@ fn builtinOpFromPath(path: []const u8) BuiltinOp {
     if (std.mem.eql(u8, path, "Bool/not")) return .bool_not;
     if (std.mem.eql(u8, path, "Bool/or")) return .bool_or;
     if (std.mem.eql(u8, path, "Bool/and")) return .bool_and;
+    if (std.mem.eql(u8, path, "Bool/toggle")) return .bool_toggle;
     if (std.mem.eql(u8, path, "Element/button")) return .element_button;
     if (std.mem.eql(u8, path, "Scene/Element/button")) return .scene_element_button;
     if (std.mem.eql(u8, path, "Element/text_input")) return .element_text_input;
@@ -575,6 +593,7 @@ fn builtinOpFromPath(path: []const u8) BuiltinOp {
     if (std.mem.eql(u8, path, "List/any")) return .list_any;
     if (std.mem.eql(u8, path, "List/every")) return .list_every;
     if (std.mem.eql(u8, path, "List/sum")) return .list_sum;
+    if (std.mem.eql(u8, path, "List/latest")) return .list_latest;
     if (std.mem.eql(u8, path, "Stream/pulses")) return .stream_pulses;
     if (std.mem.eql(u8, path, "Stream/skip")) return .stream_skip;
     if (std.mem.eql(u8, path, "Timer/interval")) return .timer_interval;
@@ -3877,7 +3896,7 @@ pub const Session = struct {
             const style_node = findNamed(call.named, "style");
             const element_value = try self.evalNode(allocator, element_node, scope);
             var element_scope = try withLocalBinding(allocator, scope, "element", element_value);
-            const style_value = if (style_node) |node| try self.evalNode(allocator, node, scope) else .none;
+            const style_value = if (style_node) |node| try self.evalNode(allocator, node, &element_scope) else .none;
             const style_size = terminalStyleSizeFromValue(style_value);
             const container = try allocator.create(ContainerValue);
             container.* = .{
@@ -3946,6 +3965,24 @@ pub const Session = struct {
         if (op == .theme_lights) {
             return try themeLightsValueForScope(self, allocator, scope);
         }
+        if (op == .theme_material or op == .theme_font or op == .theme_text) {
+            const fields = try allocator.alloc(RecordField, 5);
+            fields[0] = .{ .name = "color", .value = .{ .symbol = "DefaultColor" } };
+            fields[1] = .{ .name = "gloss", .value = .{ .number = 0.2 } };
+            fields[2] = .{ .name = "metal", .value = .{ .number = 0.0 } };
+            fields[3] = .{ .name = "size", .value = .{ .number = 16.0 } };
+            fields[4] = .{ .name = "weight", .value = .{ .symbol = "Regular" } };
+            return .{ .record = fields };
+        }
+        if (op == .theme_number) {
+            return .{ .number = 8.0 };
+        }
+        if (op == .theme_spring_range) {
+            const fields = try allocator.alloc(RecordField, 2);
+            fields[0] = .{ .name = "extend", .value = .{ .number = 6.0 } };
+            fields[1] = .{ .name = "compress", .value = .{ .number = 4.0 } };
+            return .{ .record = fields };
+        }
         if (op == .light_prefixed) {
             const fields = try allocator.alloc(RecordField, call.named.len + 1);
             fields[0] = .{ .name = "kind", .value = .{ .text = try allocator.dupe(u8, call.path) } };
@@ -3990,7 +4027,7 @@ pub const Session = struct {
             const style_node = findNamed(call.named, "style");
             const element_value = try self.evalNode(allocator, element_node, scope);
             var element_scope = try withLocalBinding(allocator, scope, "element", element_value);
-            const style_value = if (style_node) |node| try self.evalNode(allocator, node, scope) else .none;
+            const style_value = if (style_node) |node| try self.evalNode(allocator, node, &element_scope) else .none;
             const style_size = terminalStyleSizeFromValue(style_value);
             const label = try allocator.create(LabelValue);
             label.* = .{
@@ -4051,7 +4088,7 @@ pub const Session = struct {
             const style_node = findNamed(call.named, "style");
             const element_value = try self.evalNode(allocator, element_node, scope);
             var element_scope = try withLocalBinding(allocator, scope, "element", element_value);
-            const style_value = if (style_node) |node| try self.evalNode(allocator, node, scope) else .none;
+            const style_value = if (style_node) |node| try self.evalNode(allocator, node, &element_scope) else .none;
             const style_size = terminalStyleSizeFromValue(style_value);
             const checkbox = try allocator.create(CheckboxValue);
             checkbox.* = .{
@@ -4191,6 +4228,10 @@ pub const Session = struct {
             const value_node = if (call.positional.len != 0) call.positional[0] else return error.MissingArgument;
             return booleanValue(!try valueAsBool(try self.evalNode(allocator, value_node, scope)));
         }
+        if (op == .bool_toggle) {
+            const value_node = if (call.positional.len != 0) call.positional[0] else return error.MissingArgument;
+            return booleanValue(try valueAsBool(try self.evalNode(allocator, value_node, scope)));
+        }
         if (op == .bool_or) {
             const lhs_node = if (call.positional.len != 0) call.positional[0] else return error.MissingArgument;
             const rhs_node = findNamed(call.named, "that") orelse return error.MissingArgument;
@@ -4211,7 +4252,7 @@ pub const Session = struct {
             const style_node = findNamed(call.named, "style");
             const element_value = try self.evalNode(allocator, element_node, scope);
             var element_scope = try withLocalBinding(allocator, scope, "element", element_value);
-            const style_value = if (style_node) |node| try self.evalNode(allocator, node, scope) else .none;
+            const style_value = if (style_node) |node| try self.evalNode(allocator, node, &element_scope) else .none;
             const style_size = terminalStyleSizeFromValue(style_value);
             const button = try allocator.create(ButtonValue);
             button.* = .{
@@ -4231,7 +4272,7 @@ pub const Session = struct {
             const style_node = findNamed(call.named, "style");
             const element_value = try self.evalNode(allocator, element_node, scope);
             var element_scope = try withLocalBinding(allocator, scope, "element", element_value);
-            const style_value = if (style_node) |node| try self.evalNode(allocator, node, scope) else .none;
+            const style_value = if (style_node) |node| try self.evalNode(allocator, node, &element_scope) else .none;
             const style_size = terminalStyleSizeFromValue(style_value);
             const input = try allocator.create(TextInputValue);
             input.* = .{
@@ -4253,7 +4294,7 @@ pub const Session = struct {
             const style_node = findNamed(call.named, "style");
             const element_value = try self.evalNode(allocator, element_node, scope);
             var element_scope = try withLocalBinding(allocator, scope, "element", element_value);
-            const style_value = if (style_node) |node| try self.evalNode(allocator, node, scope) else .none;
+            const style_value = if (style_node) |node| try self.evalNode(allocator, node, &element_scope) else .none;
             const style_size = terminalStyleSizeFromValue(style_value);
             const select = try allocator.create(SelectValue);
             select.* = .{
@@ -4543,6 +4584,15 @@ pub const Session = struct {
             var sum: f64 = 0;
             for (items) |item| sum += try valueAsNumber(item);
             return .{ .number = sum };
+        }
+        if (op == .list_latest) {
+            const list_node = if (call.positional.len != 0) call.positional[0] else return error.MissingArgument;
+            const list_value = try self.evalNode(allocator, list_node, scope);
+            const items = switch (list_value) {
+                .list => |items| items,
+                else => return error.ExpectedListValue,
+            };
+            return if (items.len == 0) .none else items[items.len - 1];
         }
         if (op == .stream_pulses) return .none;
         if (op == .stream_skip) {
