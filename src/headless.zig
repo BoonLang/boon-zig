@@ -1146,7 +1146,10 @@ pub const Session = struct {
     }
 
     pub fn focusTextInput(self: *Session, index: usize) !void {
-        const event = try self.textInputFocusLinkAt(index);
+        const event = self.textInputFocusLinkAt(index) catch |err| switch (err) {
+            error.InvalidTextInputIndex => return,
+            else => return err,
+        };
         const scope = canonicalControlScope(event.scope);
         try self.logf("external text_input_focus[{d}] -> n{d}", .{ index, event.link });
         try self.enqueueExternalNodePulse(event.link, scope);
@@ -1159,7 +1162,10 @@ pub const Session = struct {
     }
 
     pub fn blurTextInput(self: *Session, index: usize) !void {
-        const event = try self.textInputBlurLinkAt(index);
+        const event = self.textInputBlurLinkAt(index) catch |err| switch (err) {
+            error.InvalidTextInputIndex => return,
+            else => return err,
+        };
         const scope = canonicalControlScope(event.scope);
         try self.logf("external text_input_blur[{d}] -> n{d}", .{ index, event.link });
         try self.enqueueExternalNodePulse(event.link, scope);
@@ -2042,43 +2048,43 @@ pub const Session = struct {
         if (std.mem.eql(u8, access.field, "press")) {
             const target = self.flow.nodes[access.target];
             if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "event")) {
-                if (try self.resolveElementEventLink(target.kind.access.target, "press", null)) |link| return link;
+                if (try self.resolveEventSourceLink(target.kind.access.target, "press", null)) |link| return link;
             }
         }
         if (std.mem.eql(u8, access.field, "change")) {
             const target = self.flow.nodes[access.target];
             if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "event")) {
-                if (try self.resolveElementEventLink(target.kind.access.target, "change", null)) |link| return link;
+                if (try self.resolveEventSourceLink(target.kind.access.target, "change", null)) |link| return link;
             }
         }
         if (std.mem.eql(u8, access.field, "click")) {
             const target = self.flow.nodes[access.target];
             if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "event")) {
-                if (try self.resolveElementEventLink(target.kind.access.target, "click", null)) |link| return link;
+                if (try self.resolveEventSourceLink(target.kind.access.target, "click", null)) |link| return link;
             }
         }
         if (std.mem.eql(u8, access.field, "double_click")) {
             const target = self.flow.nodes[access.target];
             if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "event")) {
-                if (try self.resolveElementEventLink(target.kind.access.target, "double_click", null)) |link| return link;
+                if (try self.resolveEventSourceLink(target.kind.access.target, "double_click", null)) |link| return link;
             }
         }
         if (std.mem.eql(u8, access.field, "key_down")) {
             const target = self.flow.nodes[access.target];
             if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "event")) {
-                if (try self.resolveElementEventLink(target.kind.access.target, "key_down", null)) |link| return link;
+                if (try self.resolveEventSourceLink(target.kind.access.target, "key_down", null)) |link| return link;
             }
         }
         if (std.mem.eql(u8, access.field, "blur")) {
             const target = self.flow.nodes[access.target];
             if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "event")) {
-                if (try self.resolveElementEventLink(target.kind.access.target, "blur", null)) |link| return link;
+                if (try self.resolveEventSourceLink(target.kind.access.target, "blur", null)) |link| return link;
             }
         }
         if (std.mem.eql(u8, access.field, "focus")) {
             const target = self.flow.nodes[access.target];
             if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "event")) {
-                if (try self.resolveElementEventLink(target.kind.access.target, "focus", null)) |link| return link;
+                if (try self.resolveEventSourceLink(target.kind.access.target, "focus", null)) |link| return link;
             }
         }
         if (try self.resolveStaticLinkNode(node_id)) |link| return link;
@@ -2088,7 +2094,7 @@ pub const Session = struct {
             if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "change")) {
                 const event_target = self.flow.nodes[target.kind.access.target];
                 if (event_target.kind == .access and std.mem.eql(u8, event_target.kind.access.field, "event")) {
-                    if (try self.resolveElementEventLink(event_target.kind.access.target, "change", null)) |link| return link;
+                    if (try self.resolveEventSourceLink(event_target.kind.access.target, "change", null)) |link| return link;
                 }
             }
         }
@@ -2097,7 +2103,7 @@ pub const Session = struct {
             if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "change")) {
                 const event_target = self.flow.nodes[target.kind.access.target];
                 if (event_target.kind == .access and std.mem.eql(u8, event_target.kind.access.field, "event")) {
-                    if (try self.resolveElementEventLink(event_target.kind.access.target, "change", null)) |link| return link;
+                    if (try self.resolveEventSourceLink(event_target.kind.access.target, "change", null)) |link| return link;
                 }
             }
         }
@@ -2106,7 +2112,7 @@ pub const Session = struct {
             if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "key_down")) {
                 const event_target = self.flow.nodes[target.kind.access.target];
                 if (event_target.kind == .access and std.mem.eql(u8, event_target.kind.access.field, "event")) {
-                    if (try self.resolveElementEventLink(event_target.kind.access.target, "key_down", null)) |link| return link;
+                    if (try self.resolveEventSourceLink(event_target.kind.access.target, "key_down", null)) |link| return link;
                 }
             }
         }
@@ -2129,43 +2135,43 @@ pub const Session = struct {
         if (std.mem.eql(u8, access.field, "press")) {
             const target = self.flow.nodes[access.target];
             if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "event")) {
-                if (try self.resolveElementEventLink(target.kind.access.target, "press", scope)) |link| return link;
+                if (try self.resolveEventSourceLink(target.kind.access.target, "press", scope)) |link| return link;
             }
         }
         if (std.mem.eql(u8, access.field, "change")) {
             const target = self.flow.nodes[access.target];
             if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "event")) {
-                if (try self.resolveElementEventLink(target.kind.access.target, "change", scope)) |link| return link;
+                if (try self.resolveEventSourceLink(target.kind.access.target, "change", scope)) |link| return link;
             }
         }
         if (std.mem.eql(u8, access.field, "click")) {
             const target = self.flow.nodes[access.target];
             if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "event")) {
-                if (try self.resolveElementEventLink(target.kind.access.target, "click", scope)) |link| return link;
+                if (try self.resolveEventSourceLink(target.kind.access.target, "click", scope)) |link| return link;
             }
         }
         if (std.mem.eql(u8, access.field, "double_click")) {
             const target = self.flow.nodes[access.target];
             if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "event")) {
-                if (try self.resolveElementEventLink(target.kind.access.target, "double_click", scope)) |link| return link;
+                if (try self.resolveEventSourceLink(target.kind.access.target, "double_click", scope)) |link| return link;
             }
         }
         if (std.mem.eql(u8, access.field, "key_down")) {
             const target = self.flow.nodes[access.target];
             if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "event")) {
-                if (try self.resolveElementEventLink(target.kind.access.target, "key_down", scope)) |link| return link;
+                if (try self.resolveEventSourceLink(target.kind.access.target, "key_down", scope)) |link| return link;
             }
         }
         if (std.mem.eql(u8, access.field, "blur")) {
             const target = self.flow.nodes[access.target];
             if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "event")) {
-                if (try self.resolveElementEventLink(target.kind.access.target, "blur", scope)) |link| return link;
+                if (try self.resolveEventSourceLink(target.kind.access.target, "blur", scope)) |link| return link;
             }
         }
         if (std.mem.eql(u8, access.field, "focus")) {
             const target = self.flow.nodes[access.target];
             if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "event")) {
-                if (try self.resolveElementEventLink(target.kind.access.target, "focus", scope)) |link| return link;
+                if (try self.resolveEventSourceLink(target.kind.access.target, "focus", scope)) |link| return link;
             }
         }
         if (try self.resolveScopedLinkNode(node_id, scope)) |link| return link;
@@ -2175,7 +2181,7 @@ pub const Session = struct {
             if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "change")) {
                 const event_target = self.flow.nodes[target.kind.access.target];
                 if (event_target.kind == .access and std.mem.eql(u8, event_target.kind.access.field, "event")) {
-                    if (try self.resolveElementEventLink(event_target.kind.access.target, "change", scope)) |link| return link;
+                    if (try self.resolveEventSourceLink(event_target.kind.access.target, "change", scope)) |link| return link;
                 }
             }
         }
@@ -2184,7 +2190,7 @@ pub const Session = struct {
             if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "change")) {
                 const event_target = self.flow.nodes[target.kind.access.target];
                 if (event_target.kind == .access and std.mem.eql(u8, event_target.kind.access.field, "event")) {
-                    if (try self.resolveElementEventLink(event_target.kind.access.target, "change", scope)) |link| return link;
+                    if (try self.resolveEventSourceLink(event_target.kind.access.target, "change", scope)) |link| return link;
                 }
             }
         }
@@ -2193,11 +2199,19 @@ pub const Session = struct {
             if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "key_down")) {
                 const event_target = self.flow.nodes[target.kind.access.target];
                 if (event_target.kind == .access and std.mem.eql(u8, event_target.kind.access.field, "event")) {
-                    if (try self.resolveElementEventLink(event_target.kind.access.target, "key_down", scope)) |link| return link;
+                    if (try self.resolveEventSourceLink(event_target.kind.access.target, "key_down", scope)) |link| return link;
                 }
             }
         }
         return node_id;
+    }
+
+    fn resolveEventSourceLink(self: *Session, node_id: flow_ir.NodeId, event_name: []const u8, scope: ?*const EvalScope) anyerror!?flow_ir.NodeId {
+        if (scope != null) {
+            if (try self.resolveScopedLinkNode(node_id, scope)) |link| return link;
+        }
+        if (try self.resolveStaticLinkNode(node_id)) |link| return link;
+        return try self.resolveElementEventLink(node_id, event_name, scope);
     }
 
     fn resolveElementEventLink(self: *Session, node_id: flow_ir.NodeId, event_name: []const u8, scope: ?*const EvalScope) anyerror!?flow_ir.NodeId {
@@ -2288,9 +2302,9 @@ pub const Session = struct {
             else if (std.mem.eql(u8, event_name, "key_down"))
                 input.key_link orelse input.change_link
             else if (std.mem.eql(u8, event_name, "blur"))
-                input.blur_link orelse input.change_link
+                input.blur_link
             else if (std.mem.eql(u8, event_name, "focus"))
-                input.focus_link orelse input.change_link
+                input.focus_link
             else
                 null,
             .select => |select| if (std.mem.eql(u8, event_name, "change")) select.change_link else null,
@@ -4080,7 +4094,10 @@ pub const Session = struct {
             .scoped_node => |deferred| try self.evalNode(allocator, deferred.node_id, deferred.scope),
             else => raw_value,
         };
-        const target_ref = if (try self.resolveStaticLinkNode(linked.target)) |static_link|
+        const scoped_target = if (scope != null) try self.resolveScopedLinkNode(linked.target, scope) else null;
+        const target_ref = if (scoped_target) |scoped_link|
+            ScopedLinkValue{ .link = scoped_link, .scope = try captureControlScope(allocator, scope) }
+        else if (try self.resolveStaticLinkNode(linked.target)) |static_link|
             ScopedLinkValue{ .link = static_link, .scope = null }
         else blk: {
             const target = try self.evalNode(allocator, linked.target, scope);
@@ -4124,10 +4141,10 @@ pub const Session = struct {
             .text_input => |input| blk: {
                 const rebound = try allocator.create(TextInputValue);
                 rebound.* = input.*;
-                rebound.change_link = link;
-                rebound.key_link = link;
-                rebound.blur_link = link;
-                rebound.focus_link = link;
+                if (input.change_link != null) rebound.change_link = link;
+                if (input.key_link != null) rebound.key_link = link;
+                if (input.blur_link != null) rebound.blur_link = link;
+                if (input.focus_link != null) rebound.focus_link = link;
                 rebound.event_scope = try captureControlScope(allocator, event_scope);
                 break :blk .{ .text_input = rebound };
             },
@@ -4680,6 +4697,23 @@ pub const Session = struct {
                 .link => |link| blk: {
                     try self.recordLinkDependencies(link, scope, false);
                     const resolved = self.getLinkValue(link, scope) orelse break :blk .none;
+                    break :blk switch (resolved) {
+                        .stripe,
+                        .label,
+                        .container,
+                        .checkbox,
+                        .button,
+                        .text_input,
+                        .select,
+                        .slider,
+                        => resolved,
+                        .record => error.SourceRecordIsNotElementValue,
+                        else => error.ExpectedElementValue,
+                    };
+                },
+                .scoped_link => |scoped| blk: {
+                    try self.recordLinkDependencies(scoped.link, scoped.scope, false);
+                    const resolved = self.getLinkValue(scoped.link, scoped.scope) orelse break :blk .none;
                     break :blk switch (resolved) {
                         .stripe,
                         .label,
@@ -6361,10 +6395,21 @@ pub const Session = struct {
         const hold_scope = self.holdStorageScope(node_id, hold, outer_scope);
         const current = self.getHoldValue(node_id, hold_scope) orelse try self.evalNode(self.arena.allocator(), hold.initial, hold_scope);
         for (hold.updates) |update| {
-            const update_source = if (outer_scope != null and self.nodeNeedsScope(update))
-                try self.holdTriggerSourceScoped(update, outer_scope)
-            else
-                try self.holdTriggerSource(update);
+            const update_source = if (outer_scope) |scope| scoped: {
+                const scoped_source = self.holdTriggerSourceScoped(update, scope) catch |err| switch (err) {
+                    error.MissingLocalBinding,
+                    error.MissingRecordField,
+                    error.ExpectedRecordNode,
+                    error.ExpectedLinkNode,
+                    error.ExpectedLinkValue,
+                    error.UnsupportedFieldAccess,
+                    error.UnsupportedEventSource,
+                    => null,
+                    else => return err,
+                };
+                if (scoped_source) |resolved| break :scoped resolved;
+                break :scoped try self.holdTriggerSource(update);
+            } else try self.holdTriggerSource(update);
             if (update_source != source) continue;
             const bindings = try self.arena.allocator().alloc(RecordField, 1);
             bindings[0] = .{
@@ -8152,9 +8197,9 @@ fn eventLinkFromValue(value: Value, event_name: []const u8) ?flow_ir.NodeId {
         else if (std.mem.eql(u8, event_name, "key_down"))
             input.key_link orelse input.change_link
         else if (std.mem.eql(u8, event_name, "blur"))
-            input.blur_link orelse input.change_link
+            input.blur_link
         else if (std.mem.eql(u8, event_name, "focus"))
-            input.focus_link orelse input.change_link
+            input.focus_link
         else
             null,
         .select => |select| if (std.mem.eql(u8, event_name, "change")) select.change_link else null,
