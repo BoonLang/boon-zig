@@ -649,7 +649,7 @@ const Lowerer = struct {
             }
         }
 
-        const parsed = parser.parseAlloc(std.heap.page_allocator, inner) catch |err| switch (err) {
+        const parsed = parser.parseAlloc(self.arena, inner) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             else => {
                 const failure = parser.diagnosticForParseFailure(inner, err);
