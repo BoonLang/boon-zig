@@ -11,6 +11,7 @@ pub const flow_ir = @import("flow_ir.zig");
 pub const io_backend = @import("io_backend.zig");
 pub const physical = @import("physical.zig");
 pub const headless = @import("headless.zig");
+pub const boon_runtime_host = @import("boon_runtime_host.zig");
 
 pub fn add(a: i32, b: i32) i32 {
     return a + b;
