@@ -229,6 +229,8 @@ pub const ButtonValue = struct {
     label: Value,
     press_link: ?flow_ir.NodeId,
     hovered_link: ?flow_ir.NodeId = null,
+    disabled: bool = false,
+    outlined: bool = false,
     terminal_width: usize = 0,
     terminal_height: usize = 0,
     terminal_bindings: Value = .none,
@@ -237,10 +239,13 @@ pub const ButtonValue = struct {
 
 pub const TextInputValue = struct {
     text: Value,
+    placeholder: Value = .none,
     change_link: ?flow_ir.NodeId,
     key_link: ?flow_ir.NodeId = null,
     blur_link: ?flow_ir.NodeId = null,
     focus_link: ?flow_ir.NodeId = null,
+    focused: bool = false,
+    disabled: bool = false,
     terminal_width: usize = 0,
     terminal_height: usize = 0,
     terminal_bindings: Value = .none,
@@ -453,10 +458,13 @@ fn cloneTextInputValueForCache(allocator: std.mem.Allocator, input: *const TextI
     const copy = try allocator.create(TextInputValue);
     copy.* = .{
         .text = try cloneCapturedValue(allocator, input.text),
+        .placeholder = try cloneCapturedValue(allocator, input.placeholder),
         .change_link = input.change_link,
         .key_link = input.key_link,
         .blur_link = input.blur_link,
         .focus_link = input.focus_link,
+        .focused = input.focused,
+        .disabled = input.disabled,
         .terminal_width = input.terminal_width,
         .terminal_height = input.terminal_height,
         .terminal_bindings = try cloneCapturedValue(allocator, input.terminal_bindings),
@@ -4622,6 +4630,8 @@ pub const Session = struct {
                 .label = try self.evalNode(allocator, label_node, &element_scope),
                 .press_link = try self.resolveElementEventLink(element_node, "press", scope),
                 .hovered_link = try self.resolveElementEventLink(element_node, "hovered", scope),
+                .disabled = styleBoolField(style_value, "disabled"),
+                .outlined = styleHasOutline(style_value),
                 .terminal_width = style_size.width,
                 .terminal_height = style_size.height,
                 .terminal_bindings = extractTerminalMetadata(element_value),
@@ -4633,6 +4643,8 @@ pub const Session = struct {
             const element_node = findNamed(call.named, "element") orelse return error.MissingElementArg;
             const text_node = findNamed(call.named, "text") orelse return error.MissingArgument;
             const style_node = findNamed(call.named, "style");
+            const placeholder_node = findNamed(call.named, "placeholder");
+            const focus_node = findNamed(call.named, "focus");
             const element_value = try self.evalNode(allocator, element_node, scope);
             var element_scope = try withLocalBinding(allocator, scope, "element", element_value);
             const style_value = if (style_node) |node| try self.evalNode(allocator, node, &element_scope) else .none;
@@ -4640,10 +4652,13 @@ pub const Session = struct {
             const input = try allocator.create(TextInputValue);
             input.* = .{
                 .text = try self.evalNode(allocator, text_node, &element_scope),
+                .placeholder = if (placeholder_node) |node| try self.evalNode(allocator, node, &element_scope) else .none,
                 .change_link = try self.resolveElementEventLink(element_node, "change", scope),
                 .key_link = try self.resolveElementEventLink(element_node, "key_down", scope),
                 .blur_link = try self.resolveElementEventLink(element_node, "blur", scope),
                 .focus_link = try self.resolveElementEventLink(element_node, "focus", scope),
+                .focused = if (focus_node) |node| valueAsBoolLoose(try self.evalNode(allocator, node, &element_scope)) else false,
+                .disabled = styleBoolField(style_value, "disabled"),
                 .terminal_width = style_size.width,
                 .terminal_height = style_size.height,
                 .terminal_bindings = extractTerminalMetadata(element_value),
@@ -7089,6 +7104,22 @@ fn terminalStyleSizeFromValue(value: Value) TerminalStyleSize {
     return .{
         .width = terminalStyleSpan(width_px, 8),
         .height = terminalStyleSpan(height_px, 26),
+    };
+}
+
+fn styleBoolField(value: Value, name: []const u8) bool {
+    const field = recordFieldFromValue(value, name) orelse return false;
+    return valueAsBoolLoose(field);
+}
+
+fn styleHasOutline(value: Value) bool {
+    const outline = recordFieldFromValue(value, "outline") orelse return false;
+    return switch (outline) {
+        .record => true,
+        .symbol => |symbol| !std.mem.eql(u8, symbol, "NoOutline"),
+        .text => |text| text.len != 0 and !std.mem.eql(u8, text, "NoOutline"),
+        .none => false,
+        else => valueAsBoolLoose(outline),
     };
 }
 
