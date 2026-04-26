@@ -1143,6 +1143,13 @@ pub const Session = struct {
         try self.enqueueExternalNodePulse(event.link, scope);
     }
 
+    pub fn pressTextInputKeyWithText(self: *Session, index: usize, key: []const u8, current_text: []const u8) !void {
+        const event = try self.textInputKeyLinkAt(index);
+        const change_event = try self.textInputLinkAt(index);
+        try self.pressTextInputKeyRef(event, change_event, key, current_text);
+        try self.logf("external text_input_key[{d}] text = {s}", .{ index, current_text });
+    }
+
     pub fn pressTextInputKeyRef(self: *Session, event: ControlEventRef, change_event: ControlEventRef, key: []const u8, current_text: []const u8) !void {
         const scope = canonicalControlScope(event.scope);
         const change_scope = canonicalControlScope(change_event.scope);
