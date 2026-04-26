@@ -4223,6 +4223,31 @@ pub const Session = struct {
         return try self.evalNode(allocator, function.body, &function_scope);
     }
 
+    fn styleBoolField(self: *Session, allocator: std.mem.Allocator, value: Value, name: []const u8) anyerror!bool {
+        const field = recordFieldFromValue(value, name) orelse return false;
+        return valueAsBoolLoose(try self.materializeStyleValue(allocator, field));
+    }
+
+    fn styleHasOutline(self: *Session, allocator: std.mem.Allocator, value: Value) anyerror!bool {
+        const raw_outline = recordFieldFromValue(value, "outline") orelse return false;
+        const outline = try self.materializeStyleValue(allocator, raw_outline);
+        return switch (outline) {
+            .record => true,
+            .symbol => |symbol| !std.mem.eql(u8, symbol, "NoOutline"),
+            .text => |text| text.len != 0 and !std.mem.eql(u8, text, "NoOutline"),
+            .none => false,
+            else => valueAsBoolLoose(outline),
+        };
+    }
+
+    fn materializeStyleValue(self: *Session, allocator: std.mem.Allocator, value: Value) anyerror!Value {
+        return switch (value) {
+            .scoped_node => |deferred| try self.evalNode(allocator, deferred.node_id, deferred.scope),
+            .binding_ref => |binding_id| try self.evalNode(allocator, self.flow.bindings[binding_id].node, null),
+            else => value,
+        };
+    }
+
     fn evalBinary(self: *Session, allocator: std.mem.Allocator, binary: flow_ir.Binary, scope: ?*const EvalScope) anyerror!Value {
         const lhs = try self.evalNode(allocator, binary.lhs, scope);
         const rhs = try self.evalNode(allocator, binary.rhs, scope);
@@ -4630,8 +4655,8 @@ pub const Session = struct {
                 .label = try self.evalNode(allocator, label_node, &element_scope),
                 .press_link = try self.resolveElementEventLink(element_node, "press", scope),
                 .hovered_link = try self.resolveElementEventLink(element_node, "hovered", scope),
-                .disabled = styleBoolField(style_value, "disabled"),
-                .outlined = styleHasOutline(style_value),
+                .disabled = try self.styleBoolField(allocator, style_value, "disabled"),
+                .outlined = try self.styleHasOutline(allocator, style_value),
                 .terminal_width = style_size.width,
                 .terminal_height = style_size.height,
                 .terminal_bindings = extractTerminalMetadata(element_value),
@@ -4658,7 +4683,7 @@ pub const Session = struct {
                 .blur_link = try self.resolveElementEventLink(element_node, "blur", scope),
                 .focus_link = try self.resolveElementEventLink(element_node, "focus", scope),
                 .focused = if (focus_node) |node| valueAsBoolLoose(try self.evalNode(allocator, node, &element_scope)) else false,
-                .disabled = styleBoolField(style_value, "disabled"),
+                .disabled = try self.styleBoolField(allocator, style_value, "disabled"),
                 .terminal_width = style_size.width,
                 .terminal_height = style_size.height,
                 .terminal_bindings = extractTerminalMetadata(element_value),
