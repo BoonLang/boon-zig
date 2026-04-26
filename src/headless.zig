@@ -2988,7 +2988,7 @@ pub const Session = struct {
         for (frame.deps.items) |existing| {
             if (existing.node_id == dep.node_id and existing.scope_id == dep.scope_id) return;
         }
-        try frame.deps.append(self.arena.allocator(), dep);
+        try frame.deps.append(self.backing_allocator, dep);
     }
 
     fn mergeCachedDependencies(self: *Session, deps: []const CachedDependency) !void {

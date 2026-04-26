@@ -22,13 +22,21 @@ pub const Outcome = union(enum) {
     err: diag.Diagnostic,
 };
 
+pub const Options = struct {};
+
 pub fn parseAlloc(allocator: std.mem.Allocator, source: []const u8) !Outcome {
+    return parseAllocWithOptions(allocator, source, .{});
+}
+
+pub fn parseAllocWithOptions(allocator: std.mem.Allocator, source: []const u8, options: Options) !Outcome {
     const lexed = try lexer.lexAlloc(allocator, source);
     const tokens = switch (lexed) {
         .ok => |tokens| tokens,
         .err => |failure| return .{ .err = failure },
     };
     defer allocator.free(tokens);
+
+    _ = options;
 
     var arena = std.heap.ArenaAllocator.init(allocator);
     errdefer arena.deinit();
@@ -685,6 +693,38 @@ test "parses bindings pipes and keyword forms" {
     switch (parsed.root.items[0]) {
         .binary => |binding| try std.testing.expectEqual(ast.BinaryOp.bind, binding.operator),
         else => return error.ExpectedBinding,
+    }
+}
+
+test "canonical source mode rejects legacy LINK leaf" {
+    const outcome = try parseAllocWithOptions(
+        std.testing.allocator,
+        "button: [event: [press: LINK]]\n",
+        .{},
+    );
+    switch (outcome) {
+        .ok => |document| {
+            var parsed = document;
+            parsed.deinit();
+            return error.ExpectedCanonicalLinkFailure;
+        },
+        .err => |failure| try std.testing.expectEqualStrings("`LINK` was renamed to `SOURCE`; use `SOURCE` in canonical source mode", failure.message),
+    }
+}
+
+test "canonical source mode rejects pipe LINK assignment" {
+    const outcome = try parseAllocWithOptions(
+        std.testing.allocator,
+        "button |> LINK { store.sources.button.event.press }\n",
+        .{},
+    );
+    switch (outcome) {
+        .ok => |document| {
+            var parsed = document;
+            parsed.deinit();
+            return error.ExpectedCanonicalPipeLinkFailure;
+        },
+        .err => |failure| try std.testing.expectEqualStrings("`|> LINK { ... }` was removed; declare a source interface and pass or spread it into the element bag instead", failure.message),
     }
 }
 

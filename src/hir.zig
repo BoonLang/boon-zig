@@ -183,7 +183,14 @@ pub fn renderAlloc(allocator: std.mem.Allocator, document: *const Document) ![]u
     return try output.toOwnedSlice(allocator);
 }
 
+pub const Options = struct {};
+
 pub fn lowerAlloc(allocator: std.mem.Allocator, source: []const u8) !Outcome {
+    return lowerAllocWithOptions(allocator, source, .{});
+}
+
+pub fn lowerAllocWithOptions(allocator: std.mem.Allocator, source: []const u8, options: Options) !Outcome {
+    _ = options;
     const parsed = try parser.parseAlloc(allocator, source);
     const parsed_document = switch (parsed) {
         .ok => |document| document,
@@ -289,7 +296,7 @@ const Lowerer = struct {
                 const text = self.source[token.span.start..token.span.end];
                 if (std.mem.eql(u8, text, "PASS")) return .{ .special = .{ .kind = .pass_ref, .span = token.span } };
                 if (std.mem.eql(u8, text, "PASSED")) return .{ .special = .{ .kind = .passed_ref, .span = token.span } };
-                if (std.mem.eql(u8, text, "LINK")) return .{ .special = .{ .kind = .link_ref, .span = token.span } };
+                if (std.mem.eql(u8, text, "SOURCE") or std.mem.eql(u8, text, "LINK")) return .{ .special = .{ .kind = .link_ref, .span = token.span } };
                 if (std.mem.eql(u8, text, "SKIP")) return .{ .special = .{ .kind = .skip_ref, .span = token.span } };
                 if (std.mem.eql(u8, text, "DRAIN")) return .{ .special = .{ .kind = .drain_reserved, .span = token.span } };
                 return .{ .symbol = try self.symbolFromToken(token, .keyword) };
@@ -896,7 +903,7 @@ fn formKindFor(text: []const u8, arguments: []Expr) FormKind {
     if (std.mem.eql(u8, text, "WHILE")) return .while_;
     if (std.mem.eql(u8, text, "BLOCK")) return .block;
     if (std.mem.eql(u8, text, "TEXT")) return .text;
-    if (std.mem.eql(u8, text, "LINK")) return .link;
+    if (std.mem.eql(u8, text, "SOURCE") or std.mem.eql(u8, text, "LINK")) return .link;
     if (std.mem.eql(u8, text, "DRAIN")) return .drain_reserved;
     if (std.mem.eql(u8, text, "LIST")) {
         return if (firstArgumentIsBracket(arguments)) .list_static else .list_dynamic;
