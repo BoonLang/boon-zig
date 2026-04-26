@@ -763,10 +763,10 @@ pub const Session = struct {
         const scratch = self.resetScratchArena();
 
         var output: std.ArrayList(u8) = .empty;
-        defer output.deinit(allocator);
+        defer output.deinit(scratch);
 
         try self.appendRenderedNode(&output, scratch, self.flow.bindings[root_binding].node, null);
-        return try output.toOwnedSlice(allocator);
+        return try allocator.dupe(u8, output.items);
     }
 
     pub fn snapshotAlloc(self: *Session, allocator: std.mem.Allocator) anyerror![]u8 {
@@ -7587,14 +7587,17 @@ fn stripeDirectionFromValue(value: Value) StripeDirection {
 fn appendControlSection(output: *std.ArrayList(u8), allocator: std.mem.Allocator, label: []const u8, items: []const []const u8) !void {
     if (items.len == 0) return;
     const header = try std.fmt.allocPrint(allocator, "{s} ({d}):\n", .{ label, items.len });
+    defer allocator.free(header);
     try output.appendSlice(allocator, header);
     const visible_len = @min(items.len, control_summary_limit);
     for (items[0..visible_len], 0..) |item, index| {
         const line = try std.fmt.allocPrint(allocator, "  {d} {s}\n", .{ index, item });
+        defer allocator.free(line);
         try output.appendSlice(allocator, line);
     }
     if (visible_len < items.len) {
         const rest = try std.fmt.allocPrint(allocator, "  ... {d} more\n", .{items.len - visible_len});
+        defer allocator.free(rest);
         try output.appendSlice(allocator, rest);
     }
 }

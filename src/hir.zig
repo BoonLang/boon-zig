@@ -204,6 +204,7 @@ pub fn lowerAllocWithOptions(allocator: std.mem.Allocator, source: []const u8, o
 
     var lowerer = Lowerer{
         .source = source,
+        .allocator = allocator,
         .arena = arena.allocator(),
     };
 
@@ -225,6 +226,7 @@ pub fn lowerAllocWithOptions(allocator: std.mem.Allocator, source: []const u8, o
 
 const Lowerer = struct {
     source: []const u8,
+    allocator: std.mem.Allocator,
     arena: std.mem.Allocator,
     definition_count: usize = 0,
     expr_count: usize = 0,
@@ -649,7 +651,7 @@ const Lowerer = struct {
             }
         }
 
-        const parsed = parser.parseAlloc(self.arena, inner) catch |err| switch (err) {
+        const parsed = parser.parseAlloc(self.allocator, inner) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             else => {
                 const failure = parser.diagnosticForParseFailure(inner, err);
@@ -677,6 +679,7 @@ const Lowerer = struct {
 
         var nested = Lowerer{
             .source = inner,
+            .allocator = self.allocator,
             .arena = self.arena,
         };
         const lowered = nested.lowerItem(ast_document.root.items[0]) catch |err| switch (err) {
