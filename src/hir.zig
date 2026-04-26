@@ -700,18 +700,7 @@ const Lowerer = struct {
             .expr => |expr| expr,
             .binding => return self.fail(original_span, "TEXT interpolation requires an expression"),
         };
-        if (!isAllowedTextInterpolationExpr(expr)) {
-            return self.fail(original_span, "TEXT interpolation only allows names and field access; use BLOCK for expressions");
-        }
         return rebaseExpr(expr, offset);
-    }
-
-    fn isAllowedTextInterpolationExpr(expr: Expr) bool {
-        return switch (expr) {
-            .symbol => true,
-            .access => |access| isAllowedTextInterpolationExpr(access.target),
-            else => false,
-        };
     }
 
     fn formBareArg(self: *Lowerer, token: ast.Token) LowerError!Symbol {
@@ -1261,18 +1250,25 @@ test "lowers hash-delimited text interpolation" {
     try std.testing.expect(std.mem.indexOf(u8, rendered, "access<direct>(symbol(theme), color)") != null);
 }
 
-test "rejects call expressions in TEXT interpolation" {
+test "lowers call expressions in TEXT interpolation" {
     const source =
         \\document: TEXT { Count: {store.items |> List/count()} }
         \\
     ;
     const outcome = try lowerAlloc(std.testing.allocator, source);
-    switch (outcome) {
-        .ok => return error.ExpectedHirFailure,
+    const document = switch (outcome) {
+        .ok => |document| document,
         .err => |failure| {
-            try std.testing.expect(std.mem.indexOf(u8, failure.message, "TEXT interpolation only allows names and field access") != null);
+            std.debug.print("unexpected text call interpolation failure: {s}\n", .{failure.message});
+            return error.UnexpectedHirFailure;
         },
-    }
+    };
+    var lowered = document;
+    defer lowered.deinit();
+
+    const rendered = try renderAlloc(std.testing.allocator, &lowered);
+    defer std.testing.allocator.free(rendered);
+    try std.testing.expect(std.mem.indexOf(u8, rendered, "builtin_call List/count") != null);
 }
 
 test "lowers call-like text bodies as raw text" {
