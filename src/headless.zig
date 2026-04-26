@@ -167,6 +167,11 @@ pub const ScopedNodeValue = struct {
     scope: ?*const EvalScope,
 };
 
+pub const ScopedLinkValue = struct {
+    link: flow_ir.NodeId,
+    scope: ?*const EvalScope,
+};
+
 pub const DocumentValue = struct {
     root: Value,
 };
@@ -285,6 +290,7 @@ pub const Value = union(enum) {
     slider: *SliderValue,
     scoped_node: *ScopedNodeValue,
     link: flow_ir.NodeId,
+    scoped_link: ScopedLinkValue,
     none,
 };
 
@@ -759,6 +765,7 @@ pub const Session = struct {
 
     pub fn renderAlloc(self: *Session, allocator: std.mem.Allocator) anyerror![]u8 {
         try self.flushPendingQueue();
+        self.clearEvalCache();
         const root_binding = self.flow.root_binding orelse return error.MissingDocumentRoot;
         const scratch = self.resetScratchArena();
 
@@ -771,6 +778,7 @@ pub const Session = struct {
 
     pub fn snapshotAlloc(self: *Session, allocator: std.mem.Allocator) anyerror![]u8 {
         try self.flushPendingQueue();
+        self.clearEvalCache();
         const root_binding = self.flow.root_binding orelse return error.MissingDocumentRoot;
         const scratch = self.resetScratchArena();
 
@@ -3202,7 +3210,7 @@ pub const Session = struct {
         const dep = self.scopedStateKey(node_id, scope);
         if (dep.scope_id == 0) {
             self.state_versions[node_id] +%= 1;
-            self.clearDerivedCaches();
+            self.invalidateEvalCache();
             return;
         }
         self.invalidateEvalCacheForDependency(dep);
@@ -3391,8 +3399,9 @@ pub const Session = struct {
     }
 
     fn holdStorageScope(self: *Session, node_id: flow_ir.NodeId, hold: flow_ir.Hold, scope: ?*const EvalScope) ?*const EvalScope {
+        if (normalizedStateScope(scope)) |runtime_scope| return runtime_scope;
         if (!self.holdNeedsRuntimeScope(node_id, hold)) return null;
-        return normalizedStateScope(scope);
+        return null;
     }
 
     fn canonicalControlScope(scope: ?*const EvalScope) ?*const EvalScope {
@@ -3577,7 +3586,11 @@ pub const Session = struct {
             },
             .link_port => blk: {
                 try self.recordStateDependency(self.scopedStateKey(node_id, scope));
-                break :blk self.getLinkValue(node_id, scope) orelse .{ .link = node_id };
+                if (self.getLinkValue(node_id, scope)) |value| break :blk value;
+                break :blk if (scope) |link_scope|
+                    Value{ .scoped_link = .{ .link = node_id, .scope = try captureControlScope(allocator, link_scope) } }
+                else
+                    Value{ .link = node_id };
             },
             .binding_ref => |binding_id| try self.evalNode(allocator, self.flow.bindings[binding_id].node, null),
             .text => |parts| try self.evalText(allocator, parts, scope),
@@ -3670,7 +3683,7 @@ pub const Session = struct {
                 break :blk Value{ .scoped_node = deferred };
             } else switch (self.flow.nodes[field.value].kind) {
                 .binding_ref => |binding_id| Value{ .binding_ref = binding_id },
-                .link_port => Value{ .link = field.value },
+                .link_port => try self.evalNode(allocator, field.value, scope),
                 else => try self.evalNode(allocator, field.value, scope),
             };
             const record_field = RecordField{
@@ -3733,29 +3746,23 @@ pub const Session = struct {
                     .scoped_node => |deferred| if (!self.nodeNeedsScope(deferred.node_id) and self.nodeNeedsDeferredField(deferred.node_id)) blk2: {
                         const resolved = try self.evalNode(allocator, deferred.node_id, canonicalControlScope(deferred.scope));
                         break :blk2 switch (resolved) {
-                            .link => |link| link_blk: {
-                                try self.recordLinkDependencies(link, scope, false);
-                                break :link_blk self.getLinkValue(link, scope) orelse resolved;
-                            },
+                            .link => |link| try self.valueFromLink(allocator, link, scope, false, resolved),
+                            .scoped_link => |scoped| try self.valueFromLink(allocator, scoped.link, scoped.scope, false, resolved),
                             else => resolved,
                         };
                     } else blk2: {
                         const resolved = try self.materializeValue(allocator, field_value);
                         break :blk2 switch (resolved) {
-                            .link => |link| link_blk: {
-                                try self.recordLinkDependencies(link, scope, false);
-                                break :link_blk self.getLinkValue(link, scope) orelse resolved;
-                            },
+                            .link => |link| try self.valueFromLink(allocator, link, scope, false, resolved),
+                            .scoped_link => |scoped| try self.valueFromLink(allocator, scoped.link, scoped.scope, false, resolved),
                             else => resolved,
                         };
                     },
                     else => blk2: {
                         const resolved = try self.materializeValue(allocator, field_value);
                         break :blk2 switch (resolved) {
-                            .link => |link| link_blk: {
-                                try self.recordLinkDependencies(link, scope, false);
-                                break :link_blk self.getLinkValue(link, scope) orelse resolved;
-                            },
+                            .link => |link| try self.valueFromLink(allocator, link, scope, false, resolved),
+                            .scoped_link => |scoped| try self.valueFromLink(allocator, scoped.link, scoped.scope, false, resolved),
                             else => resolved,
                         };
                     },
@@ -3789,71 +3796,8 @@ pub const Session = struct {
                 }
                 break :blk error.UnsupportedFieldAccess;
             },
-            .link => |link| blk: {
-                if (std.mem.eql(u8, access.field, "text")) {
-                    try self.recordLinkDependencies(link, scope, false);
-                    if (self.getLinkValue(link, scope)) |link_value| {
-                        if (recordFieldFromValue(link_value, "text")) |field_value| break :blk field_value;
-                    }
-                    break :blk self.getLinkValue(link, scope) orelse .{ .text = "" };
-                }
-                if (std.mem.eql(u8, access.field, "value")) {
-                    try self.recordLinkDependencies(link, scope, false);
-                    if (self.getLinkValue(link, scope)) |link_value| {
-                        if (recordFieldFromValue(link_value, "value")) |field_value| break :blk field_value;
-                    }
-                    break :blk self.getLinkValue(link, scope) orelse .none;
-                }
-                if (std.mem.eql(u8, access.field, "key")) {
-                    try self.recordLinkDependencies(link, scope, true);
-                    if (self.getLinkValue(link, scope)) |link_value| {
-                        if (recordFieldFromValue(link_value, "key")) |field_value| break :blk field_value;
-                    }
-                    break :blk self.getLinkKeyValue(link, scope) orelse .none;
-                }
-                if (std.mem.eql(u8, access.field, "event")) {
-                    try self.recordLinkDependencies(link, scope, true);
-                    const link_value = self.getLinkValue(link, scope);
-                    const key_value = self.getLinkKeyValue(link, scope);
-                    const change_fields = try allocator.alloc(RecordField, 2);
-                    change_fields[0] = .{
-                        .name = "value",
-                        .value = link_value orelse .none,
-                    };
-                    change_fields[1] = .{
-                        .name = "text",
-                        .value = link_value orelse .none,
-                    };
-                    const key_fields = try allocator.alloc(RecordField, 2);
-                    key_fields[0] = .{
-                        .name = "key",
-                        .value = key_value orelse .none,
-                    };
-                    key_fields[1] = .{
-                        .name = "text",
-                        .value = link_value orelse .none,
-                    };
-                    const fields = try allocator.alloc(RecordField, 3);
-                    fields[0] = .{
-                        .name = "press",
-                        .value = .{ .link = link },
-                    };
-                    fields[1] = .{
-                        .name = "change",
-                        .value = .{ .record = change_fields },
-                    };
-                    fields[2] = .{
-                        .name = "key_down",
-                        .value = .{ .record = key_fields },
-                    };
-                    break :blk .{ .record = fields };
-                }
-                try self.recordLinkDependencies(link, scope, false);
-                if (self.getLinkValue(link, scope)) |link_value| {
-                    if (recordFieldFromValue(link_value, access.field)) |field_value| break :blk field_value;
-                }
-                break :blk error.UnsupportedFieldAccess;
-            },
+            .link => |link| try self.evalLinkAccess(allocator, link, scope, access.field),
+            .scoped_link => |scoped| try self.evalLinkAccess(allocator, scoped.link, scoped.scope, access.field),
             else => error.UnsupportedFieldAccess,
         };
         return result catch |err| {
@@ -3861,6 +3805,80 @@ pub const Session = struct {
                 return err;
             }
             return err;
+        };
+    }
+
+    fn valueFromLink(self: *Session, allocator: std.mem.Allocator, link: flow_ir.NodeId, scope: ?*const EvalScope, include_key: bool, fallback: Value) !Value {
+        _ = allocator;
+        try self.recordLinkDependencies(link, scope, include_key);
+        return self.getLinkValue(link, scope) orelse fallback;
+    }
+
+    fn evalLinkAccess(self: *Session, allocator: std.mem.Allocator, link: flow_ir.NodeId, scope: ?*const EvalScope, field: []const u8) anyerror!Value {
+        return blk: {
+            if (std.mem.eql(u8, field, "text")) {
+                try self.recordLinkDependencies(link, scope, false);
+                if (self.getLinkValue(link, scope)) |link_value| {
+                    if (recordFieldFromValue(link_value, "text")) |field_value| break :blk field_value;
+                }
+                break :blk self.getLinkValue(link, scope) orelse .{ .text = "" };
+            }
+            if (std.mem.eql(u8, field, "value")) {
+                try self.recordLinkDependencies(link, scope, false);
+                if (self.getLinkValue(link, scope)) |link_value| {
+                    if (recordFieldFromValue(link_value, "value")) |field_value| break :blk field_value;
+                }
+                break :blk self.getLinkValue(link, scope) orelse .none;
+            }
+            if (std.mem.eql(u8, field, "key")) {
+                try self.recordLinkDependencies(link, scope, true);
+                if (self.getLinkValue(link, scope)) |link_value| {
+                    if (recordFieldFromValue(link_value, "key")) |field_value| break :blk field_value;
+                }
+                break :blk self.getLinkKeyValue(link, scope) orelse .none;
+            }
+            if (std.mem.eql(u8, field, "event")) {
+                try self.recordLinkDependencies(link, scope, true);
+                const link_value = self.getLinkValue(link, scope);
+                const key_value = self.getLinkKeyValue(link, scope);
+                const change_fields = try allocator.alloc(RecordField, 2);
+                change_fields[0] = .{
+                    .name = "value",
+                    .value = link_value orelse .none,
+                };
+                change_fields[1] = .{
+                    .name = "text",
+                    .value = link_value orelse .none,
+                };
+                const key_fields = try allocator.alloc(RecordField, 2);
+                key_fields[0] = .{
+                    .name = "key",
+                    .value = key_value orelse .none,
+                };
+                key_fields[1] = .{
+                    .name = "text",
+                    .value = link_value orelse .none,
+                };
+                const fields = try allocator.alloc(RecordField, 3);
+                fields[0] = .{
+                    .name = "press",
+                    .value = .{ .link = link },
+                };
+                fields[1] = .{
+                    .name = "change",
+                    .value = .{ .record = change_fields },
+                };
+                fields[2] = .{
+                    .name = "key_down",
+                    .value = .{ .record = key_fields },
+                };
+                break :blk .{ .record = fields };
+            }
+            try self.recordLinkDependencies(link, scope, false);
+            if (self.getLinkValue(link, scope)) |link_value| {
+                if (recordFieldFromValue(link_value, field)) |field_value| break :blk field_value;
+            }
+            break :blk error.UnsupportedFieldAccess;
         };
     }
 
@@ -3914,38 +3932,45 @@ pub const Session = struct {
 
     fn evalLinkedValue(self: *Session, allocator: std.mem.Allocator, linked: flow_ir.LinkedValue, scope: ?*const EvalScope) anyerror!Value {
         const value = try self.evalNode(allocator, linked.value, scope);
-        const link = if (try self.resolveStaticLinkNode(linked.target)) |static_link|
-            static_link
+        const target_ref = if (try self.resolveStaticLinkNode(linked.target)) |static_link|
+            ScopedLinkValue{ .link = static_link, .scope = null }
         else blk: {
             const target = try self.evalNode(allocator, linked.target, scope);
             break :blk switch (target) {
-                .link => |target_link| target_link,
+                .link => |target_link| ScopedLinkValue{ .link = target_link, .scope = null },
+                .scoped_link => |scoped| scoped,
                 else => return error.ExpectedLinkValue,
             };
         };
+        const link = target_ref.link;
+        const event_scope = target_ref.scope;
         return switch (value) {
             .stripe => |stripe| blk: {
                 const rebound = try allocator.create(StripeValue);
                 rebound.* = stripe.*;
                 rebound.hovered_link = link;
+                rebound.event_scope = try captureControlScope(allocator, event_scope);
                 break :blk .{ .stripe = rebound };
             },
             .label => |label| blk: {
                 const rebound = try allocator.create(LabelValue);
                 rebound.* = label.*;
                 rebound.double_click_link = link;
+                rebound.event_scope = try captureControlScope(allocator, event_scope);
                 break :blk .{ .label = rebound };
             },
             .checkbox => |checkbox| blk: {
                 const rebound = try allocator.create(CheckboxValue);
                 rebound.* = checkbox.*;
                 rebound.click_link = link;
+                rebound.event_scope = try captureControlScope(allocator, event_scope);
                 break :blk .{ .checkbox = rebound };
             },
             .button => |button| blk: {
                 const rebound = try allocator.create(ButtonValue);
                 rebound.* = button.*;
                 rebound.press_link = link;
+                rebound.event_scope = try captureControlScope(allocator, event_scope);
                 break :blk .{ .button = rebound };
             },
             .text_input => |input| blk: {
@@ -3955,18 +3980,21 @@ pub const Session = struct {
                 rebound.key_link = link;
                 rebound.blur_link = link;
                 rebound.focus_link = link;
+                rebound.event_scope = try captureControlScope(allocator, event_scope);
                 break :blk .{ .text_input = rebound };
             },
             .select => |select| blk: {
                 const rebound = try allocator.create(SelectValue);
                 rebound.* = select.*;
                 rebound.change_link = link;
+                rebound.event_scope = try captureControlScope(allocator, event_scope);
                 break :blk .{ .select = rebound };
             },
             .slider => |slider| blk: {
                 const rebound = try allocator.create(SliderValue);
                 rebound.* = slider.*;
                 rebound.change_link = link;
+                rebound.event_scope = try captureControlScope(allocator, event_scope);
                 break :blk .{ .slider = rebound };
             },
             else => value,
@@ -5301,7 +5329,7 @@ pub const Session = struct {
             .text_input => |input| try self.appendRenderedValue(output, allocator, input.text),
             .select => |select| try self.appendRenderedValue(output, allocator, select.selected),
             .scoped_node => |deferred| try self.appendRenderedValue(output, allocator, try self.evalNode(allocator, deferred.node_id, deferred.scope)),
-            .slider, .link, .none => {},
+            .slider, .link, .scoped_link, .none => {},
         }
     }
 
@@ -7179,6 +7207,11 @@ fn hashValueIdentity(hasher: *std.hash.Wyhash, value: Value) void {
             hasher.update(std.mem.asBytes(&scope_id));
         },
         .link => |link| hasher.update(std.mem.asBytes(&link)),
+        .scoped_link => |scoped| {
+            hasher.update(std.mem.asBytes(&scoped.link));
+            const scope_id = if (scoped.scope) |scope| scope.id else @as(u64, 0);
+            hasher.update(std.mem.asBytes(&scope_id));
+        },
         .none => {},
     }
 }
@@ -7258,6 +7291,11 @@ fn hashShallowValueIdentity(hasher: *std.hash.Wyhash, value: Value) void {
             hasher.update(std.mem.asBytes(&scope_id));
         },
         .link => |link| hasher.update(std.mem.asBytes(&link)),
+        .scoped_link => |scoped| {
+            hasher.update(std.mem.asBytes(&scoped.link));
+            const scope_id = if (scoped.scope) |scope| scope.id else @as(u64, 0);
+            hasher.update(std.mem.asBytes(&scope_id));
+        },
         .none => {},
     }
 }
@@ -7336,6 +7374,11 @@ fn hashRecordScopeValueIdentity(hasher: *std.hash.Wyhash, value: Value) void {
         },
         .scoped_node => |deferred| hasher.update(std.mem.asBytes(&deferred.node_id)),
         .link => |link| hasher.update(std.mem.asBytes(&link)),
+        .scoped_link => |scoped| {
+            hasher.update(std.mem.asBytes(&scoped.link));
+            const scope_id = if (scoped.scope) |scope| scope.id else @as(u64, 0);
+            hasher.update(std.mem.asBytes(&scope_id));
+        },
         .none => {},
     }
 }
@@ -7364,6 +7407,7 @@ fn briefValueAlloc(allocator: std.mem.Allocator, value: Value) ![]const u8 {
         .text => |text| std.fmt.allocPrint(allocator, "\"{s}\"", .{text}),
         .symbol => |text| allocator.dupe(u8, text),
         .link => |link| std.fmt.allocPrint(allocator, "link(n{d})", .{link}),
+        .scoped_link => |scoped| std.fmt.allocPrint(allocator, "link(n{d}@{?d})", .{ scoped.link, if (scoped.scope) |scope| scope.id else null }),
         .duration_ms => |duration_ms| std.fmt.allocPrint(allocator, "{d}ms", .{duration_ms}),
         .none => allocator.dupe(u8, "none"),
         .list => allocator.dupe(u8, "<list>"),

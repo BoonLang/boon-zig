@@ -961,6 +961,7 @@ const SnapshotBuilder = struct {
             .slider => try self.elementValue("slider", &.{}),
             .scoped_node => |deferred| try self.convertValue(try self.session.evalSemanticNode(deferred.node_id, deferred.scope)),
             .link => |link| .{ .symbol = try std.fmt.allocPrint(self.allocator, "link:{d}", .{link}) },
+            .scoped_link => |scoped| .{ .symbol = try std.fmt.allocPrint(self.allocator, "link:{d}@{d}", .{ scoped.link, if (scoped.scope) |scope| scope.id else 0 }) },
         };
     }
 
