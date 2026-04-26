@@ -357,7 +357,7 @@ pub const BoonRuntimeHost = struct {
             .double_click => |link| try session.doubleClickLabel(@intCast(link)),
             .hover => |payload| try session.setHover(@intCast(payload.link), payload.hovered),
             .change_text => |payload| try session.setTextInputValue(@intCast(payload.link), payload.text),
-            .key_down => |payload| try session.pressTextInputKey(@intCast(payload.link), @tagName(payload.key)),
+            .key_down => |payload| try session.pressTextInputKey(@intCast(payload.link), previewKeyName(payload.key)),
             .blur => |link| try session.blurTextInput(@intCast(link)),
             .focus => |link| try session.focusTextInput(@intCast(link)),
             .checkbox_change => |payload| {
@@ -893,6 +893,21 @@ pub const BoonRuntimeHost = struct {
         self.snapshot_events = &.{};
     }
 };
+
+fn previewKeyName(key: Key) []const u8 {
+    return switch (key) {
+        .unknown => "Unknown",
+        .enter => "Enter",
+        .escape => "Escape",
+        .tab => "Tab",
+        .backspace => "Backspace",
+        .delete => "Delete",
+        .arrow_left => "ArrowLeft",
+        .arrow_right => "ArrowRight",
+        .arrow_up => "ArrowUp",
+        .arrow_down => "ArrowDown",
+    };
+}
 
 const SnapshotBuilder = struct {
     allocator: std.mem.Allocator,
