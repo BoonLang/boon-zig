@@ -657,6 +657,7 @@ pub const Session = struct {
     subscribers: [][]flow_ir.NodeId = &.{},
     runtime_subscribers: []bool = &.{},
     runtime_subscriber_nodes: []flow_ir.NodeId = &.{},
+    runtime_scopes: std.AutoHashMapUnmanaged(u64, *const EvalScope) = .empty,
     latest_values: []?PulsePayload = &.{},
     scoped_latest_values: std.AutoHashMapUnmanaged(ScopedNodeKey, PulsePayload) = .empty,
     hold_values: []Value = &.{},
@@ -1295,6 +1296,8 @@ pub const Session = struct {
         self.runtime_subscribers = try allocator.alloc(bool, node_count);
         @memset(self.runtime_subscribers, false);
         self.runtime_subscriber_nodes = &.{};
+        self.runtime_scopes.deinit(allocator);
+        self.runtime_scopes = .empty;
 
         self.hold_values = try allocator.alloc(Value, node_count);
         for (self.hold_values) |*slot| slot.* = .none;
@@ -2777,15 +2780,23 @@ pub const Session = struct {
                         if (canonical_expected.id != canonical_actual.id) return;
                     }
                 }
+                const payload: PulsePayload = value_payload: {
+                    const value = self.evalNode(self.arena.allocator(), then_value.value, pulse.scope) catch |err| switch (err) {
+                        error.MissingLocalBinding => break :value_payload .{ .node = subscriber },
+                        else => return err,
+                    };
+                    if (value == .none) return;
+                    break :value_payload .{ .value = value };
+                };
                 try self.logf("then n{d} -> n{d}", .{ subscriber, then_value.value });
                 try self.queue.append(self.arena.allocator(), .{
                     .source = subscriber,
-                    .payload = .{ .node = subscriber },
+                    .payload = payload,
                     .scope = pulse.scope,
                 });
             },
             .latest => {
-                const latest_scope = if (self.nodeNeedsScope(subscriber)) pulse.scope else null;
+                const latest_scope = if (pulse.scope != null or self.nodeNeedsScope(subscriber)) pulse.scope else null;
                 try self.setLatestPayload(subscriber, latest_scope, pulse.payload);
                 switch (pulse.payload) {
                     .node => |payload_node| try self.logf("latest n{d} <- n{d}", .{ subscriber, payload_node }),
@@ -2896,10 +2907,23 @@ pub const Session = struct {
     }
 
     fn dispatchRuntimeScopedSubscribers(self: *Session, pulse: Pulse) !void {
-        const scope = pulse.scope orelse return;
-        for (self.runtime_subscriber_nodes) |subscriber| {
-            if (!try self.runtimeSubscriberMatchesPulse(subscriber, pulse.source, scope)) continue;
-            try self.dispatchPulseToSubscriber(subscriber, pulse);
+        if (pulse.scope) |scope| {
+            for (self.runtime_subscriber_nodes) |subscriber| {
+                if (!try self.runtimeSubscriberMatchesPulse(subscriber, pulse.source, scope)) continue;
+                try self.dispatchPulseToSubscriber(subscriber, pulse);
+            }
+            return;
+        }
+
+        var scopes = self.runtime_scopes.valueIterator();
+        while (scopes.next()) |scope_ptr| {
+            const scope = scope_ptr.*;
+            for (self.runtime_subscriber_nodes) |subscriber| {
+                if (!try self.runtimeSubscriberMatchesPulse(subscriber, pulse.source, scope)) continue;
+                var scoped_pulse = pulse;
+                scoped_pulse.scope = scope;
+                try self.dispatchPulseToSubscriber(subscriber, scoped_pulse);
+            }
         }
     }
 
@@ -3463,6 +3487,12 @@ pub const Session = struct {
         return .{ .node_id = node_id, .scope_id = 0 };
     }
 
+    fn rememberRuntimeScope(self: *Session, scope: ?*const EvalScope) !void {
+        const normalized = canonicalControlScope(normalizedStateScope(scope)) orelse return;
+        if (self.runtime_scopes.contains(normalized.id)) return;
+        try self.runtime_scopes.put(self.arena.allocator(), normalized.id, try captureScope(self.arena.allocator(), normalized) orelse return);
+    }
+
     fn recordLinkDependencies(self: *Session, link: flow_ir.NodeId, scope: ?*const EvalScope, include_key: bool) !void {
         try self.recordStateDependency(self.scopedStateKey(link, scope));
         if (include_key) try self.recordStateDependency(self.scopedStateKey(link, scope));
@@ -3588,8 +3618,8 @@ pub const Session = struct {
     }
 
     fn holdStorageScope(self: *Session, node_id: flow_ir.NodeId, hold: flow_ir.Hold, scope: ?*const EvalScope) ?*const EvalScope {
-        if (self.isTopLevelOwnedNode(node_id)) return null;
         if (normalizedStateScope(scope)) |runtime_scope| return runtime_scope;
+        if (self.isTopLevelOwnedNode(node_id)) return null;
         if (!self.holdNeedsRuntimeScope(node_id, hold)) return null;
         return normalizedStateScope(scope);
     }
@@ -3620,6 +3650,7 @@ pub const Session = struct {
     fn setLinkValue(self: *Session, node_id: flow_ir.NodeId, scope: ?*const EvalScope, value: Value) !void {
         self.noteStateMutation(node_id, scope);
         if (self.scopedNodeKey(node_id, scope)) |key| {
+            try self.rememberRuntimeScope(scope);
             try self.scoped_link_values.put(self.arena.allocator(), key, value);
             return;
         }
@@ -3635,6 +3666,7 @@ pub const Session = struct {
     fn setLinkKeyValue(self: *Session, node_id: flow_ir.NodeId, scope: ?*const EvalScope, value: Value) !void {
         self.noteStateMutation(node_id, scope);
         if (self.scopedNodeKey(node_id, scope)) |key| {
+            try self.rememberRuntimeScope(scope);
             try self.scoped_link_key_values.put(self.arena.allocator(), key, value);
             return;
         }
@@ -3650,6 +3682,7 @@ pub const Session = struct {
     fn setLatestPayload(self: *Session, node_id: flow_ir.NodeId, scope: ?*const EvalScope, payload: PulsePayload) !void {
         self.noteStateMutation(node_id, scope);
         if (self.scopedNodeKey(node_id, scope)) |key| {
+            try self.rememberRuntimeScope(scope);
             try self.scoped_latest_values.put(self.arena.allocator(), key, payload);
             return;
         }
@@ -3664,6 +3697,7 @@ pub const Session = struct {
     fn setHoldValue(self: *Session, node_id: flow_ir.NodeId, scope: ?*const EvalScope, value: Value) !void {
         self.noteStateMutation(node_id, scope);
         if (self.scopedNodeKey(node_id, scope)) |key| {
+            try self.rememberRuntimeScope(scope);
             try self.scoped_hold_values.put(self.arena.allocator(), key, value);
             return;
         }
@@ -3787,7 +3821,7 @@ pub const Session = struct {
             .when => |when| try self.evalWhen(allocator, when, scope),
             .binary => |binary| try self.evalBinary(allocator, binary, scope),
             .latest => |latest| blk: {
-                const latest_scope = if (self.nodeNeedsScope(node_id)) scope else null;
+                const latest_scope = if (self.nodeNeedsScope(node_id) or normalizedStateScope(scope) != null) scope else null;
                 try self.recordStateDependency(self.scopedStateKey(node_id, latest_scope));
                 if (self.getLatestPayload(node_id, latest_scope)) |current| break :blk switch (current) {
                     .node => |current_node| try self.evalNode(allocator, current_node, scope),
@@ -3801,7 +3835,9 @@ pub const Session = struct {
                 const hold_scope = self.holdStorageScope(node_id, hold, scope);
                 try self.recordStateDependency(self.scopedStateKey(node_id, hold_scope));
                 if (self.getHoldValue(node_id, hold_scope)) |value| break :blk value;
-                break :blk try self.evalNode(allocator, hold.initial, hold_scope);
+                const initial = try self.evalNode(allocator, hold.initial, hold_scope);
+                try self.setHoldValue(node_id, hold_scope, initial);
+                break :blk initial;
             },
             .linked_value => |linked| try self.evalLinkedValue(allocator, linked, scope),
             .builtin_call => |call| try self.evalBuiltin(allocator, node_id, call, scope),
@@ -8336,13 +8372,21 @@ fn valuesEqual(lhs: Value, rhs: Value) bool {
             .link => |other| link == other,
             else => false,
         },
+        .scoped_link => |scoped| switch (rhs) {
+            .scoped_link => |other| scoped.link == other.link and scopeIdentity(scoped.scope) == scopeIdentity(other.scope),
+            else => false,
+        },
         .scoped_node => |deferred| switch (rhs) {
-            .scoped_node => |other| deferred.node_id == other.node_id and deferred.scope == other.scope,
+            .scoped_node => |other| deferred.node_id == other.node_id and scopeIdentity(deferred.scope) == scopeIdentity(other.scope),
             else => false,
         },
         .none => rhs == .none,
         else => false,
     };
+}
+
+fn scopeIdentity(scope: ?*const EvalScope) u64 {
+    return if (scope) |frame| frame.id else 0;
 }
 
 fn matchesPattern(input: Value, pattern: Value) bool {
