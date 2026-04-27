@@ -130,6 +130,7 @@ const Pulse = struct {
     source: flow_ir.NodeId,
     payload: PulsePayload,
     scope: ?*const EvalScope = null,
+    event_name: ?[]const u8 = null,
 };
 
 const PulsePayload = union(enum) {
@@ -981,7 +982,7 @@ pub const Session = struct {
 
     pub fn triggerLinkWithScope(self: *Session, link: flow_ir.NodeId, scope: ?*const EvalScope) !void {
         try self.logf("external link n{d}", .{link});
-        try self.enqueueExternalNodePulse(link, scope);
+        try self.enqueueExternalNodePulse(link, scope, null);
     }
 
     pub fn terminalContractView(self: *Session) !?*const TerminalContract {
@@ -1096,14 +1097,14 @@ pub const Session = struct {
         const event = try self.buttonLinkAt(index);
         const scope = canonicalControlScope(event.scope);
         try self.logf("external click button[{d}] -> n{d}", .{ index, event.link });
-        try self.enqueueExternalNodePulse(event.link, scope);
+        try self.enqueueExternalNodePulse(event.link, scope, null);
     }
 
     pub fn clickCheckbox(self: *Session, index: usize) !void {
         const event = try self.checkboxLinkAt(index);
         const scope = canonicalControlScope(event.scope);
         try self.logf("external click checkbox[{d}] -> n{d}", .{ index, event.link });
-        try self.enqueueExternalNodePulse(event.link, scope);
+        try self.enqueueExternalNodePulse(event.link, scope, "click");
     }
 
     pub fn clickButtonAt(self: *Session, index: usize, x: usize, y: usize) !void {
@@ -1115,7 +1116,7 @@ pub const Session = struct {
         });
         try self.setLinkValue(event.link, scope, payload);
         try self.logf("external click button[{d}] -> n{d} at {d},{d}", .{ index, event.link, x, y });
-        try self.enqueueExternalNodePulse(event.link, scope);
+        try self.enqueueExternalNodePulse(event.link, scope, null);
     }
 
     pub fn setSliderValue(self: *Session, index: usize, value: f64) !void {
@@ -1123,7 +1124,7 @@ pub const Session = struct {
         const scope = canonicalControlScope(event.scope);
         try self.setLinkValue(event.link, scope, .{ .number = value });
         try self.logf("external slider[{d}] -> n{d} = {d}", .{ index, event.link, value });
-        try self.enqueueExternalNodePulse(event.link, scope);
+        try self.enqueueExternalNodePulse(event.link, scope, "change");
     }
 
     pub fn setTextInputValue(self: *Session, index: usize, text: []const u8) !void {
@@ -1132,7 +1133,7 @@ pub const Session = struct {
         try self.setLinkValue(event.link, scope, .{ .text = try self.arena.allocator().dupe(u8, text) });
         try self.setLinkKeyValue(event.link, scope, .none);
         try self.logf("external text_input[{d}] -> n{d} = {s}", .{ index, event.link, text });
-        try self.enqueueExternalNodePulse(event.link, scope);
+        try self.enqueueExternalNodePulse(event.link, scope, "change");
     }
 
     pub fn setTextInputValueRef(self: *Session, event: ControlEventRef, text: []const u8) !void {
@@ -1140,7 +1141,7 @@ pub const Session = struct {
         try self.setLinkValue(event.link, scope, .{ .text = try self.arena.allocator().dupe(u8, text) });
         try self.setLinkKeyValue(event.link, scope, .none);
         try self.logf("external text_input -> n{d} = {s}", .{ event.link, text });
-        try self.enqueueExternalNodePulse(event.link, scope);
+        try self.enqueueExternalNodePulse(event.link, scope, "change");
     }
 
     pub fn setSelectValue(self: *Session, index: usize, text: []const u8) !void {
@@ -1148,7 +1149,7 @@ pub const Session = struct {
         const scope = canonicalControlScope(event.scope);
         try self.setLinkValue(event.link, scope, .{ .text = try self.arena.allocator().dupe(u8, text) });
         try self.logf("external select[{d}] -> n{d} = {s}", .{ index, event.link, text });
-        try self.enqueueExternalNodePulse(event.link, scope);
+        try self.enqueueExternalNodePulse(event.link, scope, "change");
     }
 
     pub fn pressTextInputKey(self: *Session, index: usize, key: []const u8) !void {
@@ -1178,7 +1179,7 @@ pub const Session = struct {
         try self.setLinkValue(event.link, scope, .{ .record = event_fields });
         try self.setLinkKeyValue(event.link, scope, .{ .symbol = try self.arena.allocator().dupe(u8, key) });
         try self.logf("external text_input_key -> n{d} = {s}", .{ event.link, key });
-        try self.enqueueExternalNodePulse(event.link, scope);
+        try self.enqueueExternalNodePulse(event.link, scope, "key_down");
     }
 
     pub fn focusTextInput(self: *Session, index: usize) !void {
@@ -1188,13 +1189,13 @@ pub const Session = struct {
         };
         const scope = canonicalControlScope(event.scope);
         try self.logf("external text_input_focus[{d}] -> n{d}", .{ index, event.link });
-        try self.enqueueExternalNodePulse(event.link, scope);
+        try self.enqueueExternalNodePulse(event.link, scope, "focus");
     }
 
     pub fn focusTextInputRef(self: *Session, event: ControlEventRef) !void {
         const scope = canonicalControlScope(event.scope);
         try self.logf("external text_input_focus -> n{d}", .{event.link});
-        try self.enqueueExternalNodePulse(event.link, scope);
+        try self.enqueueExternalNodePulse(event.link, scope, "focus");
     }
 
     pub fn blurTextInput(self: *Session, index: usize) !void {
@@ -1204,13 +1205,13 @@ pub const Session = struct {
         };
         const scope = canonicalControlScope(event.scope);
         try self.logf("external text_input_blur[{d}] -> n{d}", .{ index, event.link });
-        try self.enqueueExternalNodePulse(event.link, scope);
+        try self.enqueueExternalNodePulse(event.link, scope, "blur");
     }
 
     pub fn blurTextInputRef(self: *Session, event: ControlEventRef) !void {
         const scope = canonicalControlScope(event.scope);
         try self.logf("external text_input_blur -> n{d}", .{event.link});
-        try self.enqueueExternalNodePulse(event.link, scope);
+        try self.enqueueExternalNodePulse(event.link, scope, "blur");
     }
 
     pub fn textInputSessionRef(self: *Session, index: usize) !TextInputSessionRef {
@@ -1244,7 +1245,7 @@ pub const Session = struct {
         } else {
             try self.logf("external label_double_click[{d}] -> n{d}", .{ index, event.link });
         }
-        try self.enqueueExternalNodePulse(event.link, scope);
+        try self.enqueueExternalNodePulse(event.link, scope, "double_click");
     }
 
     pub fn setHover(self: *Session, index: usize, hovered: bool) !void {
@@ -1252,7 +1253,7 @@ pub const Session = struct {
         const scope = canonicalControlScope(event.scope);
         try self.setLinkValue(event.link, scope, booleanValue(hovered));
         try self.logf("external hover[{d}] -> n{d} = {s}", .{ index, event.link, if (hovered) "True" else "False" });
-        try self.enqueueExternalNodePulse(event.link, scope);
+        try self.enqueueExternalNodePulse(event.link, scope, "hovered");
     }
 
     pub fn advanceTime(self: *Session, delta_ms: u64) !void {
@@ -1277,11 +1278,12 @@ pub const Session = struct {
         self.current_time_ms = target_time;
     }
 
-    fn enqueueExternalNodePulse(self: *Session, source: flow_ir.NodeId, scope: ?*const EvalScope) !void {
+    fn enqueueExternalNodePulse(self: *Session, source: flow_ir.NodeId, scope: ?*const EvalScope, event_name: ?[]const u8) !void {
         try self.queue.append(self.arena.allocator(), .{
             .source = source,
             .payload = .{ .node = source },
             .scope = scope,
+            .event_name = event_name,
         });
         try self.processQueue();
     }
@@ -2173,6 +2175,159 @@ pub const Session = struct {
         return node_id;
     }
 
+    fn pulseEventNameMatches(expected: ?[]const u8, pulse: Pulse) bool {
+        const actual = pulse.event_name orelse return true;
+        const wanted = expected orelse return true;
+        return std.mem.eql(u8, wanted, actual);
+    }
+
+    fn pulseMatchesTriggerEvent(self: *Session, trigger_node: flow_ir.NodeId, pulse: Pulse) bool {
+        return pulseEventNameMatches(self.eventDependencyName(trigger_node), pulse);
+    }
+
+    fn pulseMatchesTriggerEventForSource(self: *Session, trigger_node: flow_ir.NodeId, source: flow_ir.NodeId, pulse: Pulse) bool {
+        const expected = self.triggerEventNameForSource(trigger_node, source) catch null;
+        return pulseEventNameMatches(expected, pulse);
+    }
+
+    fn triggerEventNameForSource(self: *Session, node_id: flow_ir.NodeId, source: flow_ir.NodeId) anyerror!?[]const u8 {
+        const node = self.flow.nodes[node_id];
+        return switch (node.kind) {
+            .binding_ref => |binding_id| try self.triggerEventNameForSource(self.flow.bindings[binding_id].node, source),
+            .then_value => |then_value| blk: {
+                const trigger_source = self.eventDependencySource(then_value.source) catch break :blk null;
+                break :blk if (trigger_source == source) self.eventDependencyName(then_value.source) else null;
+            },
+            .when => |when| blk: {
+                const trigger_source = self.eventDependencySource(when.input) catch break :blk null;
+                break :blk if (trigger_source == source) self.eventDependencyName(when.input) else null;
+            },
+            .block => |block| try self.triggerEventNameForSource(block.result, source),
+            .latest => |latest| blk: {
+                for (latest.sources) |source_node| {
+                    if (try self.triggerEventNameForSource(source_node, source)) |name| break :blk name;
+                }
+                break :blk null;
+            },
+            .hold => null,
+            .builtin_call => |call| switch (self.builtinOp(node_id)) {
+                .stream_pulses, .stream_skip, .math_sum, .router_go_to => if (call.positional.len != 0)
+                    try self.triggerEventNameForSource(call.positional[0], source)
+                else
+                    null,
+                .list_append => blk: {
+                    if (call.positional.len != 0) {
+                        const base_source = self.listSourceDependency(call.positional[0]) catch null;
+                        if (base_source == source) break :blk null;
+                    }
+                    if (findNamed(call.named, "item")) |item_node| {
+                        const item_source = self.valueTriggerSource(item_node) catch break :blk null;
+                        if (item_source == source) break :blk self.eventDependencyName(item_node);
+                    } else if (findNamed(call.named, "on")) |on_node| {
+                        const on_source = self.valueTriggerSource(on_node) catch break :blk null;
+                        if (on_source == source) break :blk self.eventDependencyName(on_node);
+                    }
+                    break :blk null;
+                },
+                .list_clear, .list_remove_last => blk: {
+                    if (call.positional.len != 0) {
+                        const base_source = self.listSourceDependency(call.positional[0]) catch null;
+                        if (base_source == source) break :blk null;
+                    }
+                    const on_node = findNamed(call.named, "on") orelse break :blk null;
+                    const on_source = self.valueTriggerSource(on_node) catch break :blk null;
+                    break :blk if (on_source == source) self.eventDependencyName(on_node) else null;
+                },
+                else => blk: {
+                    const trigger_source = self.eventDependencySource(node_id) catch break :blk null;
+                    break :blk if (trigger_source == source) self.eventDependencyName(node_id) else null;
+                },
+            },
+            else => blk: {
+                const trigger_source = self.eventDependencySource(node_id) catch break :blk null;
+                break :blk if (trigger_source == source) self.eventDependencyName(node_id) else null;
+            },
+        };
+    }
+
+    fn eventDependencyName(self: *Session, node_id: flow_ir.NodeId) ?[]const u8 {
+        const node = self.flow.nodes[node_id];
+        return switch (node.kind) {
+            .binding_ref => |binding_id| self.eventDependencyName(self.flow.bindings[binding_id].node),
+            .access => |access| blk: {
+                if (isEventField(access.field)) break :blk access.field;
+                if (std.mem.eql(u8, access.field, "value") or std.mem.eql(u8, access.field, "text")) {
+                    const target = self.flow.nodes[access.target];
+                    if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "change")) break :blk "change";
+                }
+                if (std.mem.eql(u8, access.field, "key")) {
+                    const target = self.flow.nodes[access.target];
+                    if (target.kind == .access and std.mem.eql(u8, target.kind.access.field, "key_down")) break :blk "key_down";
+                }
+                break :blk self.eventDependencyName(access.target);
+            },
+            .then_value => |then_value| self.eventDependencyName(then_value.source),
+            .when => |when| self.eventDependencyName(when.input),
+            .block => |block| self.eventDependencyName(block.result),
+            .builtin_call => |call| switch (self.builtinOp(node_id)) {
+                .stream_pulses, .stream_skip, .math_sum, .router_go_to => if (call.positional.len != 0)
+                    self.eventDependencyName(call.positional[0])
+                else
+                    null,
+                else => null,
+            },
+            else => null,
+        };
+    }
+
+    fn isEventField(field: []const u8) bool {
+        return std.mem.eql(u8, field, "press") or
+            std.mem.eql(u8, field, "click") or
+            std.mem.eql(u8, field, "double_click") or
+            std.mem.eql(u8, field, "change") or
+            std.mem.eql(u8, field, "key_down") or
+            std.mem.eql(u8, field, "blur") or
+            std.mem.eql(u8, field, "focus") or
+            std.mem.eql(u8, field, "hovered");
+    }
+
+    fn triggerScopedEventNameForSource(self: *Session, node_id: flow_ir.NodeId, source: flow_ir.NodeId, scope: ?*const EvalScope) anyerror!?[]const u8 {
+        const node = self.flow.nodes[node_id];
+        return switch (node.kind) {
+            .binding_ref => |binding_id| try self.triggerScopedEventNameForSource(self.flow.bindings[binding_id].node, source, scope),
+            .then_value => |then_value| blk: {
+                const trigger_source = self.scopedEventDependencySource(then_value.source, scope) catch break :blk null;
+                break :blk if (trigger_source == source) self.eventDependencyName(then_value.source) else null;
+            },
+            .when => |when| blk: {
+                const trigger_source = self.scopedEventDependencySource(when.input, scope) catch break :blk null;
+                break :blk if (trigger_source == source) self.eventDependencyName(when.input) else null;
+            },
+            .block => |block| try self.triggerScopedEventNameForSource(block.result, source, scope),
+            .latest => |latest| blk: {
+                for (latest.sources) |source_node| {
+                    if (try self.triggerScopedEventNameForSource(source_node, source, scope)) |name| break :blk name;
+                }
+                break :blk null;
+            },
+            .hold => null,
+            .builtin_call => |call| switch (self.builtinOp(node_id)) {
+                .stream_pulses, .stream_skip, .math_sum, .router_go_to => if (call.positional.len != 0)
+                    try self.triggerScopedEventNameForSource(call.positional[0], source, scope)
+                else
+                    null,
+                else => blk: {
+                    const trigger_source = self.scopedEventDependencySource(node_id, scope) catch break :blk null;
+                    break :blk if (trigger_source == source) self.eventDependencyName(node_id) else null;
+                },
+            },
+            else => blk: {
+                const trigger_source = self.scopedEventDependencySource(node_id, scope) catch break :blk null;
+                break :blk if (trigger_source == source) self.eventDependencyName(node_id) else null;
+            },
+        };
+    }
+
     fn scopedEventDependencySource(self: *Session, node_id: flow_ir.NodeId, scope: ?*const EvalScope) anyerror!flow_ir.NodeId {
         const node = self.flow.nodes[node_id];
         return switch (node.kind) {
@@ -2764,6 +2919,7 @@ pub const Session = struct {
         };
         switch (node.kind) {
             .then_value => |then_value| {
+                if (!self.pulseMatchesTriggerEvent(then_value.source, pulse)) return;
                 if (pulse.scope) |scope| {
                     const source = self.scopedEventDependencySource(then_value.source, scope) catch |err| switch (err) {
                         error.MissingLocalBinding,
@@ -2812,7 +2968,7 @@ pub const Session = struct {
                 });
             },
             .hold => |hold| {
-                try self.processHoldPulse(subscriber, hold, pulse.source, pulse.scope);
+                try self.processHoldPulse(subscriber, hold, pulse);
             },
             .linked_value => |linked| {
                 const value = switch (self.flow.nodes[linked.value].kind) {
@@ -2831,9 +2987,16 @@ pub const Session = struct {
             },
             .builtin_call => |call| {
                 switch (self.builtinOp(subscriber)) {
-                    .stream_pulses => try self.emitPulses(subscriber, call, pulse.scope),
-                    .stream_skip => try self.processSkipPulse(subscriber, call, pulse.payload, pulse.scope),
+                    .stream_pulses => {
+                        if (call.positional.len != 0 and !self.pulseMatchesTriggerEventForSource(call.positional[0], pulse.source, pulse)) return;
+                        try self.emitPulses(subscriber, call, pulse.scope);
+                    },
+                    .stream_skip => {
+                        if (call.positional.len != 0 and !self.pulseMatchesTriggerEventForSource(call.positional[0], pulse.source, pulse)) return;
+                        try self.processSkipPulse(subscriber, call, pulse.payload, pulse.scope);
+                    },
                     .math_sum => {
+                        if (call.positional.len != 0 and !self.pulseMatchesTriggerEventForSource(call.positional[0], pulse.source, pulse)) return;
                         const value = try valueAsNumber(try valueFromPulsePayload(self, self.arena.allocator(), pulse.payload, pulse.scope));
                         if (self.sumSourceIsMultiSourceLatest(call)) {
                             self.sum_values[subscriber] = value;
@@ -2849,9 +3012,12 @@ pub const Session = struct {
                         });
                         try self.queue.append(self.arena.allocator(), .{ .source = subscriber, .payload = .{ .node = subscriber } });
                     },
-                    .list_append => try self.processListAppendPulse(subscriber, call, pulse.source),
-                    .list_clear => try self.processListClearPulse(subscriber, call, pulse.source),
-                    .router_go_to => try self.dispatchRouterGoTo(subscriber, call, pulse.scope, pulse.payload),
+                    .list_append => try self.processListAppendPulse(subscriber, call, pulse),
+                    .list_clear => try self.processListClearPulse(subscriber, call, pulse),
+                    .router_go_to => {
+                        if (call.positional.len != 0 and !self.pulseMatchesTriggerEventForSource(call.positional[0], pulse.source, pulse)) return;
+                        try self.dispatchRouterGoTo(subscriber, call, pulse.scope, pulse.payload);
+                    },
                     else => {},
                 }
             },
@@ -3946,7 +4112,10 @@ pub const Session = struct {
     fn evalAccess(self: *Session, allocator: std.mem.Allocator, access: flow_ir.Access, scope: ?*const EvalScope) anyerror!Value {
         if (try self.resolveStaticFieldNode(access.target, access.field)) |field_node| {
             switch (self.flow.nodes[field_node].kind) {
-                .hold, .latest, .link_port => return try self.evalNode(allocator, field_node, scope),
+                .hold, .latest, .link_port => switch (self.flow.nodes[access.target].kind) {
+                    .symbol, .local_ref => {},
+                    else => return try self.evalNode(allocator, field_node, scope),
+                },
                 else => if (!self.nodeNeedsScope(field_node) and !self.nodeNeedsDeferredField(field_node)) {
                     return try self.evalNode(allocator, field_node, scope);
                 },
@@ -5257,8 +5426,10 @@ pub const Session = struct {
             },
             .access => |access| {
                 if (try self.resolveStaticFieldNode(access.target, access.field)) |field_node| {
-                    try self.appendRenderedNode(output, allocator, field_node, scope);
-                    return;
+                    if (!self.nodeNeedsScope(field_node) and !self.nodeNeedsDeferredField(field_node)) {
+                        try self.appendRenderedNode(output, allocator, field_node, scope);
+                        return;
+                    }
                 }
                 const target_value = try self.evalNode(allocator, access.target, scope);
                 if (target_value == .record) {
@@ -6387,7 +6558,8 @@ pub const Session = struct {
         try self.logf("init list_remove_last n{d}", .{node_id});
     }
 
-    fn processListAppendPulse(self: *Session, node_id: flow_ir.NodeId, call: flow_ir.BuiltinCall, source: flow_ir.NodeId) anyerror!void {
+    fn processListAppendPulse(self: *Session, node_id: flow_ir.NodeId, call: flow_ir.BuiltinCall, pulse: Pulse) anyerror!void {
+        const source = pulse.source;
         if (call.positional.len == 0) return error.MissingArgument;
         const base_source = try self.listSourceDependency(call.positional[0]);
         if (source == base_source) {
@@ -6402,9 +6574,11 @@ pub const Session = struct {
 
         const item = if (findNamed(call.named, "item")) |item_node| blk: {
             if (try self.valueTriggerSource(item_node) != source) return;
+            if (!self.pulseMatchesTriggerEventForSource(item_node, source, pulse)) return;
             break :blk try self.evalNode(self.arena.allocator(), item_node, null);
         } else if (findNamed(call.named, "on")) |on_node| blk: {
             if (try self.valueTriggerSource(on_node) != source) return;
+            if (!self.pulseMatchesTriggerEventForSource(on_node, source, pulse)) return;
             break :blk try self.evalNode(self.arena.allocator(), on_node, null);
         } else return error.MissingArgument;
         if (item == .none) return;
@@ -6419,7 +6593,8 @@ pub const Session = struct {
         try self.queue.append(self.arena.allocator(), .{ .source = node_id, .payload = .{ .node = node_id } });
     }
 
-    fn processListClearPulse(self: *Session, node_id: flow_ir.NodeId, call: flow_ir.BuiltinCall, source: flow_ir.NodeId) anyerror!void {
+    fn processListClearPulse(self: *Session, node_id: flow_ir.NodeId, call: flow_ir.BuiltinCall, pulse: Pulse) anyerror!void {
+        const source = pulse.source;
         if (call.positional.len == 0) return error.MissingArgument;
         const source_dep = try self.listSourceDependency(call.positional[0]);
         const on_node = findNamed(call.named, "on") orelse return error.MissingArgument;
@@ -6433,6 +6608,7 @@ pub const Session = struct {
             return;
         }
         if (try self.valueTriggerSource(on_node) != source) return;
+        if (!self.pulseMatchesTriggerEventForSource(on_node, source, pulse)) return;
         self.list_values[node_id] = .{ .list = &.{} };
         self.list_inited[node_id] = true;
         try self.resetListPipelineState(call.positional[0]);
@@ -6595,7 +6771,9 @@ pub const Session = struct {
         };
     }
 
-    fn processHoldPulse(self: *Session, node_id: flow_ir.NodeId, hold: flow_ir.Hold, source: flow_ir.NodeId, outer_scope: ?*const EvalScope) anyerror!void {
+    fn processHoldPulse(self: *Session, node_id: flow_ir.NodeId, hold: flow_ir.Hold, pulse: Pulse) anyerror!void {
+        const source = pulse.source;
+        const outer_scope = pulse.scope;
         const hold_scope = self.holdStorageScope(node_id, hold, outer_scope);
         const current = self.getHoldValue(node_id, hold_scope) orelse try self.evalNode(self.arena.allocator(), hold.initial, hold_scope);
         for (hold.updates) |update| {
@@ -6615,6 +6793,11 @@ pub const Session = struct {
                 break :scoped try self.holdTriggerSource(update);
             } else try self.holdTriggerSource(update);
             if (update_source != source) continue;
+            const expected_event = if (outer_scope) |scope|
+                try self.triggerScopedEventNameForSource(update, source, scope)
+            else
+                try self.triggerEventNameForSource(update, source);
+            if (!pulseEventNameMatches(expected_event, pulse)) continue;
             const bindings = try self.arena.allocator().alloc(RecordField, 1);
             bindings[0] = .{
                 .name = hold.state_name,
