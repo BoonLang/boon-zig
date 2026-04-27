@@ -719,6 +719,8 @@ pub const Session = struct {
     skip_values: []Value = &.{},
     skip_inited: []bool = &.{},
     skip_seen: []u64 = &.{},
+    skip_limits: []u64 = &.{},
+    skip_limit_inited: []bool = &.{},
     sum_values: []f64 = &.{},
     sum_inited: []bool = &.{},
     timer_period_ms: []u64 = &.{},
@@ -1348,6 +1350,12 @@ pub const Session = struct {
         self.skip_seen = try allocator.alloc(u64, node_count);
         @memset(self.skip_seen, 0);
 
+        self.skip_limits = try allocator.alloc(u64, node_count);
+        @memset(self.skip_limits, 0);
+
+        self.skip_limit_inited = try allocator.alloc(bool, node_count);
+        @memset(self.skip_limit_inited, false);
+
         self.sum_values = try allocator.alloc(f64, node_count);
         @memset(self.sum_values, 0);
 
@@ -1800,6 +1808,10 @@ pub const Session = struct {
                 .builtin_call => |call| {
                     switch (self.builtinOp(subscriber)) {
                         .stream_pulses, .stream_skip, .math_sum => if (call.positional.len != 0) {
+                            if (self.nodeNeedsScope(call.positional[0])) {
+                                self.runtime_subscribers[subscriber] = true;
+                                continue;
+                            }
                             const source = self.eventDependencySource(call.positional[0]) catch |err| switch (err) {
                                 error.UnsupportedEventSource => {
                                     if (self.nodeNeedsScope(call.positional[0])) {
@@ -1923,6 +1935,7 @@ pub const Session = struct {
                 .builtin_call => |call| {
                     switch (self.builtinOp(subscriber)) {
                         .stream_pulses, .stream_skip, .math_sum => if (call.positional.len != 0) {
+                            if (self.nodeNeedsScope(call.positional[0])) continue;
                             const source = self.eventDependencySource(call.positional[0]) catch |err| switch (err) {
                                 error.UnsupportedEventSource => if (self.nodeNeedsScope(call.positional[0]) or self.nodeNeedsScope(subscriber)) continue else return err,
                                 else => return err,
@@ -6722,6 +6735,8 @@ pub const Session = struct {
     fn initSkipNode(self: *Session, allocator: std.mem.Allocator, node_id: flow_ir.NodeId, call: flow_ir.BuiltinCall, scope: ?*const EvalScope) anyerror!void {
         const source = call.positional[0];
         const limit = try self.skipLimit(call, scope);
+        self.skip_limits[node_id] = limit;
+        self.skip_limit_inited[node_id] = true;
         if (try self.initialStreamValue(allocator, source, scope)) |value| {
             if (limit == 0) {
                 self.skip_values[node_id] = value;
@@ -6735,7 +6750,7 @@ pub const Session = struct {
     }
 
     fn processSkipPulse(self: *Session, node_id: flow_ir.NodeId, call: flow_ir.BuiltinCall, payload: PulsePayload, scope: ?*const EvalScope) anyerror!void {
-        const limit = try self.skipLimit(call, scope);
+        const limit = if (self.skip_limit_inited[node_id]) self.skip_limits[node_id] else try self.skipLimit(call, scope);
         if (self.skip_seen[node_id] < limit) {
             self.skip_seen[node_id] += 1;
             try self.logf("skip n{d} ignored pulse {d}/{d}", .{ node_id, self.skip_seen[node_id], limit });
