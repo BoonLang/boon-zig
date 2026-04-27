@@ -403,6 +403,8 @@ const PersistedScalarKind = enum {
     text,
     symbol,
     duration_ms,
+    list,
+    record,
 };
 
 const PersistedScalar = struct {
@@ -410,6 +412,13 @@ const PersistedScalar = struct {
     number: ?f64 = null,
     text: ?[]const u8 = null,
     duration_ms: ?u64 = null,
+    list: ?[]PersistedScalar = null,
+    record: ?[]PersistedRecordField = null,
+};
+
+const PersistedRecordField = struct {
+    name: []const u8,
+    value: PersistedScalar,
 };
 
 const PersistedSumEntry = struct {
@@ -424,15 +433,23 @@ const PersistedHoldEntry = struct {
     value: PersistedScalar,
 };
 
+const PersistedListEntry = struct {
+    stable_id: u64 = 0,
+    node_id: ?flow_ir.NodeId = null,
+    value: PersistedScalar,
+};
+
 const PersistedState = struct {
-    version: u32 = 2,
-    sums: []PersistedSumEntry,
-    holds: []PersistedHoldEntry,
+    version: u32 = 3,
+    sums: []PersistedSumEntry = &.{},
+    holds: []PersistedHoldEntry = &.{},
+    lists: []PersistedListEntry = &.{},
 };
 
 const PersistKind = enum {
     sum,
     hold,
+    list,
 };
 
 pub const ControlEventRef = struct {
@@ -1112,6 +1129,7 @@ pub const Session = struct {
         const event = try self.textInputLinkAt(index);
         const scope = canonicalControlScope(event.scope);
         try self.setLinkValue(event.link, scope, .{ .text = try self.arena.allocator().dupe(u8, text) });
+        try self.setLinkKeyValue(event.link, scope, .none);
         try self.logf("external text_input[{d}] -> n{d} = {s}", .{ index, event.link, text });
         try self.enqueueExternalNodePulse(event.link, scope);
     }
@@ -1119,6 +1137,7 @@ pub const Session = struct {
     pub fn setTextInputValueRef(self: *Session, event: ControlEventRef, text: []const u8) !void {
         const scope = canonicalControlScope(event.scope);
         try self.setLinkValue(event.link, scope, .{ .text = try self.arena.allocator().dupe(u8, text) });
+        try self.setLinkKeyValue(event.link, scope, .none);
         try self.logf("external text_input -> n{d} = {s}", .{ event.link, text });
         try self.enqueueExternalNodePulse(event.link, scope);
     }
@@ -1134,13 +1153,10 @@ pub const Session = struct {
     pub fn pressTextInputKey(self: *Session, index: usize, key: []const u8) !void {
         const event = try self.textInputKeyLinkAt(index);
         const change_event = try self.textInputLinkAt(index);
-        const scope = canonicalControlScope(event.scope);
         const change_scope = canonicalControlScope(change_event.scope);
         const current_text = self.getLinkValue(change_event.link, change_scope) orelse try self.currentTextInputValue(index);
-        try self.setLinkValue(event.link, scope, current_text);
-        try self.setLinkKeyValue(event.link, scope, .{ .symbol = try self.arena.allocator().dupe(u8, key) });
+        try self.pressTextInputKeyRef(event, change_event, key, try valueAsText(current_text));
         try self.logf("external text_input_key[{d}] -> n{d} = {s}", .{ index, event.link, key });
-        try self.enqueueExternalNodePulse(event.link, scope);
     }
 
     pub fn pressTextInputKeyWithText(self: *Session, index: usize, key: []const u8, current_text: []const u8) !void {
@@ -1154,7 +1170,11 @@ pub const Session = struct {
         const scope = canonicalControlScope(event.scope);
         const change_scope = canonicalControlScope(change_event.scope);
         try self.setLinkValue(change_event.link, change_scope, .{ .text = try self.arena.allocator().dupe(u8, current_text) });
-        try self.setLinkValue(event.link, scope, .{ .text = try self.arena.allocator().dupe(u8, current_text) });
+        const event_fields = try self.arena.allocator().alloc(RecordField, 3);
+        event_fields[0] = .{ .name = "text", .value = .{ .text = try self.arena.allocator().dupe(u8, current_text) } };
+        event_fields[1] = .{ .name = "value", .value = .{ .text = try self.arena.allocator().dupe(u8, current_text) } };
+        event_fields[2] = .{ .name = "key", .value = .{ .symbol = try self.arena.allocator().dupe(u8, key) } };
+        try self.setLinkValue(event.link, scope, .{ .record = event_fields });
         try self.setLinkKeyValue(event.link, scope, .{ .symbol = try self.arena.allocator().dupe(u8, key) });
         try self.logf("external text_input_key -> n{d} = {s}", .{ event.link, key });
         try self.enqueueExternalNodePulse(event.link, scope);
@@ -1776,8 +1796,14 @@ pub const Session = struct {
                             };
                             counts[source] += 1;
                         },
-                        .list_append => if (!self.nodeNeedsScope(subscriber)) {
-                            if (call.positional.len != 0) counts[try self.listSourceDependency(call.positional[0])] += 1;
+                        .list_append => {
+                            if (call.positional.len != 0) {
+                                if (self.nodeNeedsScope(call.positional[0])) {
+                                    self.runtime_subscribers[subscriber] = true;
+                                } else {
+                                    counts[try self.listSourceDependency(call.positional[0])] += 1;
+                                }
+                            }
                             if (findNamed(call.named, "item")) |item_node| {
                                 if (self.nodeNeedsScope(item_node)) {
                                     self.runtime_subscribers[subscriber] = true;
@@ -1794,8 +1820,14 @@ pub const Session = struct {
                                 return error.MissingArgument;
                             }
                         },
-                        .list_clear => if (!self.nodeNeedsScope(subscriber)) {
-                            if (call.positional.len != 0) counts[try self.listSourceDependency(call.positional[0])] += 1;
+                        .list_clear => {
+                            if (call.positional.len != 0) {
+                                if (self.nodeNeedsScope(call.positional[0])) {
+                                    self.runtime_subscribers[subscriber] = true;
+                                } else {
+                                    counts[try self.listSourceDependency(call.positional[0])] += 1;
+                                }
+                            }
                             const on_node = findNamed(call.named, "on") orelse return error.MissingArgument;
                             if (self.nodeNeedsScope(on_node)) {
                                 self.runtime_subscribers[subscriber] = true;
@@ -1881,8 +1913,10 @@ pub const Session = struct {
                             };
                             try self.addSubscriber(source, subscriber, filled);
                         },
-                        .list_append => if (!self.nodeNeedsScope(subscriber)) {
-                            if (call.positional.len != 0) try self.addSubscriber(try self.listSourceDependency(call.positional[0]), subscriber, filled);
+                        .list_append => {
+                            if (call.positional.len != 0 and !self.nodeNeedsScope(call.positional[0])) {
+                                try self.addSubscriber(try self.listSourceDependency(call.positional[0]), subscriber, filled);
+                            }
                             if (findNamed(call.named, "item")) |item_node| {
                                 if (!self.nodeNeedsScope(item_node)) {
                                     try self.addSubscriber(try self.valueTriggerSource(item_node), subscriber, filled);
@@ -1895,8 +1929,10 @@ pub const Session = struct {
                                 return error.MissingArgument;
                             }
                         },
-                        .list_clear => if (!self.nodeNeedsScope(subscriber)) {
-                            if (call.positional.len != 0) try self.addSubscriber(try self.listSourceDependency(call.positional[0]), subscriber, filled);
+                        .list_clear => {
+                            if (call.positional.len != 0 and !self.nodeNeedsScope(call.positional[0])) {
+                                try self.addSubscriber(try self.listSourceDependency(call.positional[0]), subscriber, filled);
+                            }
                             const on_node = findNamed(call.named, "on") orelse return error.MissingArgument;
                             if (!self.nodeNeedsScope(on_node)) {
                                 try self.addSubscriber(try self.valueTriggerSource(on_node), subscriber, filled);
@@ -2608,6 +2644,61 @@ pub const Session = struct {
         };
     }
 
+    fn resolveLinkedTargetRef(self: *Session, allocator: std.mem.Allocator, node_id: flow_ir.NodeId, scope: ?*const EvalScope) anyerror!ScopedLinkValue {
+        const node = self.flow.nodes[node_id];
+        return switch (node.kind) {
+            .link_port => .{ .link = node_id, .scope = try captureControlScope(allocator, scope) },
+            .binding_ref => |binding_id| try self.resolveLinkedTargetRef(allocator, self.flow.bindings[binding_id].node, null),
+            .local_ref => |name| if (lookupLocal(scope, name)) |value|
+                try self.resolveLinkedTargetValueRef(allocator, value)
+            else
+                error.MissingLocalBinding,
+            .linked_value => |linked| try self.resolveLinkedTargetRef(allocator, linked.target, scope),
+            .access => |access| blk: {
+                const target_value = switch (self.flow.nodes[access.target].kind) {
+                    .symbol => |text| lookupLocal(scope, text) orelse try self.evalNode(allocator, access.target, scope),
+                    else => try self.evalNode(allocator, access.target, scope),
+                };
+                if (try self.resolveLinkedTargetFieldRef(allocator, target_value, access.field)) |ref| break :blk ref;
+                const field_node = try self.resolveStaticFieldNode(access.target, access.field) orelse return error.ExpectedLinkNode;
+                break :blk try self.resolveLinkedTargetRef(allocator, field_node, scope);
+            },
+            else => try self.resolveLinkedTargetValueRef(allocator, try self.evalNode(allocator, node_id, scope)),
+        };
+    }
+
+    fn resolveLinkedTargetFieldRef(self: *Session, allocator: std.mem.Allocator, value: Value, field_name: []const u8) anyerror!?ScopedLinkValue {
+        return switch (value) {
+            .record => |fields| if (findRecordValue(fields, field_name)) |field_value|
+                try self.resolveLinkedTargetValueRef(allocator, field_value)
+            else
+                null,
+            .binding_ref => |binding_id| blk: {
+                const field_node = try self.resolveStaticFieldNode(self.flow.bindings[binding_id].node, field_name) orelse break :blk null;
+                break :blk try self.resolveLinkedTargetRef(allocator, field_node, null);
+            },
+            .scoped_node => |deferred| try self.resolveLinkedTargetFieldRef(
+                allocator,
+                try self.evalNode(allocator, deferred.node_id, deferred.scope),
+                field_name,
+            ),
+            else => null,
+        };
+    }
+
+    fn resolveLinkedTargetValueRef(self: *Session, allocator: std.mem.Allocator, value: Value) anyerror!ScopedLinkValue {
+        return switch (value) {
+            .link => |link| .{ .link = link, .scope = null },
+            .scoped_link => |scoped| scoped,
+            .binding_ref => |binding_id| try self.resolveLinkedTargetRef(allocator, self.flow.bindings[binding_id].node, null),
+            .scoped_node => |deferred| try self.resolveLinkedTargetValueRef(
+                allocator,
+                try self.evalNode(allocator, deferred.node_id, deferred.scope),
+            ),
+            else => error.ExpectedLinkValue,
+        };
+    }
+
     fn linkedValueTriggerSource(self: *Session, node_id: flow_ir.NodeId) anyerror!flow_ir.NodeId {
         const node = self.flow.nodes[node_id];
         return switch (node.kind) {
@@ -2715,24 +2806,13 @@ pub const Session = struct {
                     else => try valueFromPulsePayload(self, self.arena.allocator(), pulse.payload, pulse.scope),
                 };
                 if (value == .none) return;
-                const link = if (try self.resolveStaticLinkNode(linked.target)) |static_link|
-                    static_link
-                else if (try self.resolveScopedLinkNode(linked.target, pulse.scope)) |scoped_link|
-                    scoped_link
-                else blk: {
-                    const target = try self.evalNode(self.arena.allocator(), linked.target, pulse.scope);
-                    break :blk switch (target) {
-                        .link => |resolved_link| resolved_link,
-                        .scoped_link => |scoped| scoped.link,
-                        else => return error.ExpectedLinkValue,
-                    };
-                };
-                try self.setLinkValue(link, pulse.scope, value);
-                try self.logf("linked n{d} -> n{d}", .{ subscriber, link });
+                const target_ref = try self.resolveLinkedTargetRef(self.arena.allocator(), linked.target, pulse.scope);
+                try self.setLinkValue(target_ref.link, target_ref.scope, value);
+                try self.logf("linked n{d} -> n{d}", .{ subscriber, target_ref.link });
                 try self.queue.append(self.arena.allocator(), .{
-                    .source = link,
+                    .source = target_ref.link,
                     .payload = .{ .value = value },
-                    .scope = pulse.scope,
+                    .scope = target_ref.scope,
                 });
             },
             .builtin_call => |call| {
@@ -3135,7 +3215,7 @@ pub const Session = struct {
         defer links.deinit(scratch.allocator());
         try collectCheckboxLinks(self, &links, scratch.allocator(), value);
         if (index >= links.items.len) return error.InvalidButtonIndex;
-        return links.items[index];
+        return try cloneControlEventRefForCache(self.arena.allocator(), links.items[index]);
     }
 
     fn sliderLinkAt(self: *Session, index: usize) anyerror!ControlEventRef {
@@ -3789,8 +3869,11 @@ pub const Session = struct {
                 break :blk Value{ .scoped_node = deferred };
             } else switch (self.flow.nodes[field.value].kind) {
                 .binding_ref => |binding_id| Value{ .binding_ref = binding_id },
-                .link_port => if (scope) |field_scope|
-                    Value{ .scoped_link = .{ .link = field.value, .scope = try captureControlScope(allocator, field_scope) } }
+                .link_port => if (scope != null and !self.isTopLevelOwnedNode(field.value))
+                    if (scope) |field_scope|
+                        Value{ .scoped_link = .{ .link = field.value, .scope = try captureControlScope(allocator, field_scope) } }
+                    else
+                        unreachable
                 else
                     Value{ .link = field.value },
                 else => try self.evalNode(allocator, field.value, scope),
@@ -3933,23 +4016,25 @@ pub const Session = struct {
                     try self.recordLinkDependencies(link, scope, true);
                     const link_value = self.getLinkValue(link, scope);
                     const key_value = self.getLinkKeyValue(link, scope);
+                    const event_text = linkEventTextValue(link_value);
+                    const event_key = linkEventKeyValue(link_value, key_value);
                     const change_fields = try allocator.alloc(RecordField, 2);
                     change_fields[0] = .{
                         .name = "value",
-                        .value = link_value orelse .none,
+                        .value = event_text,
                     };
                     change_fields[1] = .{
                         .name = "text",
-                        .value = link_value orelse .none,
+                        .value = event_text,
                     };
                     const key_fields = try allocator.alloc(RecordField, 2);
                     key_fields[0] = .{
                         .name = "key",
-                        .value = key_value orelse .none,
+                        .value = event_key,
                     };
                     key_fields[1] = .{
                         .name = "text",
-                        .value = link_value orelse .none,
+                        .value = event_text,
                     };
                     const fields = try allocator.alloc(RecordField, 3);
                     fields[0] = .{
@@ -4014,23 +4099,25 @@ pub const Session = struct {
                 try self.recordLinkDependencies(link, scope, true);
                 const link_value = self.getLinkValue(link, scope);
                 const key_value = self.getLinkKeyValue(link, scope);
+                const event_text = linkEventTextValue(link_value);
+                const event_key = linkEventKeyValue(link_value, key_value);
                 const change_fields = try allocator.alloc(RecordField, 2);
                 change_fields[0] = .{
                     .name = "value",
-                    .value = link_value orelse .none,
+                    .value = event_text,
                 };
                 change_fields[1] = .{
                     .name = "text",
-                    .value = link_value orelse .none,
+                    .value = event_text,
                 };
                 const key_fields = try allocator.alloc(RecordField, 2);
                 key_fields[0] = .{
                     .name = "key",
-                    .value = key_value orelse .none,
+                    .value = event_key,
                 };
                 key_fields[1] = .{
                     .name = "text",
-                    .value = link_value orelse .none,
+                    .value = event_text,
                 };
                 const fields = try allocator.alloc(RecordField, 3);
                 fields[0] = .{
@@ -4065,6 +4152,7 @@ pub const Session = struct {
             .parent = parent_scope,
             .passed = passed,
             .id = scopeIdBase(parent_scope, passed),
+            .transparent_state_scope = true,
         };
 
         for (block.bindings) |binding| {
@@ -4097,6 +4185,7 @@ pub const Session = struct {
                 .parent = scope,
                 .passed = if (scope) |parent| parent.passed else null,
                 .id = deriveScopeId(scope, bindings, if (scope) |parent| parent.passed else null),
+                .transparent_state_scope = true,
             };
             return try self.evalNode(allocator, arm.result, &arm_scope);
         }
@@ -4109,19 +4198,7 @@ pub const Session = struct {
             .scoped_node => |deferred| try self.evalNode(allocator, deferred.node_id, deferred.scope),
             else => raw_value,
         };
-        const scoped_target = if (scope != null) try self.resolveScopedLinkNode(linked.target, scope) else null;
-        const target_ref = if (scoped_target) |scoped_link|
-            ScopedLinkValue{ .link = scoped_link, .scope = try captureControlScope(allocator, scope) }
-        else if (try self.resolveStaticLinkNode(linked.target)) |static_link|
-            ScopedLinkValue{ .link = static_link, .scope = null }
-        else blk: {
-            const target = try self.evalNode(allocator, linked.target, scope);
-            break :blk switch (target) {
-                .link => |target_link| ScopedLinkValue{ .link = target_link, .scope = try captureControlScope(allocator, scope) },
-                .scoped_link => |scoped| scoped,
-                else => return error.ExpectedLinkValue,
-            };
-        };
+        const target_ref = try self.resolveLinkedTargetRef(allocator, linked.target, scope);
         const link = target_ref.link;
         const event_scope = target_ref.scope;
         return switch (value) {
@@ -5168,6 +5245,7 @@ pub const Session = struct {
                     .parent = scope,
                     .passed = passed,
                     .id = scopeIdBase(scope, passed),
+                    .transparent_state_scope = true,
                 };
 
                 for (block.bindings, 0..) |binding, index| {
@@ -5199,6 +5277,7 @@ pub const Session = struct {
                             .parent = scope,
                             .passed = passed,
                             .id = extendScopeId(scopeIdBase(scope, passed), binding_storage[0]),
+                            .transparent_state_scope = true,
                         };
                         try self.appendRenderedNode(output, allocator, arm.result, &arm_scope);
                     } else {
@@ -6216,6 +6295,10 @@ pub const Session = struct {
 
     fn initListAppendNode(self: *Session, allocator: std.mem.Allocator, node_id: flow_ir.NodeId, call: flow_ir.BuiltinCall) anyerror!void {
         if (call.positional.len == 0) return error.MissingArgument;
+        if (self.list_inited[node_id]) {
+            try self.logf("restore list_append n{d}", .{node_id});
+            return;
+        }
         const base = try self.evalNode(allocator, call.positional[0], null);
         self.list_values[node_id] = try cloneListValue(self.arena.allocator(), base);
         self.list_inited[node_id] = true;
@@ -6225,6 +6308,10 @@ pub const Session = struct {
 
     fn initListClearNode(self: *Session, allocator: std.mem.Allocator, node_id: flow_ir.NodeId, call: flow_ir.BuiltinCall) anyerror!void {
         if (call.positional.len == 0) return error.MissingArgument;
+        if (self.list_inited[node_id]) {
+            try self.logf("restore list_clear n{d}", .{node_id});
+            return;
+        }
         const base = try self.evalNode(allocator, call.positional[0], null);
         self.list_values[node_id] = try cloneListValue(self.arena.allocator(), base);
         self.list_inited[node_id] = true;
@@ -6234,6 +6321,10 @@ pub const Session = struct {
 
     fn initListRemoveNode(self: *Session, allocator: std.mem.Allocator, node_id: flow_ir.NodeId, call: flow_ir.BuiltinCall) anyerror!void {
         if (call.positional.len == 0) return error.MissingArgument;
+        if (self.list_inited[node_id]) {
+            try self.logf("restore list_remove n{d}", .{node_id});
+            return;
+        }
         const base = try self.evalNode(allocator, call.positional[0], null);
         self.list_values[node_id] = try self.filterRemovedItems(self.arena.allocator(), base, self.list_remove_tombstones[node_id]);
         self.list_inited[node_id] = true;
@@ -6243,6 +6334,10 @@ pub const Session = struct {
 
     fn initListRemoveLastNode(self: *Session, allocator: std.mem.Allocator, node_id: flow_ir.NodeId, call: flow_ir.BuiltinCall) anyerror!void {
         if (call.positional.len == 0) return error.MissingArgument;
+        if (self.list_inited[node_id]) {
+            try self.logf("restore list_remove_last n{d}", .{node_id});
+            return;
+        }
         const base = try self.evalNode(allocator, call.positional[0], null);
         self.list_values[node_id] = try cloneListValue(self.arena.allocator(), base);
         self.list_inited[node_id] = true;
@@ -6298,9 +6393,29 @@ pub const Session = struct {
         if (try self.valueTriggerSource(on_node) != source) return;
         self.list_values[node_id] = .{ .list = &.{} };
         self.list_inited[node_id] = true;
+        try self.resetListPipelineState(call.positional[0]);
         self.noteTopLevelMutation(node_id);
         try self.logf("list_clear n{d} cleared", .{node_id});
         try self.queue.append(self.arena.allocator(), .{ .source = node_id, .payload = .{ .node = node_id } });
+    }
+
+    fn resetListPipelineState(self: *Session, node_id: flow_ir.NodeId) anyerror!void {
+        const resolved_node = switch (self.flow.nodes[node_id].kind) {
+            .binding_ref => |binding_id| self.flow.bindings[binding_id].node,
+            else => node_id,
+        };
+        const node = self.flow.nodes[resolved_node];
+        if (node.kind != .builtin_call) return;
+        const call = node.kind.builtin_call;
+        switch (self.builtinOp(resolved_node)) {
+            .list_append, .list_clear, .list_remove, .list_remove_last => {
+                if (call.positional.len != 0) try self.resetListPipelineState(call.positional[0]);
+                self.list_values[resolved_node] = .{ .list = &.{} };
+                self.list_inited[resolved_node] = true;
+                self.noteTopLevelMutation(resolved_node);
+            },
+            else => {},
+        }
     }
 
     fn processListRemovePulse(self: *Session, node_id: flow_ir.NodeId, call: flow_ir.BuiltinCall, source: flow_ir.NodeId) anyerror!void {
@@ -6578,7 +6693,7 @@ pub const Session = struct {
             .ignore_unknown_fields = true,
         });
         const state = parsed.value;
-        if (state.version != 1 and state.version != 2) return;
+        if (state.version != 1 and state.version != 2 and state.version != 3) return;
 
         for (state.sums) |entry| {
             const node_id = self.resolvePersistedNode(entry.stable_id, entry.node_id, .sum) orelse continue;
@@ -6592,6 +6707,13 @@ pub const Session = struct {
             self.hold_values[node_id] = try persistedScalarToValue(self.arena.allocator(), entry.value);
             self.hold_inited[node_id] = true;
             try self.logf("persist read hold n{d} key={x}", .{ node_id, self.persist_ids[node_id] });
+        }
+
+        for (state.lists) |entry| {
+            const node_id = self.resolvePersistedNode(entry.stable_id, entry.node_id, .list) orelse continue;
+            self.list_values[node_id] = try persistedScalarToValue(self.arena.allocator(), entry.value);
+            self.list_inited[node_id] = true;
+            try self.logf("persist read list n{d} key={x}", .{ node_id, self.persist_ids[node_id] });
         }
     }
 
@@ -6634,10 +6756,26 @@ pub const Session = struct {
             try self.logf("persist write hold n{d} key={x}", .{ node_id, self.persist_ids[index] });
         }
 
+        var lists: std.ArrayList(PersistedListEntry) = .empty;
+        defer lists.deinit(allocator);
+        for (self.list_inited, self.list_values, 0..) |inited, value, index| {
+            if (!inited or self.persist_ids[index] == 0) continue;
+            const persisted = valueToPersistedScalar(allocator, value) catch continue;
+            if (persisted.kind != .list) continue;
+            const node_id: flow_ir.NodeId = @intCast(index);
+            try lists.append(allocator, .{
+                .stable_id = self.persist_ids[index],
+                .node_id = node_id,
+                .value = persisted,
+            });
+            try self.logf("persist write list n{d} key={x}", .{ node_id, self.persist_ids[index] });
+        }
+
         const state = PersistedState{
-            .version = 2,
+            .version = 3,
             .sums = try sums.toOwnedSlice(allocator),
             .holds = try holds.toOwnedSlice(allocator),
+            .lists = try lists.toOwnedSlice(allocator),
         };
         var out: std.Io.Writer.Allocating = .init(allocator);
         defer out.deinit();
@@ -6771,6 +6909,10 @@ pub const Session = struct {
         return switch (kind) {
             .sum => node.kind == .builtin_call and self.builtinOp(node_id) == .math_sum,
             .hold => node.kind == .hold,
+            .list => node.kind == .builtin_call and switch (self.builtinOp(node_id)) {
+                .list_append, .list_clear, .list_remove, .list_remove_last => true,
+                else => false,
+            },
         };
     }
 };
@@ -7128,6 +7270,20 @@ fn recordFieldFromValue(value: Value, name: []const u8) ?Value {
     };
 }
 
+fn linkEventTextValue(link_value: ?Value) Value {
+    const value = link_value orelse return .none;
+    if (recordFieldFromValue(value, "text")) |field| return field;
+    if (recordFieldFromValue(value, "value")) |field| return field;
+    return value;
+}
+
+fn linkEventKeyValue(link_value: ?Value, key_value: ?Value) Value {
+    if (link_value) |value| {
+        if (recordFieldFromValue(value, "key")) |field| return field;
+    }
+    return key_value orelse .none;
+}
+
 fn terminalStyleSizeFromValue(value: Value) TerminalStyleSize {
     const width_value = recordFieldFromValue(value, "width");
     const height_value = recordFieldFromValue(value, "height");
@@ -7163,7 +7319,11 @@ fn terminalStyleSpan(size: f64, divisor: f64) usize {
 fn persistKindLabel(kind: flow_ir.Node.Kind) ?[]const u8 {
     return switch (kind) {
         .hold => "hold",
-        .builtin_call => |call| if (builtinOpFromPath(call.path) == .math_sum) "sum" else null,
+        .builtin_call => |call| switch (builtinOpFromPath(call.path)) {
+            .math_sum => "sum",
+            .list_append, .list_clear, .list_remove, .list_remove_last => "list",
+            else => null,
+        },
         else => null,
     };
 }
@@ -7195,18 +7355,59 @@ fn valueToPersistedScalar(allocator: std.mem.Allocator, value: Value) !Persisted
             .kind = .duration_ms,
             .duration_ms = duration_ms,
         },
+        .list => |items| blk: {
+            const persisted_items = try allocator.alloc(PersistedScalar, items.len);
+            for (items, 0..) |item, index| {
+                persisted_items[index] = try valueToPersistedScalar(allocator, item);
+            }
+            break :blk .{
+                .kind = .list,
+                .list = persisted_items,
+            };
+        },
+        .record => |fields| blk: {
+            const persisted_fields = try allocator.alloc(PersistedRecordField, fields.len);
+            for (fields, 0..) |field, index| {
+                persisted_fields[index] = .{
+                    .name = try allocator.dupe(u8, field.name),
+                    .value = try valueToPersistedScalar(allocator, field.value),
+                };
+            }
+            break :blk .{
+                .kind = .record,
+                .record = persisted_fields,
+            };
+        },
         else => error.UnsupportedPersistedValue,
     };
 }
 
 fn persistedScalarToValue(allocator: std.mem.Allocator, persisted: PersistedScalar) !Value {
-    _ = allocator;
     return switch (persisted.kind) {
         .none => .none,
         .number => .{ .number = persisted.number orelse return error.InvalidPersistedValue },
         .text => .{ .text = persisted.text orelse return error.InvalidPersistedValue },
         .symbol => .{ .symbol = persisted.text orelse return error.InvalidPersistedValue },
         .duration_ms => .{ .duration_ms = persisted.duration_ms orelse return error.InvalidPersistedValue },
+        .list => blk: {
+            const persisted_items = persisted.list orelse return error.InvalidPersistedValue;
+            const items = try allocator.alloc(Value, persisted_items.len);
+            for (persisted_items, 0..) |item, index| {
+                items[index] = try persistedScalarToValue(allocator, item);
+            }
+            break :blk .{ .list = items };
+        },
+        .record => blk: {
+            const persisted_fields = persisted.record orelse return error.InvalidPersistedValue;
+            const fields = try allocator.alloc(RecordField, persisted_fields.len);
+            for (persisted_fields, 0..) |field, index| {
+                fields[index] = .{
+                    .name = field.name,
+                    .value = try persistedScalarToValue(allocator, field.value),
+                };
+            }
+            break :blk .{ .record = fields };
+        },
     };
 }
 
@@ -10463,6 +10664,15 @@ test "shopping_list headless session adds and clears items" {
     const after_clear = try session.renderAlloc(std.testing.allocator);
     defer std.testing.allocator.free(after_clear);
     try std.testing.expect(std.mem.indexOf(u8, after_clear, "0items") != null);
+
+    try session.setTextInputValue(0, "Orange");
+    try session.pressTextInputKey(0, "Enter");
+    const after_readd = try session.renderAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(after_readd);
+    try std.testing.expect(std.mem.indexOf(u8, after_readd, "1items") != null);
+    try std.testing.expect(std.mem.indexOf(u8, after_readd, "Orange") != null);
+    try std.testing.expect(std.mem.indexOf(u8, after_readd, "Milk") == null);
+    try std.testing.expect(std.mem.indexOf(u8, after_readd, "Bread") == null);
 
     const trace = try session.traceAlloc(std.testing.allocator);
     defer std.testing.allocator.free(trace);
