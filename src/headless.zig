@@ -1683,10 +1683,28 @@ pub const Session = struct {
                             };
                         },
                         .list_append => {
-                            if (!self.nodeNeedsRuntimeScope(index)) try self.initListAppendNode(allocator, index, call);
+                            if (!self.nodeNeedsRuntimeScope(index)) {
+                                self.initListAppendNode(allocator, index, call) catch |err| switch (err) {
+                                    error.MissingLocalBinding,
+                                    error.MissingRecordField,
+                                    error.ExpectedRecordNode,
+                                    error.UnsupportedFieldAccess,
+                                    => try self.logf("defer scoped list_append n{d}", .{index}),
+                                    else => return err,
+                                };
+                            }
                         },
                         .list_clear => {
-                            if (!self.nodeNeedsRuntimeScope(index)) try self.initListClearNode(allocator, index, call);
+                            if (!self.nodeNeedsRuntimeScope(index)) {
+                                self.initListClearNode(allocator, index, call) catch |err| switch (err) {
+                                    error.MissingLocalBinding,
+                                    error.MissingRecordField,
+                                    error.ExpectedRecordNode,
+                                    error.UnsupportedFieldAccess,
+                                    => try self.logf("defer scoped list_clear n{d}", .{index}),
+                                    else => return err,
+                                };
+                            }
                         },
                         .list_remove => try self.initListRemoveNode(allocator, index, call),
                         .list_remove_last => try self.initListRemoveLastNode(allocator, index, call),
@@ -3086,7 +3104,13 @@ pub const Session = struct {
                     if (try self.eventScopeForSource(then_value.source, scope)) |expected_scope| {
                         const canonical_expected = canonicalControlScope(expected_scope) orelse expected_scope;
                         const canonical_actual = canonicalControlScope(scope) orelse scope;
-                        if (canonical_expected.id != canonical_actual.id) return;
+                        if (canonical_expected.id != canonical_actual.id) {
+                            const parent_matches = if (scope.parent) |parent| blk: {
+                                const canonical_parent = canonicalControlScope(parent) orelse parent;
+                                break :blk canonical_expected.id == canonical_parent.id;
+                            } else false;
+                            if (!parent_matches) return;
+                        }
                     }
                 }
                 const payload: PulsePayload = value_payload: {
@@ -3123,9 +3147,12 @@ pub const Session = struct {
                 try self.processHoldPulse(subscriber, hold, pulse);
             },
             .linked_value => |linked| {
-                const value = switch (self.flow.nodes[linked.value].kind) {
-                    .when, .block, .then_value => try self.evalNode(self.arena.allocator(), linked.value, pulse.scope),
-                    else => try valueFromPulsePayload(self, self.arena.allocator(), pulse.payload, pulse.scope),
+                const value = switch (pulse.payload) {
+                    .value => |payload_value| payload_value,
+                    .node => switch (self.flow.nodes[linked.value].kind) {
+                        .when, .block, .then_value => try self.evalNode(self.arena.allocator(), linked.value, pulse.scope),
+                        else => try valueFromPulsePayload(self, self.arena.allocator(), pulse.payload, pulse.scope),
+                    },
                 };
                 if (value == .none) return;
                 const target_ref = try self.resolveLinkedTargetRef(self.arena.allocator(), linked.target, pulse.scope);
@@ -3830,7 +3857,7 @@ pub const Session = struct {
         const normalized_scope = canonicalControlScope(normalizedStateScope(scope)) orelse return null;
         return .{
             .node_id = node_id,
-            .scope_id = normalized_scope.id,
+            .scope_id = stableFrameIdentity(normalized_scope),
         };
     }
 
@@ -3880,6 +3907,7 @@ pub const Session = struct {
             return;
         }
         self.invalidateEvalCacheForDependency(dep);
+        self.clearDerivedCaches();
     }
 
     fn noteTopLevelMutation(self: *Session, node_id: flow_ir.NodeId) void {
@@ -4152,20 +4180,27 @@ pub const Session = struct {
 
     fn canonicalControlScope(scope: ?*const EvalScope) ?*const EvalScope {
         var current = scope orelse return null;
-        var candidate: ?*const EvalScope = null;
+        var fallback: ?*const EvalScope = null;
         while (true) {
+            if (current.transparent_state_scope) {
+                current = current.parent orelse return fallback;
+                continue;
+            }
             if (current.bindings.len == 1 and std.mem.eql(u8, current.bindings[0].name, "element")) {
-                current = current.parent orelse return candidate;
+                current = current.parent orelse return fallback;
                 continue;
             }
             if (current.bindings.len == 0 and current.parent != null) {
                 current = current.parent.?;
                 continue;
             }
-            candidate = current;
-            current = current.parent orelse break;
+            if (fallback == null) fallback = current;
+            if (current.bindings.len == 1) switch (current.bindings[0].value) {
+                .record, .scoped_node => return current,
+                else => {},
+            };
+            current = current.parent orelse return fallback;
         }
-        return candidate;
     }
 
     fn sameScopedLink(
@@ -4247,6 +4282,17 @@ pub const Session = struct {
         }
         self.hold_values[node_id] = value;
         self.hold_inited[node_id] = true;
+    }
+
+    fn replaceScopedHoldAliases(self: *Session, node_id: flow_ir.NodeId, current: Value, next: Value) !void {
+        var iterator = self.scoped_hold_values.iterator();
+        while (iterator.next()) |entry| {
+            if (entry.key_ptr.node_id != node_id) continue;
+            if (!valuesEqual(entry.value_ptr.*, current)) continue;
+            entry.value_ptr.* = next;
+            self.invalidateEvalCacheForDependency(entry.key_ptr.*);
+        }
+        self.clearDerivedCaches();
     }
 
     fn currentTextInputValue(self: *Session, index: usize) anyerror!Value {
@@ -5497,7 +5543,21 @@ pub const Session = struct {
                 self.persist_ids[node_id]
             else
                 @as(u64, node_id);
-            if (normalizedStateScope(scope)) |frame| key = std.hash.Wyhash.hash(key, std.mem.asBytes(&frame.id));
+            if (lookupLocal(scope, "name")) |name_value| if (lookupLocal(scope, "surname")) |surname_value| {
+                var hasher = std.hash.Wyhash.init(key);
+                hasher.update("name");
+                hashValueIdentity(&hasher, try self.materializeStyleValue(allocator, name_value));
+                hasher.update("surname");
+                hashValueIdentity(&hasher, try self.materializeStyleValue(allocator, surname_value));
+                key = hasher.final();
+            } else if (normalizedStateScope(scope)) |frame| {
+                var hasher = std.hash.Wyhash.init(key);
+                for (frame.bindings) |binding| {
+                    hasher.update(binding.name);
+                    hashValueIdentity(&hasher, binding.value);
+                }
+                key = hasher.final();
+            };
             return .{ .text = try std.fmt.allocPrint(allocator, "ulid-{x}", .{key}) };
         }
         if (op == .log_info or op == .log_error) {
@@ -7052,6 +7112,7 @@ pub const Session = struct {
             break :blk try self.evalNode(self.arena.allocator(), on_node, null);
         } else return error.MissingArgument;
         if (item == .none) return;
+        if (self.list_values[node_id] != .list) return;
         const current = try listItemsFromValue(self.list_values[node_id]);
         const next = try self.arena.allocator().alloc(Value, current.len + 1);
         @memcpy(next[0..current.len], current);
@@ -7293,6 +7354,7 @@ pub const Session = struct {
             const next_value = try self.evalNode(self.arena.allocator(), update, &scope);
             if (next_value == .none) continue;
             const next_value_brief = try briefValueAlloc(self.arena.allocator(), next_value);
+            if (hold_scope != null) try self.replaceScopedHoldAliases(node_id, current, next_value);
             try self.setHoldValue(node_id, hold_scope, next_value);
             if (hold_scope) |frame| {
                 try self.logf("hold n{d} updated={s} scope={d}", .{ node_id, next_value_brief, frame.id });
@@ -8239,7 +8301,7 @@ fn destroyCapturedScope(allocator: std.mem.Allocator, scope: ?*const EvalScope) 
 }
 
 fn captureControlScope(allocator: std.mem.Allocator, scope: ?*const EvalScope) !?*const EvalScope {
-    return try captureScope(allocator, Session.canonicalControlScope(scope) orelse scope);
+    return try captureScope(allocator, scope);
 }
 
 fn normalizedStateScope(scope: ?*const EvalScope) ?*const EvalScope {
@@ -8260,6 +8322,15 @@ fn normalizedStateScope(scope: ?*const EvalScope) ?*const EvalScope {
         return frame;
     }
     return null;
+}
+
+fn stableFrameIdentity(frame: *const EvalScope) u64 {
+    var hasher = std.hash.Wyhash.init(0);
+    for (frame.bindings) |binding| {
+        hasher.update(binding.name);
+        hashValueIdentity(&hasher, binding.value);
+    }
+    return hasher.final();
 }
 
 fn deriveScopeId(parent: ?*const EvalScope, bindings: []const RecordField, passed: ?Value) u64 {
@@ -8387,7 +8458,7 @@ fn hashValueIdentity(hasher: *std.hash.Wyhash, value: Value) void {
         },
         .scoped_node => |deferred| {
             hasher.update(std.mem.asBytes(&deferred.node_id));
-            const scope_id = if (deferred.scope) |scope| scope.id else @as(u64, 0);
+            const scope_id = if (deferred.scope) |scope| stableFrameIdentity(normalizedStateScope(scope) orelse scope) else @as(u64, 0);
             hasher.update(std.mem.asBytes(&scope_id));
         },
         .link => |link| hasher.update(std.mem.asBytes(&link)),
