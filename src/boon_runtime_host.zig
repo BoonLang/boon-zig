@@ -144,8 +144,10 @@ pub const Key = enum {
 pub const PreviewEvent = union(enum) {
     press: LinkId,
     click: LinkId,
+    click_text: []const u8,
     double_click: LinkId,
     hover: struct { link: LinkId, hovered: bool },
+    hover_text: struct { text: []const u8, hovered: bool },
     change_text: struct { link: LinkId, text: []const u8 },
     key_down: struct { link: LinkId, key: Key, text: []const u8 },
     blur: LinkId,
@@ -354,8 +356,10 @@ pub const BoonRuntimeHost = struct {
         var session = if (self.session) |*session| session else return .{ .diagnostics = try self.unsupported("BoonRuntimeHost.start must be called before dispatch") };
         switch (event) {
             .press, .click => |link| try session.clickButton(@intCast(link)),
+            .click_text => |label| try session.clickButtonByLabel(self.allocator, label),
             .double_click => |link| try session.doubleClickLabel(@intCast(link)),
             .hover => |payload| try session.setHover(@intCast(payload.link), payload.hovered),
+            .hover_text => |payload| try session.setHoverByLabel(self.allocator, payload.text, payload.hovered),
             .change_text => |payload| try session.setTextInputValue(@intCast(payload.link), payload.text),
             .key_down => |payload| try session.pressTextInputKeyWithText(@intCast(payload.link), previewKeyName(payload.key), payload.text),
             .blur => |link| try session.blurTextInput(@intCast(link)),
