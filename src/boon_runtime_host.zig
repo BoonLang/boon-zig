@@ -145,6 +145,7 @@ pub const PreviewEvent = union(enum) {
     press: LinkId,
     click: LinkId,
     click_text: []const u8,
+    terminal_key: []const u8,
     double_click: LinkId,
     double_click_text: []const u8,
     hover: struct { link: LinkId, hovered: bool },
@@ -400,6 +401,7 @@ pub const BoonRuntimeHost = struct {
         switch (event) {
             .press, .click => |link| try session.clickButton(@intCast(link)),
             .click_text => |label| try session.clickButtonByLabel(self.allocator, label),
+            .terminal_key => |key| try dispatchTerminalKey(session, key),
             .double_click => |link| try session.doubleClickLabel(@intCast(link)),
             .double_click_text => |label| try session.doubleClickLabelByText(self.allocator, label),
             .hover => |payload| try session.setHover(@intCast(payload.link), payload.hovered),
@@ -527,6 +529,20 @@ pub const BoonRuntimeHost = struct {
                 .event_name = event_name,
             });
         }
+    }
+
+    fn dispatchTerminalKey(session: *headless.Session, key: []const u8) !void {
+        const contract = (try session.terminalContractView()) orelse return error.NotTerminalRoot;
+        for (contract.keyboard_bindings) |binding| {
+            if (!binding.when) continue;
+            for (binding.keys) |candidate| {
+                if (std.mem.eql(u8, candidate, key)) {
+                    try session.triggerLinkWithScope(binding.link, binding.scope);
+                    return;
+                }
+            }
+        }
+        return error.UnknownTerminalKeyBinding;
     }
 
     fn entryContents(self: *const BoonRuntimeHost) ?[]const u8 {
@@ -1393,6 +1409,82 @@ test "BoonRuntimeHost dispatches visible click bindings after snapshot collectio
     const output = try host.dispatch(.{ .click = 1 });
     const rendered = renderedTextFromOutput(output) orelse return error.MissingRenderedText;
     try testing.expect(std.mem.indexOf(u8, rendered, "Filter:Active") != null);
+}
+
+test "BoonRuntimeHost dispatches terminal key bindings through terminal contract" {
+    const testing = std.testing;
+    const allocator = std.heap.c_allocator;
+
+    const PersistCtx = struct {
+        fn read(ptr: *anyopaque, read_allocator: std.mem.Allocator, key: []const u8) anyerror!?[]u8 {
+            _ = ptr;
+            _ = read_allocator;
+            _ = key;
+            return null;
+        }
+
+        fn write(ptr: *anyopaque, key: []const u8, value: []const u8) anyerror!void {
+            _ = ptr;
+            _ = key;
+            _ = value;
+        }
+
+        fn deletePrefix(ptr: *anyopaque, prefix: []const u8) anyerror!void {
+            _ = ptr;
+            _ = prefix;
+        }
+    };
+
+    const RouteCtx = struct {
+        fn current(ptr: *anyopaque) []const u8 {
+            _ = ptr;
+            return "/";
+        }
+
+        fn goTo(ptr: *anyopaque, route: []const u8) anyerror!void {
+            _ = ptr;
+            _ = route;
+        }
+    };
+
+    var persist_ctx: u8 = 0;
+    var route_ctx: u8 = 0;
+    var persist = PersistStore{
+        .ptr = &persist_ctx,
+        .read = PersistCtx.read,
+        .write = PersistCtx.write,
+        .deletePrefix = PersistCtx.deletePrefix,
+    };
+    var route = RouteStore{
+        .ptr = &route_ctx,
+        .current = RouteCtx.current,
+        .goTo = RouteCtx.goTo,
+    };
+    var clock = VirtualClock{};
+    var time = TimeSource{ .virtual = &clock };
+    var host = try BoonRuntimeHost.init(allocator, &persist, &route, &time);
+    defer host.deinit();
+
+    const source = @embedFile("../examples/terminal/pong/pong.bn");
+    try host.loadProject(.{
+        .name = "pong",
+        .entry_file = "pong.bn",
+        .files = &.{.{ .path = "pong.bn", .contents = source }},
+    });
+    try host.clearState("pong");
+
+    switch (try host.compileEntry()) {
+        .ok => {},
+        .diagnostics => return error.UnexpectedDiagnostics,
+    }
+
+    const initial = try host.start();
+    const initial_rendered = renderedTextFromOutput(initial) orelse return error.MissingRenderedText;
+    try testing.expect(std.mem.indexOf(u8, initial_rendered, "Press Enter") != null);
+
+    const updated = try host.dispatch(.{ .terminal_key = "Enter" });
+    const rendered = renderedTextFromOutput(updated) orelse return error.MissingRenderedText;
+    try testing.expect(std.mem.indexOf(u8, rendered, "Rally") != null);
 }
 
 test "BoonRuntimeHost semantic snapshot reflects select-driven input disabled state" {
