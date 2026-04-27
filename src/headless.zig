@@ -3965,7 +3965,8 @@ pub const Session = struct {
     }
 
     fn holdStorageScope(self: *Session, node_id: flow_ir.NodeId, hold: flow_ir.Hold, scope: ?*const EvalScope) ?*const EvalScope {
-        if (self.isTopLevelBindingNode(node_id) or self.isTopLevelOwnedNode(node_id)) return null;
+        if (normalizedStateScope(scope)) |runtime_scope| return runtime_scope;
+        if (self.isTopLevelOwnedNode(node_id)) return null;
         if (!self.holdNeedsRuntimeScope(node_id, hold)) return null;
         return normalizedStateScope(scope);
     }
@@ -4198,6 +4199,10 @@ pub const Session = struct {
             },
             .then_value => |then_value| try self.evalNode(allocator, then_value.value, scope),
             .hold => |hold| blk: {
+                if (self.isTopLevelOwnedNode(node_id) and self.getHoldValue(node_id, null) != null) {
+                    try self.recordStateDependency(self.scopedStateKey(node_id, null));
+                    break :blk self.getHoldValue(node_id, null).?;
+                }
                 const hold_scope = self.holdStorageScope(node_id, hold, scope);
                 try self.recordStateDependency(self.scopedStateKey(node_id, hold_scope));
                 if (self.getHoldValue(node_id, hold_scope)) |value| break :blk value;
