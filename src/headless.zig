@@ -1141,7 +1141,7 @@ pub const Session = struct {
     pub fn setTextInputValue(self: *Session, index: usize, text: []const u8) !void {
         const event = try self.textInputLinkAt(index);
         const scope = canonicalControlScope(event.scope);
-        try self.setLinkValue(event.link, scope, .{ .text = try self.arena.allocator().dupe(u8, text) });
+        try self.setLinkValue(event.link, scope, try self.textInputChangePayload(text));
         try self.setLinkKeyValue(event.link, scope, .none);
         try self.logf("external text_input[{d}] -> n{d} = {s}", .{ index, event.link, text });
         try self.enqueueExternalNodePulse(event.link, scope, "change");
@@ -1149,10 +1149,18 @@ pub const Session = struct {
 
     pub fn setTextInputValueRef(self: *Session, event: ControlEventRef, text: []const u8) !void {
         const scope = canonicalControlScope(event.scope);
-        try self.setLinkValue(event.link, scope, .{ .text = try self.arena.allocator().dupe(u8, text) });
+        try self.setLinkValue(event.link, scope, try self.textInputChangePayload(text));
         try self.setLinkKeyValue(event.link, scope, .none);
         try self.logf("external text_input -> n{d} = {s}", .{ event.link, text });
         try self.enqueueExternalNodePulse(event.link, scope, "change");
+    }
+
+    fn textInputChangePayload(self: *Session, text: []const u8) !Value {
+        const owned = try self.arena.allocator().dupe(u8, text);
+        return try allocRecordValue(self.arena.allocator(), &.{
+            .{ .name = "text", .value = .{ .text = owned } },
+            .{ .name = "value", .value = .{ .text = owned } },
+        });
     }
 
     pub fn setSelectValue(self: *Session, index: usize, text: []const u8) !void {
