@@ -2971,6 +2971,7 @@ pub const Session = struct {
     fn dispatchPulseToSubscriber(self: *Session, subscriber: flow_ir.NodeId, pulse: Pulse) !void {
         const node = self.flow.nodes[subscriber];
         if (self.nodeNeedsScope(subscriber) and pulse.scope == null) switch (node.kind) {
+            .then_value => {},
             .hold => {},
             .builtin_call => switch (self.builtinOp(subscriber)) {
                 .router_go_to, .stream_skip => {},
