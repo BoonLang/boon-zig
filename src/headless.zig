@@ -1183,6 +1183,14 @@ pub const Session = struct {
         const scope = canonicalControlScope(event.scope);
         const change_scope = canonicalControlScope(change_event.scope);
         try self.setLinkValue(change_event.link, change_scope, .{ .text = try self.arena.allocator().dupe(u8, current_text) });
+        if (std.mem.eql(u8, key, "Backspace")) {
+            try self.queue.append(self.arena.allocator(), .{
+                .source = change_event.link,
+                .payload = .{ .value = .{ .text = try self.arena.allocator().dupe(u8, current_text) } },
+                .scope = change_scope,
+                .event_name = "change",
+            });
+        }
         const event_fields = try self.arena.allocator().alloc(RecordField, 3);
         event_fields[0] = .{ .name = "text", .value = .{ .text = try self.arena.allocator().dupe(u8, current_text) } };
         event_fields[1] = .{ .name = "value", .value = .{ .text = try self.arena.allocator().dupe(u8, current_text) } };
