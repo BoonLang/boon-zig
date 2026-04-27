@@ -207,10 +207,10 @@ pub fn lowerAllocWithOptions(allocator: std.mem.Allocator, source: []const u8, o
 }
 
 pub fn renderAlloc(allocator: std.mem.Allocator, document: *const Document) ![]u8 {
-    var output: std.ArrayList(u8) = .empty;
-    defer output.deinit(allocator);
+    var output: std.Io.Writer.Allocating = .init(allocator);
+    defer output.deinit();
 
-    const writer = output.writer(allocator);
+    const writer = &output.writer;
     const root_name = if (document.root_binding) |binding_id| document.bindings[binding_id].name else "<none>";
     try writer.print(
         "stats bindings={d} nodes={d} link_ports={d} stateful={d} root={s}\n",
@@ -232,7 +232,7 @@ pub fn renderAlloc(allocator: std.mem.Allocator, document: *const Document) ![]u
         try writer.writeByte('\n');
     }
 
-    return try output.toOwnedSlice(allocator);
+    return try output.toOwnedSlice();
 }
 
 pub fn serializeDocument(writer: anytype, document: *const Document) !void {
@@ -600,7 +600,7 @@ fn readWhenArmSlice(allocator: std.mem.Allocator, reader: anytype) ![]WhenArm {
     return arms;
 }
 
-fn renderNode(writer: std.Io.Writer, document: *const Document, node: Node) !void {
+fn renderNode(writer: *std.Io.Writer, document: *const Document, node: Node) !void {
     switch (node.kind) {
         .number => |number| try writer.print("number({s})", .{number.text}),
         .atom => |text| try writer.print("atom({s})", .{text}),

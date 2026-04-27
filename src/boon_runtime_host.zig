@@ -383,6 +383,16 @@ pub const BoonRuntimeHost = struct {
         return try session.renderAlloc(allocator);
     }
 
+    pub fn renderCompactGridTextAlloc(
+        self: *BoonRuntimeHost,
+        allocator: std.mem.Allocator,
+        max_row_items: usize,
+        max_column_head_items: usize,
+    ) ![]u8 {
+        var session = if (self.session) |*session| session else return error.RuntimeNotStarted;
+        return try session.renderCompactGridAlloc(allocator, max_row_items, max_column_head_items);
+    }
+
     pub fn textInputHandle(self: *BoonRuntimeHost, index: usize) !TextInputHandle {
         var session = if (self.session) |*session| session else return error.RuntimeNotStarted;
         return try session.textInputSessionRef(index);
@@ -473,7 +483,10 @@ pub const BoonRuntimeHost = struct {
 
     fn snapshotOutput(self: *BoonRuntimeHost) !RuntimeOutput {
         var session = if (self.session) |*session| session else return .{ .diagnostics = try self.unsupported("BoonRuntimeHost.start must be called before snapshot") };
-        const rendered = try session.renderDurableAlloc(self.allocator);
+        const rendered = switch (session.rootKind()) {
+            .scene => try session.renderAlloc(self.allocator),
+            else => try session.snapshotAlloc(self.allocator),
+        };
         defer self.allocator.free(rendered);
         self.clearSnapshotValues();
         self.clearSnapshotEvents();
