@@ -1184,6 +1184,87 @@ test "BoonRuntimeHost dispatches visible click bindings after snapshot collectio
     try testing.expect(std.mem.indexOf(u8, rendered, "Filter:Active") != null);
 }
 
+test "BoonRuntimeHost semantic snapshot reflects select-driven input disabled state" {
+    const testing = std.testing;
+    const allocator = std.heap.c_allocator;
+
+    const PersistCtx = struct {
+        fn read(ptr: *anyopaque, read_allocator: std.mem.Allocator, key: []const u8) anyerror!?[]u8 {
+            _ = ptr;
+            _ = read_allocator;
+            _ = key;
+            return null;
+        }
+
+        fn write(ptr: *anyopaque, key: []const u8, value: []const u8) anyerror!void {
+            _ = ptr;
+            _ = key;
+            _ = value;
+        }
+
+        fn deletePrefix(ptr: *anyopaque, prefix: []const u8) anyerror!void {
+            _ = ptr;
+            _ = prefix;
+        }
+    };
+
+    const RouteCtx = struct {
+        fn current(ptr: *anyopaque) []const u8 {
+            _ = ptr;
+            return "/";
+        }
+
+        fn goTo(ptr: *anyopaque, route: []const u8) anyerror!void {
+            _ = ptr;
+            _ = route;
+        }
+    };
+
+    var persist_ctx: u8 = 0;
+    var route_ctx: u8 = 0;
+    var persist = PersistStore{
+        .ptr = &persist_ctx,
+        .read = PersistCtx.read,
+        .write = PersistCtx.write,
+        .deletePrefix = PersistCtx.deletePrefix,
+    };
+    var route = RouteStore{
+        .ptr = &route_ctx,
+        .current = RouteCtx.current,
+        .goTo = RouteCtx.goTo,
+    };
+    var clock = VirtualClock{};
+    var time = TimeSource{ .virtual = &clock };
+    var host = try BoonRuntimeHost.init(allocator, &persist, &route, &time);
+    defer host.deinit();
+
+    const upstream_source = try std.Io.Dir.cwd().readFileAlloc(testing.io, "examples/upstream/flight_booker/flight_booker.bn", allocator, .limited(1024 * 1024));
+    defer allocator.free(upstream_source);
+    const source = try std.mem.replaceOwned(u8, allocator, upstream_source, "SOURCE", "LINK");
+    defer allocator.free(source);
+    try host.loadProject(.{
+        .name = "flight_booker",
+        .entry_file = "flight_booker.bn",
+        .files = &.{.{ .path = "flight_booker.bn", .contents = source }},
+    });
+    try host.clearState("flight_booker");
+
+    switch (try host.runBuildFile()) {
+        .not_present, .ok => {},
+        .diagnostics => return error.UnexpectedDiagnostics,
+    }
+    switch (try host.compileEntry()) {
+        .ok => {},
+        .diagnostics => return error.UnexpectedDiagnostics,
+    }
+    const initial = try host.start();
+    try testing.expectEqual(true, nthTextInputDisabled(initial, 1) orelse return error.MissingTextInput);
+
+    _ = try host.dispatch(.{ .click = 0 });
+    const updated = try host.dispatch(.{ .select_change = .{ .link = 0, .value = "return" } });
+    try testing.expectEqual(false, nthTextInputDisabled(updated, 1) orelse return error.MissingTextInput);
+}
+
 fn renderedTextFromOutput(output: RuntimeOutput) ?[]const u8 {
     const document = switch (output) {
         .document => |document| document,
@@ -1202,4 +1283,49 @@ fn renderedTextFromOutput(output: RuntimeOutput) ?[]const u8 {
         };
     }
     return null;
+}
+
+fn nthTextInputDisabled(output: RuntimeOutput, wanted_index: usize) ?bool {
+    const document = switch (output) {
+        .document => |document| document,
+        else => return null,
+    };
+    var index: usize = 0;
+    return nthTextInputDisabledInValue(document.values, document.root, wanted_index, &index);
+}
+
+fn nthTextInputDisabledInValue(values: []const RuntimeValue, value_id: ValueId, wanted_index: usize, index: *usize) ?bool {
+    if (value_id >= values.len) return null;
+    switch (values[value_id]) {
+        .list => |items| for (items) |item| {
+            if (nthTextInputDisabledInValue(values, item, wanted_index, index)) |disabled| return disabled;
+        },
+        .record => |fields| for (fields) |field| {
+            if (nthTextInputDisabledInValue(values, field.value, wanted_index, index)) |disabled| return disabled;
+        },
+        .element => |element| {
+            if (std.mem.eql(u8, element.kind, "text_input")) {
+                if (index.* == wanted_index) return elementBoolFieldForTest(values, element, "disabled");
+                index.* += 1;
+            }
+            for (element.args) |field| {
+                if (nthTextInputDisabledInValue(values, field.value, wanted_index, index)) |disabled| return disabled;
+            }
+        },
+        else => {},
+    }
+    return null;
+}
+
+fn elementBoolFieldForTest(values: []const RuntimeValue, element: ElementNode, name: []const u8) bool {
+    for (element.args) |field| {
+        if (!std.mem.eql(u8, field.name, name) or field.value >= values.len) continue;
+        return switch (values[field.value]) {
+            .bool => |value| value,
+            .symbol => |value| std.mem.eql(u8, value, "True") or std.mem.eql(u8, value, "true"),
+            .text => |value| std.mem.eql(u8, value, "True") or std.mem.eql(u8, value, "true"),
+            else => false,
+        };
+    }
+    return false;
 }
