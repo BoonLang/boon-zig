@@ -1176,7 +1176,9 @@ pub const Session = struct {
         event_fields[0] = .{ .name = "text", .value = .{ .text = try self.arena.allocator().dupe(u8, current_text) } };
         event_fields[1] = .{ .name = "value", .value = .{ .text = try self.arena.allocator().dupe(u8, current_text) } };
         event_fields[2] = .{ .name = "key", .value = .{ .symbol = try self.arena.allocator().dupe(u8, key) } };
-        try self.setLinkValue(event.link, scope, .{ .record = event_fields });
+        if (!sameScopedLink(event.link, scope, change_event.link, change_scope)) {
+            try self.setLinkValue(event.link, scope, .{ .record = event_fields });
+        }
         try self.setLinkKeyValue(event.link, scope, .{ .symbol = try self.arena.allocator().dupe(u8, key) });
         try self.logf("external text_input_key -> n{d} = {s}", .{ event.link, key });
         try self.enqueueExternalNodePulse(event.link, scope, "key_down");
@@ -2095,7 +2097,14 @@ pub const Session = struct {
         const node = self.flow.nodes[node_id];
         return switch (node.kind) {
             .binding_ref => |binding_id| try self.eventDependencySource(self.flow.bindings[binding_id].node),
+            .when => |when| try self.eventDependencySource(when.input),
+            .block => |block| try self.eventDependencySource(block.result),
             .access => |access| try self.resolveAccessEventSource(node_id, access),
+            .binary => |binary| blk: {
+                const lhs = try self.eventDependencySource(binary.lhs);
+                if (lhs != binary.lhs or self.flow.nodes[lhs].kind == .link_port) break :blk lhs;
+                break :blk try self.eventDependencySource(binary.rhs);
+            },
             else => node_id,
         };
     }
@@ -2269,12 +2278,51 @@ pub const Session = struct {
             .then_value => |then_value| self.eventDependencyName(then_value.source),
             .when => |when| self.eventDependencyName(when.input),
             .block => |block| self.eventDependencyName(block.result),
+            .binary => |binary| self.eventDependencyName(binary.lhs) orelse self.eventDependencyName(binary.rhs),
+            .text => |parts| blk: {
+                for (parts) |part| {
+                    if (self.eventDependencyName(part)) |name| break :blk name;
+                }
+                break :blk null;
+            },
+            .record => |fields| blk: {
+                for (fields) |field| {
+                    if (self.eventDependencyName(field.value)) |name| break :blk name;
+                }
+                break :blk null;
+            },
+            .list => |list| blk: {
+                for (list.items) |item| {
+                    if (self.eventDependencyName(item)) |name| break :blk name;
+                }
+                break :blk null;
+            },
             .builtin_call => |call| switch (self.builtinOp(node_id)) {
                 .stream_pulses, .stream_skip, .math_sum, .router_go_to => if (call.positional.len != 0)
                     self.eventDependencyName(call.positional[0])
                 else
                     null,
-                else => null,
+                else => blk: {
+                    for (call.positional) |arg| {
+                        if (self.eventDependencyName(arg)) |name| break :blk name;
+                    }
+                    for (call.named) |arg| {
+                        if (self.eventDependencyName(arg.value)) |name| break :blk name;
+                    }
+                    break :blk null;
+                },
+            },
+            .user_call => |call| blk: {
+                for (call.positional) |arg| {
+                    if (self.eventDependencyName(arg)) |name| break :blk name;
+                }
+                for (call.named) |arg| {
+                    if (self.eventDependencyName(arg.value)) |name| break :blk name;
+                }
+                if (call.pass_context) |pass_context| {
+                    if (self.eventDependencyName(pass_context)) |name| break :blk name;
+                }
+                break :blk null;
             },
             else => null,
         };
@@ -2332,10 +2380,14 @@ pub const Session = struct {
         const node = self.flow.nodes[node_id];
         return switch (node.kind) {
             .binding_ref => |binding_id| try self.scopedEventDependencySource(self.flow.bindings[binding_id].node, scope),
-            .then_value => |then_value| try self.scopedEventDependencySource(then_value.source, scope),
             .when => |when| try self.scopedEventDependencySource(when.input, scope),
             .block => |block| try self.scopedEventDependencySource(block.result, scope),
             .access => |access| try self.resolveScopedAccessEventSource(node_id, access, scope),
+            .binary => |binary| blk: {
+                const lhs = try self.scopedEventDependencySource(binary.lhs, scope);
+                if (lhs != binary.lhs or self.flow.nodes[lhs].kind == .link_port) break :blk lhs;
+                break :blk try self.scopedEventDependencySource(binary.rhs, scope);
+            },
             else => node_id,
         };
     }
@@ -2954,7 +3006,8 @@ pub const Session = struct {
                     .scope = pulse.scope,
                 });
             },
-            .latest => {
+            .latest => |latest| {
+                if (!try self.latestPulseMatches(latest, pulse)) return;
                 const latest_scope = if (pulse.scope != null or self.nodeNeedsScope(subscriber)) pulse.scope else null;
                 try self.setLatestPayload(subscriber, latest_scope, pulse.payload);
                 switch (pulse.payload) {
@@ -3038,24 +3091,61 @@ pub const Session = struct {
         };
     }
 
+    fn latestPulseMatches(self: *Session, latest: flow_ir.Latest, pulse: Pulse) anyerror!bool {
+        for (latest.sources) |source_node| {
+            const source = if (pulse.scope) |scope|
+                self.scopedEventDependencySource(source_node, scope) catch |err| switch (err) {
+                    error.MissingLocalBinding,
+                    error.MissingRecordField,
+                    error.ExpectedRecordNode,
+                    error.ExpectedLinkNode,
+                    error.ExpectedLinkValue,
+                    error.UnsupportedFieldAccess,
+                    error.UnsupportedEventSource,
+                    => continue,
+                    else => return err,
+                }
+            else
+                self.eventDependencySource(source_node) catch |err| switch (err) {
+                    error.MissingLocalBinding,
+                    error.MissingRecordField,
+                    error.ExpectedRecordNode,
+                    error.ExpectedLinkNode,
+                    error.ExpectedLinkValue,
+                    error.UnsupportedFieldAccess,
+                    error.UnsupportedEventSource,
+                    => continue,
+                    else => return err,
+                };
+            if (source != pulse.source) continue;
+            if (self.pulseMatchesTriggerEventForSource(source_node, pulse.source, pulse)) return true;
+        }
+        return false;
+    }
+
     fn dispatchRouterGoTo(
         self: *Session,
         subscriber: flow_ir.NodeId,
         call: flow_ir.BuiltinCall,
         scope: ?*const EvalScope,
-        pulse_payload: ?PulsePayload,
+        pulse_payload: PulsePayload,
     ) !void {
         if (call.positional.len == 0) return;
-        const route = if (pulse_payload) |payload|
-            valueFromPulsePayload(self, self.arena.allocator(), payload, scope) catch |err| switch (err) {
-                error.MissingLocalBinding => return,
+        const route = route: {
+            const payload_route = valueFromPulsePayload(self, self.arena.allocator(), pulse_payload, scope) catch |err| switch (err) {
+                error.MissingLocalBinding => null,
                 else => return err,
-            }
-        else
-            self.evalNode(self.arena.allocator(), call.positional[0], scope) catch |err| switch (err) {
+            };
+            if (payload_route) |value| switch (value) {
+                .text, .symbol => break :route value,
+                else => {},
+            };
+            break :route self.evalNode(self.arena.allocator(), call.positional[0], scope) catch |err| switch (err) {
                 error.MissingLocalBinding => return,
                 else => return err,
             };
+        };
+        _ = valueAsText(route) catch return;
         if (route == .none) return;
         self.route_value = route;
         self.noteRouteMutation(subscriber);
@@ -3811,6 +3901,18 @@ pub const Session = struct {
         return candidate;
     }
 
+    fn sameScopedLink(
+        lhs_link: flow_ir.NodeId,
+        lhs_scope: ?*const EvalScope,
+        rhs_link: flow_ir.NodeId,
+        rhs_scope: ?*const EvalScope,
+    ) bool {
+        if (lhs_link != rhs_link) return false;
+        if (lhs_scope == null and rhs_scope == null) return true;
+        if (lhs_scope == null or rhs_scope == null) return false;
+        return lhs_scope.?.id == rhs_scope.?.id;
+    }
+
     fn getLinkValue(self: *Session, node_id: flow_ir.NodeId, scope: ?*const EvalScope) ?Value {
         if (self.scopedNodeKey(node_id, scope)) |key| return self.scoped_link_values.get(key);
         return if (self.link_inited[node_id]) self.link_values[node_id] else null;
@@ -3877,7 +3979,15 @@ pub const Session = struct {
     fn currentTextInputValue(self: *Session, index: usize) anyerror!Value {
         const event = try self.textInputLinkAt(index);
         const scope = canonicalControlScope(event.scope);
-        if (self.getLinkValue(event.link, scope)) |value| return value;
+        if (self.getLinkValue(event.link, scope)) |value| {
+            switch (value) {
+                .record => |fields| {
+                    if (findRecordValue(fields, "text")) |text| return text;
+                    if (findRecordValue(fields, "value")) |text| return text;
+                },
+                else => return value,
+            }
+        }
 
         const inputs = try self.textInputValuesView();
         if (index >= inputs.len) return error.InvalidTextInputIndex;
