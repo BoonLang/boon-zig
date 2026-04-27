@@ -2746,7 +2746,10 @@ pub const Session = struct {
             }
         }
         self.queue.clearRetainingCapacity();
-        if (had_pulses) try self.savePersistedState();
+        if (had_pulses) {
+            self.clearEvalCache();
+            try self.savePersistedState();
+        }
     }
 
     fn dispatchPulseToSubscriber(self: *Session, subscriber: flow_ir.NodeId, pulse: Pulse) !void {
@@ -3354,7 +3357,7 @@ pub const Session = struct {
         const dep = self.scopedStateKey(node_id, scope);
         if (dep.scope_id == 0) {
             self.state_versions[node_id] +%= 1;
-            if (self.top_level_eval_inited.len != 0) @memset(self.top_level_eval_inited, false);
+            self.clearEvalCache();
             self.clearDerivedCaches();
             return;
         }
@@ -3942,8 +3945,11 @@ pub const Session = struct {
 
     fn evalAccess(self: *Session, allocator: std.mem.Allocator, access: flow_ir.Access, scope: ?*const EvalScope) anyerror!Value {
         if (try self.resolveStaticFieldNode(access.target, access.field)) |field_node| {
-            if (!self.nodeNeedsScope(field_node) and !self.nodeNeedsDeferredField(field_node)) {
-                return try self.evalNode(allocator, field_node, scope);
+            switch (self.flow.nodes[field_node].kind) {
+                .hold, .latest, .link_port => return try self.evalNode(allocator, field_node, scope),
+                else => if (!self.nodeNeedsScope(field_node) and !self.nodeNeedsDeferredField(field_node)) {
+                    return try self.evalNode(allocator, field_node, scope);
+                },
             }
         }
         const target = if (try self.resolveStaticLinkNode(access.target)) |link|

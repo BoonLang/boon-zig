@@ -1048,9 +1048,9 @@ test "BoonRuntimeHost bridge exposes explicit unsupported diagnostics" {
     const testing = std.testing;
 
     const PersistCtx = struct {
-        fn read(ptr: *anyopaque, allocator: std.mem.Allocator, key: []const u8) anyerror!?[]u8 {
+        fn read(ptr: *anyopaque, read_allocator: std.mem.Allocator, key: []const u8) anyerror!?[]u8 {
             _ = ptr;
-            _ = allocator;
+            _ = read_allocator;
             _ = key;
             return null;
         }
@@ -1105,4 +1105,95 @@ test "BoonRuntimeHost bridge exposes explicit unsupported diagnostics" {
         },
         else => return error.ExpectedDiagnostics,
     }
+}
+
+test "BoonRuntimeHost dispatches visible click bindings after snapshot collection" {
+    const testing = std.testing;
+    const allocator = std.heap.smp_allocator;
+
+    const PersistCtx = struct {
+        fn read(ptr: *anyopaque, read_allocator: std.mem.Allocator, key: []const u8) anyerror!?[]u8 {
+            _ = ptr;
+            _ = read_allocator;
+            _ = key;
+            return null;
+        }
+
+        fn write(ptr: *anyopaque, key: []const u8, value: []const u8) anyerror!void {
+            _ = ptr;
+            _ = key;
+            _ = value;
+        }
+
+        fn deletePrefix(ptr: *anyopaque, prefix: []const u8) anyerror!void {
+            _ = ptr;
+            _ = prefix;
+        }
+    };
+
+    const RouteCtx = struct {
+        fn current(ptr: *anyopaque) []const u8 {
+            _ = ptr;
+            return "/";
+        }
+
+        fn goTo(ptr: *anyopaque, route: []const u8) anyerror!void {
+            _ = ptr;
+            _ = route;
+        }
+    };
+
+    var persist_ctx: u8 = 0;
+    var route_ctx: u8 = 0;
+    var persist = PersistStore{
+        .ptr = &persist_ctx,
+        .read = PersistCtx.read,
+        .write = PersistCtx.write,
+        .deletePrefix = PersistCtx.deletePrefix,
+    };
+    var route = RouteStore{
+        .ptr = &route_ctx,
+        .current = RouteCtx.current,
+        .goTo = RouteCtx.goTo,
+    };
+    var clock = VirtualClock{};
+    var time = TimeSource{ .virtual = &clock };
+    var host = try BoonRuntimeHost.init(allocator, &persist, &route, &time);
+    defer host.deinit();
+
+    const upstream_source = try std.Io.Dir.cwd().readFileAlloc(testing.io, "examples/upstream/filter_checkbox_bug/filter_checkbox_bug.bn", allocator, .limited(1024 * 1024));
+    defer allocator.free(upstream_source);
+    const source = try std.mem.replaceOwned(u8, allocator, upstream_source, "SOURCE", "LINK");
+    defer allocator.free(source);
+    try host.loadProject(.{
+        .name = "filter_checkbox_bug",
+        .entry_file = "filter_checkbox_bug.bn",
+        .files = &.{.{ .path = "filter_checkbox_bug.bn", .contents = source }},
+    });
+    try host.clearState("filter_checkbox_bug");
+
+    _ = try host.start();
+    const output = try host.dispatch(.{ .click = 1 });
+    const rendered = renderedTextFromOutput(output) orelse return error.MissingRenderedText;
+    try testing.expect(std.mem.indexOf(u8, rendered, "Filter:Active") != null);
+}
+
+fn renderedTextFromOutput(output: RuntimeOutput) ?[]const u8 {
+    const document = switch (output) {
+        .document => |document| document,
+        else => return null,
+    };
+    const root = document.values[document.root];
+    const element = switch (root) {
+        .element => |element| element,
+        else => return null,
+    };
+    for (element.args) |field| {
+        if (!std.mem.eql(u8, field.name, "rendered_text")) continue;
+        return switch (document.values[field.value]) {
+            .text => |text| text,
+            else => null,
+        };
+    }
+    return null;
 }
