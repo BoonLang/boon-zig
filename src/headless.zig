@@ -4547,6 +4547,28 @@ pub const Session = struct {
         };
     }
 
+    fn materializeStoredStateValue(self: *Session, allocator: std.mem.Allocator, value: Value) anyerror!Value {
+        return switch (value) {
+            .scoped_node => |deferred| try self.materializeStoredStateValue(allocator, try self.evalNode(allocator, deferred.node_id, deferred.scope)),
+            .list => |items| blk: {
+                const resolved = try allocator.alloc(Value, items.len);
+                for (items, 0..) |item, index| resolved[index] = try self.materializeStoredStateValue(allocator, item);
+                break :blk .{ .list = resolved };
+            },
+            .record => |fields| blk: {
+                const resolved = try allocator.alloc(RecordField, fields.len);
+                for (fields, 0..) |field, index| {
+                    resolved[index] = .{
+                        .name = field.name,
+                        .value = try self.materializeStoredStateValue(allocator, field.value),
+                    };
+                }
+                break :blk .{ .record = resolved };
+            },
+            else => value,
+        };
+    }
+
     fn evalAccess(self: *Session, allocator: std.mem.Allocator, access: flow_ir.Access, scope: ?*const EvalScope) anyerror!Value {
         if (try self.resolveStaticFieldNode(access.target, access.field)) |field_node| {
             switch (self.flow.nodes[field_node].kind) {
@@ -7029,7 +7051,14 @@ pub const Session = struct {
             return;
         }
 
-        self.skip_values[node_id] = try valueFromPulsePayload(self, self.arena.allocator(), payload, scope);
+        const skipped_value = if (call.positional.len != 0) blk: {
+            const current = try self.evalNode(self.arena.allocator(), call.positional[0], scope);
+            break :blk if (current == .none)
+                try valueFromPulsePayload(self, self.arena.allocator(), payload, scope)
+            else
+                current;
+        } else try valueFromPulsePayload(self, self.arena.allocator(), payload, scope);
+        self.skip_values[node_id] = skipped_value;
         self.skip_inited[node_id] = true;
         self.noteTopLevelMutation(node_id);
         try self.logf("skip n{d} emitted", .{node_id});
@@ -7351,7 +7380,8 @@ pub const Session = struct {
                 .id = deriveScopeId(outer_scope, bindings, null),
                 .transparent_state_scope = true,
             };
-            const next_value = try self.evalNode(self.arena.allocator(), update, &scope);
+            const raw_next_value = try self.evalNode(self.arena.allocator(), update, &scope);
+            const next_value = try self.materializeStoredStateValue(self.arena.allocator(), raw_next_value);
             if (next_value == .none) continue;
             const next_value_brief = try briefValueAlloc(self.arena.allocator(), next_value);
             if (hold_scope != null) try self.replaceScopedHoldAliases(node_id, current, next_value);
