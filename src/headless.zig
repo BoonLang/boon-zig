@@ -3018,7 +3018,7 @@ pub const Session = struct {
             },
             .latest => |latest| {
                 if (!try self.latestPulseMatches(latest, pulse)) return;
-                const latest_scope = if (pulse.scope != null or self.nodeNeedsScope(subscriber)) pulse.scope else null;
+                const latest_scope = if (self.nodeNeedsScope(subscriber)) pulse.scope else null;
                 const latest_payload = (try self.latestPayloadForPulse(latest, pulse)) orelse return;
                 try self.setLatestPayload(subscriber, latest_scope, latest_payload);
                 switch (latest_payload) {
