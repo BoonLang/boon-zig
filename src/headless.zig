@@ -1808,7 +1808,7 @@ pub const Session = struct {
                 .builtin_call => |call| {
                     switch (self.builtinOp(subscriber)) {
                         .stream_pulses, .stream_skip, .math_sum => if (call.positional.len != 0) {
-                            if (self.nodeNeedsScope(call.positional[0])) {
+                            if (self.streamSourceNeedsRuntimeScope(call.positional[0])) {
                                 self.runtime_subscribers[subscriber] = true;
                                 continue;
                             }
@@ -1935,7 +1935,7 @@ pub const Session = struct {
                 .builtin_call => |call| {
                     switch (self.builtinOp(subscriber)) {
                         .stream_pulses, .stream_skip, .math_sum => if (call.positional.len != 0) {
-                            if (self.nodeNeedsScope(call.positional[0])) continue;
+                            if (self.streamSourceNeedsRuntimeScope(call.positional[0])) continue;
                             const source = self.eventDependencySource(call.positional[0]) catch |err| switch (err) {
                                 error.UnsupportedEventSource => if (self.nodeNeedsScope(call.positional[0]) or self.nodeNeedsScope(subscriber)) continue else return err,
                                 else => return err,
@@ -2099,6 +2099,15 @@ pub const Session = struct {
     fn holdNeedsRuntimeScope(self: *Session, node_id: flow_ir.NodeId, hold: flow_ir.Hold) bool {
         if (self.isTopLevelBindingNode(node_id)) return false;
         return self.holdNeedsOuterScope(hold, null);
+    }
+
+    fn streamSourceNeedsRuntimeScope(self: *Session, node_id: flow_ir.NodeId) bool {
+        const node = self.flow.nodes[node_id];
+        return switch (node.kind) {
+            .binding_ref => |binding_id| self.streamSourceNeedsRuntimeScope(self.flow.bindings[binding_id].node),
+            .hold => |hold| self.holdNeedsRuntimeScope(node_id, hold),
+            else => self.nodeNeedsScope(node_id),
+        };
     }
 
     fn nodeNeedsScope(self: *Session, node_id: flow_ir.NodeId) bool {
