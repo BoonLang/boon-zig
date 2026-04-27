@@ -4199,9 +4199,13 @@ pub const Session = struct {
             },
             .then_value => |then_value| try self.evalNode(allocator, then_value.value, scope),
             .hold => |hold| blk: {
-                if (self.isTopLevelOwnedNode(node_id) and self.getHoldValue(node_id, null) != null) {
-                    try self.recordStateDependency(self.scopedStateKey(node_id, null));
-                    break :blk self.getHoldValue(node_id, null).?;
+                if (self.isTopLevelOwnedNode(node_id)) {
+                    if (self.getHoldValue(node_id, null)) |canonical| {
+                        if (canonical != .none) {
+                            try self.recordStateDependency(self.scopedStateKey(node_id, null));
+                            break :blk canonical;
+                        }
+                    }
                 }
                 const hold_scope = self.holdStorageScope(node_id, hold, scope);
                 try self.recordStateDependency(self.scopedStateKey(node_id, hold_scope));
