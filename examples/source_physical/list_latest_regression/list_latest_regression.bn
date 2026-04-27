@@ -1,0 +1,8 @@
+latest: LIST {
+    1
+    2
+}
+|> List/latest()
+|> HOLD latest {
+    SKIP
+}

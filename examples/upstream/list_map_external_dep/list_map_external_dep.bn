@@ -2,7 +2,7 @@
 -- BUG: WHILE inside List/map transform doesn't update when external variable changes
 
 store: [
-    filter_button: LINK
+    filter_button: SOURCE
 
     show_filtered: False |> HOLD state {
         filter_button.event.press |> THEN { state |> Bool/not() }
@@ -31,11 +31,11 @@ document: Document/new(root: Element/stripe(
         )
 
         Element/button(
-            element: [event: [press: LINK]]
+            element: [event: [press: SOURCE]]
             style: [padding: 10]
             label: TEXT { Toggle filter }
         )
-        |> LINK { store.filter_button }
+        |> SOURCE { store.filter_button }
 
         Element/label(
             element: []

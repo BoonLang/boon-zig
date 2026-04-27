@@ -31,7 +31,7 @@ document: Document/new(root: Element/stripe(
 
 FUNCTION simple_button(name) {
     Element/button(
-        element: [event: [press: LINK], hovered: LINK]
+        element: [event: [press: SOURCE], hovered: SOURCE]
 
         style: [
             padding: [row: 20, column: 10]

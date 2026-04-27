@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 import net from "node:net";
-import { createHost, MemoryIndexedDb } from "../browser/boon-browser.mjs";
+import { createHost, createWasmHostBoundary, MemoryIndexedDb } from "../browser/boon-browser.mjs";
 
 const boonBin = resolve(process.cwd(), "zig-out", "bin", "boon-zig");
 
@@ -22,6 +22,8 @@ class FakeNode {
     this.type = "";
     this.id = "";
     this.placeholder = "";
+    this.checked = false;
+    this.htmlFor = "";
     this._textContent = "";
   }
 
@@ -113,6 +115,27 @@ function findNode(root, predicate) {
   return found;
 }
 
+async function withFakeDocument(callback) {
+  const originalDocument = globalThis.document;
+  const originalLocation = globalThis.location;
+  try {
+    globalThis.document = new FakeDocument();
+    globalThis.location = { href: "http://127.0.0.1/index.html" };
+    return await callback();
+  } finally {
+    if (originalDocument === undefined) {
+      delete globalThis.document;
+    } else {
+      globalThis.document = originalDocument;
+    }
+    if (originalLocation === undefined) {
+      delete globalThis.location;
+    } else {
+      globalThis.location = originalLocation;
+    }
+  }
+}
+
 async function smokeCounter() {
   const storage = new MemoryIndexedDb();
   const host = await createHost({ exampleName: "counter", storage });
@@ -124,6 +147,9 @@ async function smokeCounter() {
   if (host.textContent() !== "2+") {
     fail(`counter click render mismatch: ${host.textContent()}`);
   }
+  if (host.sourceEventTrace.length !== 2 || host.sourceEventTrace[0].sourceSlotId !== 0) {
+    fail(`counter source slot trace mismatch: ${JSON.stringify(host.sourceEventTrace)}`);
+  }
 
   const resumed = await createHost({ exampleName: "counter", storage });
   if (resumed.textContent() !== "2+") {
@@ -133,6 +159,23 @@ async function smokeCounter() {
   if (resumed.textContent() !== "0+") {
     fail(`counter clear-state mismatch: ${resumed.textContent()}`);
   }
+
+  await withFakeDocument(async () => {
+    const root = new FakeNode("div");
+    const mounted = await createHost({ exampleName: "counter", storage: new MemoryIndexedDb(), root });
+    const initialRootRebuilds = mounted.renderStats.rootRebuilds;
+    const output = findNode(root, (node) => node.tagName === "OUTPUT");
+    if (!output || output.textContent !== "0") {
+      fail(`counter retained DOM initial mismatch: ${root.textContent}`);
+    }
+    await mounted.click("+");
+    if (mounted.renderStats.rootRebuilds !== initialRootRebuilds) {
+      fail("counter retained DOM rebuilt root after click");
+    }
+    if (mounted.renderStats.textPatches < 1 || output.textContent !== "1") {
+      fail(`counter retained DOM text patch mismatch: ${root.textContent}`);
+    }
+  });
   console.log("PASS counter");
 }
 
@@ -145,6 +188,9 @@ async function smokeInterval() {
   await host.advanceVirtualTime(2000);
   if (host.textContent() !== "2") {
     fail(`interval virtual-time mismatch: ${host.textContent()}`);
+  }
+  if (host.sourceEventTrace.length !== 1 || host.sourceEventTrace[0].semanticId !== "timer.event.tick") {
+    fail(`interval source slot trace mismatch: ${JSON.stringify(host.sourceEventTrace)}`);
   }
   console.log("PASS interval");
 }
@@ -159,6 +205,13 @@ async function smokeTodoMvc() {
   if (!host.textContent().includes("Write tests") || !host.textContent().includes("3itemsleft")) {
     fail(`todo_mvc add mismatch: ${host.textContent()}`);
   }
+  if (
+    host.sourceEventTrace.length < 2 ||
+    host.sourceEventTrace[0].sourceSlotId !== 0 ||
+    host.sourceEventTrace[1].sourceSlotId !== 1
+  ) {
+    fail(`todo_mvc add source slot trace mismatch: ${JSON.stringify(host.sourceEventTrace)}`);
+  }
   await host.toggleTodo(0);
   if (!host.textContent().includes("2itemsleft")) {
     fail(`todo_mvc toggle mismatch: ${host.textContent()}`);
@@ -168,6 +221,9 @@ async function smokeTodoMvc() {
     fail(`todo_mvc completed filter mismatch: ${host.textContent()}`);
   }
   await host.clearCompleted();
+  if (!host.sourceEventTrace.some((event) => event.semanticId === "sources.remove_completed_button.event.press")) {
+    fail(`todo_mvc clear-completed source slot trace mismatch: ${JSON.stringify(host.sourceEventTrace)}`);
+  }
   await host.setRoute("all");
   if (host.textContent().includes("Buy groceries") || !host.textContent().includes("Write tests")) {
     fail(`todo_mvc clear-completed mismatch: ${host.textContent()}`);
@@ -176,6 +232,27 @@ async function smokeTodoMvc() {
   if (resumed.textContent().includes("Buy groceries") || !resumed.textContent().includes("Write tests")) {
     fail(`todo_mvc persistence mismatch: ${resumed.textContent()}`);
   }
+
+  await withFakeDocument(async () => {
+    const root = new FakeNode("div");
+    const mounted = await createHost({ exampleName: "todo_mvc", storage: new MemoryIndexedDb(), root });
+    const initialRootRebuilds = mounted.renderStats.rootRebuilds;
+    if (!root.textContent.includes("Buy groceries") || !root.textContent.includes("2 items left")) {
+      fail(`todo_mvc retained DOM initial mismatch: ${root.textContent}`);
+    }
+    await mounted.addTodo("Write retained patches");
+    await mounted.toggleTodo(0);
+    await mounted.setRoute("completed");
+    if (mounted.renderStats.rootRebuilds !== initialRootRebuilds) {
+      fail("todo_mvc retained DOM rebuilt root after interactions");
+    }
+    if (mounted.renderStats.childListPatches < 3 || mounted.renderStats.propertyPatches < 1) {
+      fail(`todo_mvc retained DOM did not record direct patches: ${JSON.stringify(mounted.renderStats)}`);
+    }
+    if (!root.textContent.includes("Buy groceries") || root.textContent.includes("Clean room")) {
+      fail(`todo_mvc retained DOM route mismatch: ${root.textContent}`);
+    }
+  });
   console.log("PASS todo_mvc");
 }
 
@@ -208,6 +285,7 @@ async function smokeCells(exampleName) {
     globalThis.location = { href: `http://127.0.0.1/index.html?example=${exampleName}` };
     const root = new FakeNode("div");
     const mounted = await createHost({ exampleName, storage: new MemoryIndexedDb(), root });
+    const initialRootRebuilds = mounted.renderStats.rootRebuilds;
     if (!root.textContent.includes(title) || !root.textContent.includes("51530")) {
       fail(`${exampleName} mounted DOM initial render mismatch: ${root.textContent}`);
     }
@@ -226,6 +304,19 @@ async function smokeCells(exampleName) {
     await Promise.resolve();
     if (!mounted.textContent().includes("171732")) {
       fail(`${exampleName} mounted DOM commit mismatch: ${mounted.textContent()}`);
+    }
+    if (
+      mounted.sourceEventTrace.length < 2 ||
+      mounted.sourceEventTrace[0].sourceSlotId !== 0 ||
+      mounted.sourceEventTrace[1].sourceSlotId !== 1
+    ) {
+      fail(`${exampleName} source slot trace mismatch: ${JSON.stringify(mounted.sourceEventTrace)}`);
+    }
+    if (mounted.renderStats.rootRebuilds !== initialRootRebuilds) {
+      fail(`${exampleName} retained DOM rebuilt root after cell edit`);
+    }
+    if (mounted.renderStats.textPatches < 1 || mounted.renderStats.childListPatches < 1) {
+      fail(`${exampleName} retained DOM did not record cell patches: ${JSON.stringify(mounted.renderStats)}`);
     }
   } finally {
     if (originalDocument === undefined) {
@@ -297,6 +388,44 @@ async function smokeTodoMvcPhysical() {
   }
 }
 
+async function smokeWasmHostBoundary() {
+  const dispatchCalls = [];
+  const boundary = createWasmHostBoundary({
+    sourceBindings: {
+      "increment_button.event.press": { sourceSlotId: 42, bindingId: 7 },
+    },
+    exports: {
+      dispatch_source(sourceSlotId, bindingId, payloadTag, payloadScalar) {
+        dispatchCalls.push({ sourceSlotId, bindingId, payloadTag, payloadScalar });
+      },
+    },
+  });
+  const host = await createHost({
+    exampleName: "counter",
+    storage: new MemoryIndexedDb(),
+    hostBoundary: boundary,
+  });
+  await host.click("+");
+
+  if (host.sourceEventTrace.length !== 1 || host.sourceEventTrace[0].sourceSlotId !== 42) {
+    fail(`wasm host boundary trace used wrong source slot: ${JSON.stringify(host.sourceEventTrace)}`);
+  }
+  if (boundary.dispatched.length !== 1 || boundary.dispatched[0].bindingId !== 7) {
+    fail(`wasm host boundary did not record dispatched event: ${JSON.stringify(boundary.dispatched)}`);
+  }
+  if (
+    dispatchCalls.length !== 1 ||
+    dispatchCalls[0].sourceSlotId !== 42 ||
+    dispatchCalls[0].bindingId !== 7 ||
+    dispatchCalls[0].payloadTag !== 0 ||
+    dispatchCalls[0].payloadScalar !== 0
+  ) {
+    fail(`wasm host boundary export call mismatch: ${JSON.stringify(dispatchCalls)}`);
+  }
+
+  console.log("PASS wasm_host_boundary");
+}
+
 async function pickPort() {
   return await new Promise((resolvePort, reject) => {
     const server = net.createServer();
@@ -361,6 +490,10 @@ async function main() {
   }
   if (filter === "todo_mvc_physical") {
     await smokeTodoMvcPhysical();
+    return;
+  }
+  if (filter === "wasm_host_boundary") {
+    await smokeWasmHostBoundary();
     return;
   }
   fail(`unsupported browser smoke filter: ${filter}`);

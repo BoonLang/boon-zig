@@ -1,0 +1,6 @@
+{
+  "actions": [
+    ["set_text_input", 0, "100"],
+    ["set_text_input", 1, "32"]
+  ]
+}

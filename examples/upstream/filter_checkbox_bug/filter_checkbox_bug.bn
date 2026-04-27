@@ -6,8 +6,8 @@
 -- KEY DIFFERENCE: Uses LIST with List/map like todo_mvc
 
 store: [
-    filter_buttons: [all: LINK, active: LINK]
-    toggle_all_checkbox: LINK
+    filter_buttons: [all: SOURCE, active: SOURCE]
+    toggle_all_checkbox: SOURCE
 
     selected_filter: All |> HOLD state {
         LATEST {
@@ -33,7 +33,7 @@ store: [
 FUNCTION create_item(name) {
     [
         name: name
-        elements: [checkbox: LINK]
+        elements: [checkbox: SOURCE]
 
         checked: False |> HOLD state {
             LATEST {
@@ -54,7 +54,7 @@ FUNCTION render_item(item, view_label) {
 
         items: LIST {
             Element/checkbox(
-                element: [event: [click: LINK]]
+                element: [event: [click: SOURCE]]
                 style: []
                 label: Hidden[text: TEXT { toggle }]
                 settings: [checked: item.checked]
@@ -64,7 +64,7 @@ FUNCTION render_item(item, view_label) {
                     False => Element/label(element: [], style: [], label: TEXT { [ ] })
                 }
             )
-            |> LINK { item.elements.checkbox }
+            |> SOURCE { item.elements.checkbox }
 
             Element/label(
                 element: []
@@ -96,7 +96,7 @@ document: Document/new(root: Element/stripe(
 
             items: LIST {
                 Element/button(
-                    element: [event: [press: LINK]]
+                    element: [event: [press: SOURCE]]
 
                     style: [
                         padding: 10
@@ -106,10 +106,10 @@ document: Document/new(root: Element/stripe(
 
                     label: TEXT { All }
                 )
-                |> LINK { store.filter_buttons.all }
+                |> SOURCE { store.filter_buttons.all }
 
                 Element/button(
-                    element: [event: [press: LINK]]
+                    element: [event: [press: SOURCE]]
 
                     style: [
                         padding: 10
@@ -119,7 +119,7 @@ document: Document/new(root: Element/stripe(
 
                     label: TEXT { Active }
                 )
-                |> LINK { store.filter_buttons.active }
+                |> SOURCE { store.filter_buttons.active }
             }
         )
 

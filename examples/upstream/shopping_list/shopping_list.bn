@@ -1,7 +1,7 @@
 -- Shopping List
 
 store: [
-    elements: [item_input: LINK, clear_button: LINK]
+    elements: [item_input: SOURCE, clear_button: SOURCE]
 
     text_to_add: elements.item_input.event.key_down.key |> WHEN {
         Enter => BLOCK {
@@ -34,7 +34,7 @@ FUNCTION root_element() {
 
         items: LIST {
             header()
-            item_input() |> LINK { PASSED.store.elements.item_input }
+            item_input() |> SOURCE { PASSED.store.elements.item_input }
             items_list()
             footer()
         }
@@ -51,7 +51,7 @@ FUNCTION header() {
 
 FUNCTION item_input() {
     Element/text_input(
-        element: [event: [key_down: LINK, change: LINK]]
+        element: [event: [key_down: SOURCE, change: SOURCE]]
         style: [width: Fill]
         label: Hidden[text: TEXT { Item name }]
 
@@ -94,7 +94,7 @@ FUNCTION footer() {
 
         items: LIST {
             item_count_label()
-            clear_button() |> LINK { PASSED.store.elements.clear_button }
+            clear_button() |> SOURCE { PASSED.store.elements.clear_button }
         }
     )
 }
@@ -114,7 +114,7 @@ FUNCTION item_count_label() {
 
 FUNCTION clear_button() {
     Element/button(
-        element: [event: [press: LINK]]
+        element: [event: [press: SOURCE]]
         style: [padding: 10]
         label: TEXT { Clear }
     )

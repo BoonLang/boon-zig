@@ -1,0 +1,9 @@
+FUNCTION increment_from_pass(value) {
+    PASSED.event.press |> THEN { value + 1 }
+}
+
+button: [event: [press: SOURCE]]
+
+counter: 0 |> HOLD counter {
+    increment_from_pass(counter, PASS: button)
+}

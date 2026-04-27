@@ -10,7 +10,7 @@ store: [
 
 FUNCTION make_button(name) {
     [
-        elements: [button: LINK]
+        elements: [button: SOURCE]
         name: name
 
         clicked: False |> HOLD state {
@@ -40,7 +40,7 @@ document: Document/new(root: Element/stripe(
 
             items: LIST {
                 Element/button(
-                    element: [event: [press: LINK]]
+                    element: [event: [press: SOURCE]]
 
                     style: [
                         padding: [row: 20, column: 10]
@@ -67,10 +67,10 @@ document: Document/new(root: Element/stripe(
 
                     label: TEXT { Button {store.btn_a.name} }
                 )
-                |> LINK { store.btn_a.elements.button }
+                |> SOURCE { store.btn_a.elements.button }
 
                 Element/button(
-                    element: [event: [press: LINK]]
+                    element: [event: [press: SOURCE]]
 
                     style: [
                         padding: [row: 20, column: 10]
@@ -97,10 +97,10 @@ document: Document/new(root: Element/stripe(
 
                     label: TEXT { Button {store.btn_b.name} }
                 )
-                |> LINK { store.btn_b.elements.button }
+                |> SOURCE { store.btn_b.elements.button }
 
                 Element/button(
-                    element: [event: [press: LINK]]
+                    element: [event: [press: SOURCE]]
 
                     style: [
                         padding: [row: 20, column: 10]
@@ -127,7 +127,7 @@ document: Document/new(root: Element/stripe(
 
                     label: TEXT { Button {store.btn_c.name} }
                 )
-                |> LINK { store.btn_c.elements.button }
+                |> SOURCE { store.btn_c.elements.button }
             }
         )
 

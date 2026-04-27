@@ -1072,9 +1072,9 @@ FUNCTION make_cell_element(column, row) {
         is_editing: is_editing_cell(column: column, row: row)
         is_selected: is_selected_cell(column: column, row: row)
         is_hovered: is_hovered_cell(column: column, row: row)
-        display_container: [event: [hovered: LINK]]
-        display_element: [event: [click: LINK, double_click: LINK]]
-        editing_element: [event: [change: LINK, key_down: LINK, blur: LINK]]
+        display_container: [event: [hovered: SOURCE]]
+        display_element: [event: [click: SOURCE, double_click: SOURCE]]
+        editing_element: [event: [change: SOURCE, key_down: SOURCE, blur: SOURCE]]
 
         select_started_link:
             display_element.event.click
@@ -1084,7 +1084,7 @@ FUNCTION make_cell_element(column, row) {
                     column: column
                 ]
             }
-            |> LINK { event_ports.select_cell }
+            |> SOURCE { event_ports.select_cell }
 
         edit_started_link:
             display_element.event.double_click
@@ -1094,7 +1094,7 @@ FUNCTION make_cell_element(column, row) {
                     column: column
                 ]
             }
-            |> LINK { event_ports.edit_started }
+            |> SOURCE { event_ports.edit_started }
 
         edit_selected_again_link:
             display_element.event.click
@@ -1110,12 +1110,12 @@ FUNCTION make_cell_element(column, row) {
                     __ => SKIP
                 }
             }
-            |> LINK { event_ports.edit_started }
+            |> SOURCE { event_ports.edit_started }
 
         edit_changed_link:
             editing_element.event.change
             |> THEN { editing_element.event.change.text }
-            |> LINK { event_ports.edit_text_event }
+            |> SOURCE { event_ports.edit_text_event }
 
         edit_transition_link:
             editing_element.event.key_down.key
@@ -1140,7 +1140,7 @@ FUNCTION make_cell_element(column, row) {
                 ]
                 __ => SKIP
             }
-            |> LINK { event_ports.edit_transition }
+            |> SOURCE { event_ports.edit_transition }
 
         edit_blurred_link:
             editing_element.event.blur
@@ -1155,7 +1155,7 @@ FUNCTION make_cell_element(column, row) {
                     dirty: False
                 ]
             }
-            |> LINK { event_ports.edit_transition }
+            |> SOURCE { event_ports.edit_transition }
 
         hovered_cell_link:
             display_container.event.hovered
@@ -1166,7 +1166,7 @@ FUNCTION make_cell_element(column, row) {
                     hovered: display_container.event.hovered
                 ]
             }
-            |> LINK { event_ports.hovered_cell }
+            |> SOURCE { event_ports.hovered_cell }
 
         is_editing |> WHILE {
             True => Element/text_input(
@@ -1424,16 +1424,16 @@ terminal: Terminal/new(
 )
 
 event_ports: [
-    move_up: LINK
-    move_down: LINK
-    move_left: LINK
-    move_right: LINK
-    select_cell: LINK
-    edit_selected: LINK
-    edit_started: LINK
-    hovered_cell: LINK
-    edit_text_event: LINK
-    edit_transition: LINK
+    move_up: SOURCE
+    move_down: SOURCE
+    move_left: SOURCE
+    move_right: SOURCE
+    select_cell: SOURCE
+    edit_selected: SOURCE
+    edit_started: SOURCE
+    hovered_cell: SOURCE
+    edit_text_event: SOURCE
+    edit_transition: SOURCE
 ]
 
 focused_row: 0 |> HOLD state {

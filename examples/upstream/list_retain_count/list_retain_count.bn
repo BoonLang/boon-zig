@@ -1,6 +1,6 @@
 -- Test: Does List/retain |> List/count update when items are added?
 store: [
-    input: LINK
+    input: SOURCE
 
     text_to_add: store.input.event.key_down.key |> WHEN {
         Enter => store.input.text
@@ -25,7 +25,7 @@ FUNCTION root_element() {
 
         items: LIST {
             Element/text_input(
-                element: [event: [key_down: LINK, change: LINK]]
+                element: [event: [key_down: SOURCE, change: SOURCE]]
                 style: []
                 label: Hidden[text: TEXT { Add item }]
 
@@ -37,7 +37,7 @@ FUNCTION root_element() {
                 placeholder: [text: TEXT { Type and press Enter }]
                 focus: True
             )
-            |> LINK { PASSED.store.input }
+            |> SOURCE { PASSED.store.input }
 
             all_count_label()
             retain_count_label()

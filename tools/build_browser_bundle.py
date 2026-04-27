@@ -71,6 +71,7 @@ def main() -> int:
         "bundle": "boon-zig-browser-host",
         "supported_examples": ["counter", "interval", "cells", "cells_dynamic", "todo_mvc", "todo_mvc_physical"],
         "storage": "IndexedDB primary with in-memory fallback for smoke environments",
+        "wasm_host_boundary": "integrated-js-adapter",
         "physical_render_targets": physical_render_targets,
         "physical_render_target_source": {
             "example": TODO_MVC_PHYSICAL_PATH,

@@ -2,10 +2,10 @@ store: [
     ------ links ------
 
     elements: [
-        left_button: LINK
-        right_button: LINK
-        launch_button: LINK
-        tick_button: LINK
+        left_button: SOURCE
+        right_button: SOURCE
+        launch_button: SOURCE
+        tick_button: SOURCE
     ]
 
     ------ states ------

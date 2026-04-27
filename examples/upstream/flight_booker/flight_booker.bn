@@ -3,10 +3,10 @@
 
 store: [
     elements: [
-        flight_select: LINK
-        departure_input: LINK
-        return_input: LINK
-        book_button: LINK
+        flight_select: SOURCE
+        departure_input: SOURCE
+        return_input: SOURCE
+        book_button: SOURCE
     ]
 
     flight_type: TEXT { one-way } |> HOLD state {
@@ -65,7 +65,7 @@ FUNCTION root_element() {
                     label: TEXT { Flight Booker }
                 )
                 Element/select(
-                    element: [event: [change: LINK]]
+                    element: [event: [change: SOURCE]]
                     style: [width: Fill]
                     label: Hidden[text: TEXT { Flight type }]
                     options: LIST {
@@ -73,17 +73,17 @@ FUNCTION root_element() {
                         [value: TEXT { return }, label: TEXT { Return flight }]
                     }
                     selected: TEXT { one-way }
-                ) |> LINK { store.elements.flight_select }
+                ) |> SOURCE { store.elements.flight_select }
                 Element/text_input(
-                    element: [event: [change: LINK]]
+                    element: [event: [change: SOURCE]]
                     style: [width: Fill]
                     label: Hidden[text: TEXT { Departure date }]
                     text: departure_date
                     placeholder: [text: TEXT { YYYY-MM-DD }]
                     focus: False
-                ) |> LINK { store.elements.departure_input }
+                ) |> SOURCE { store.elements.departure_input }
                 Element/text_input(
-                    element: [event: [change: LINK]]
+                    element: [event: [change: SOURCE]]
                     style: [
                         width: Fill
                         disabled: is_return |> WHILE {
@@ -95,9 +95,9 @@ FUNCTION root_element() {
                     text: return_date
                     placeholder: [text: TEXT { YYYY-MM-DD }]
                     focus: False
-                ) |> LINK { store.elements.return_input }
+                ) |> SOURCE { store.elements.return_input }
                 Element/button(
-                    element: [event: [press: LINK]]
+                    element: [event: [press: SOURCE]]
                     style: [
                         width: Fill
                         disabled: is_valid |> WHILE {
@@ -106,7 +106,7 @@ FUNCTION root_element() {
                         }
                     ]
                     label: TEXT { Book }
-                ) |> LINK { store.elements.book_button }
+                ) |> SOURCE { store.elements.book_button }
                 Element/label(
                     element: []
                     style: []

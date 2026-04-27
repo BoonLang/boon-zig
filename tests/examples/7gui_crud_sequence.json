@@ -1,0 +1,8 @@
+{
+  "actions": [
+    ["set_text_input", 0, "Love"],
+    ["set_text_input", 1, "Ada"],
+    ["set_text_input", 2, "Lovelace"],
+    ["click_label", "Create"]
+  ]
+}

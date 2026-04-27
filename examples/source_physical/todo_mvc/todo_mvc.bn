@@ -1,0 +1,21 @@
+sources: [
+    new_todo: [
+        event: [
+            change: SOURCE
+            key_down: SOURCE
+        ]
+    ]
+
+    remove_completed_button: [
+        event: [press: SOURCE]
+        hovered: SOURCE
+    ]
+]
+
+draft_title: 0 |> HOLD draft_title {
+    sources.new_todo.event.change
+}
+
+submitted_count: 0 |> HOLD submitted_count {
+    sources.new_todo.event.key_down |> THEN { submitted_count + 1 }
+}

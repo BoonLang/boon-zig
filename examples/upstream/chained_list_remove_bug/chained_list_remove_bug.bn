@@ -23,7 +23,7 @@
 -- state without preserving which items were already marked as removed.
 
 store: [
-    elements: [add_button: LINK, clear_completed_button: LINK]
+    elements: [add_button: SOURCE, clear_completed_button: SOURCE]
 
     next_id: 2 |> HOLD state {
         elements.add_button.event.press |> THEN { state + 1 }
@@ -60,7 +60,7 @@ FUNCTION create_item(id, name) {
     [
         id: id
         name: name
-        elements: [checkbox: LINK, remove_button: LINK]
+        elements: [checkbox: SOURCE, remove_button: SOURCE]
 
         completed: False |> HOLD state {
             elements.checkbox.event.click |> THEN { state |> Bool/not() }
@@ -70,14 +70,14 @@ FUNCTION create_item(id, name) {
 
 FUNCTION render_item(item) {
     Element/stripe(
-        element: [hovered: LINK]
+        element: [hovered: SOURCE]
         direction: Row
         gap: 10
         style: [padding: [row: 10, column: 5]]
 
         items: LIST {
             Element/checkbox(
-                element: [event: [click: LINK]]
+                element: [event: [click: SOURCE]]
                 style: []
                 label: Hidden [text: TEXT { toggle }]
                 settings: [checked: item.completed]
@@ -87,7 +87,7 @@ FUNCTION render_item(item) {
                     False => Element/label(element: [], style: [], label: TEXT { [ ] })
                 }
             )
-            |> LINK { item.elements.checkbox }
+            |> SOURCE { item.elements.checkbox }
 
             Element/label(
                 element: []
@@ -98,7 +98,7 @@ FUNCTION render_item(item) {
             element.hovered |> WHILE {
                 True =>
                     Element/button(
-                        element: [event: [press: LINK]]
+                        element: [event: [press: SOURCE]]
 
                         style: [
                             font: [color: Oklch [lightness: 0.5, chroma: 0.15, hue: 25]]
@@ -106,7 +106,7 @@ FUNCTION render_item(item) {
 
                         label: TEXT { X }
                     )
-                    |> LINK { item.elements.remove_button }
+                    |> SOURCE { item.elements.remove_button }
 
                 False => NoElement
             }
@@ -135,7 +135,7 @@ document: Document/new(root: Element/stripe(
 
             items: LIST {
                 Element/button(
-                    element: [event: [press: LINK]]
+                    element: [event: [press: SOURCE]]
 
                     style: [
                         padding: 10
@@ -145,7 +145,7 @@ document: Document/new(root: Element/stripe(
 
                     label: TEXT { Add Item }
                 )
-                |> LINK { store.elements.add_button }
+                |> SOURCE { store.elements.add_button }
 
                 store.completed_items
                 |> List/is_empty()
@@ -154,7 +154,7 @@ document: Document/new(root: Element/stripe(
 
                     False =>
                         Element/button(
-                            element: [event: [press: LINK]]
+                            element: [event: [press: SOURCE]]
 
                             style: [
                                 padding: 10
@@ -168,7 +168,7 @@ document: Document/new(root: Element/stripe(
 
                             label: TEXT { Clear completed }
                         )
-                        |> LINK { store.elements.clear_completed_button }
+                        |> SOURCE { store.elements.clear_completed_button }
                 }
             }
         )

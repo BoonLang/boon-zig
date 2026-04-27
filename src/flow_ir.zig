@@ -170,7 +170,14 @@ pub const Document = struct {
 const cache_magic = "BNCF";
 const cache_version: u32 = 1;
 
+pub const Options = struct {};
+
 pub fn lowerAlloc(allocator: std.mem.Allocator, source: []const u8) !Outcome {
+    return lowerAllocWithOptions(allocator, source, .{});
+}
+
+pub fn lowerAllocWithOptions(allocator: std.mem.Allocator, source: []const u8, options: Options) !Outcome {
+    _ = options;
     const lowered_hir = try hir.lowerAlloc(allocator, source);
     const hir_document = switch (lowered_hir) {
         .ok => |document| document,
@@ -1179,13 +1186,13 @@ const Lowerer = struct {
     }
 
     fn lowerLinkForm(self: *Lowerer, form: *hir.Form, scope: ?*const Scope) LowerError!NodeId {
-        if (form.arguments.len != 2) return self.fail(form.span, "LINK expects a piped value and a brace target body");
+        if (form.arguments.len != 2) return self.fail(form.span, "SOURCE expects a piped value and a brace target body");
         if (form.arguments[1] != .sequence or form.arguments[1].sequence.delimiter != .braces) {
-            return self.fail(form.span, "LINK expects a brace target body");
+            return self.fail(form.span, "SOURCE expects a brace target body");
         }
         const body = form.arguments[1].sequence;
         if (body.items.len != 1 or body.items[0] != .expr) {
-            return self.fail(form.span, "LINK expects a single target expression");
+            return self.fail(form.span, "SOURCE expects a single target expression");
         }
         return try self.addNode(form.span, .{ .linked_value = .{
             .value = try self.lowerExprInScope(form.arguments[0], scope),
@@ -1473,7 +1480,7 @@ const Lowerer = struct {
 
     fn addLinkPort(self: *Lowerer, span: ast.Span) LowerError!NodeId {
         self.link_port_count += 1;
-        return try self.addNode(span, .{ .link_port = "LINK" });
+        return try self.addNode(span, .{ .link_port = "SOURCE" });
     }
 
     fn renderPath(self: *Lowerer, segments: []hir.Symbol) LowerError![]const u8 {
@@ -1613,14 +1620,14 @@ test "lowers block-local event sources to concrete link nodes" {
     const source =
         \\FUNCTION make_evented() {
         \\    BLOCK {
-        \\        display_element: [event: [double_click: LINK]]
+        \\        display_element: [event: [double_click: SOURCE]]
         \\        display_element.event.double_click
         \\            |> THEN { 1 }
-        \\            |> LINK { edit_started }
+        \\            |> SOURCE { edit_started }
         \\    }
         \\}
         \\
-        \\edit_started: LINK
+        \\edit_started: SOURCE
         \\document: make_evented()
         \\
     ;

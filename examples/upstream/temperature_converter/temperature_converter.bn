@@ -4,7 +4,7 @@
 -- both Actors and DD engines to handle event data flow.
 
 store: [
-    elements: [celsius_input: LINK, fahrenheit_input: LINK]
+    elements: [celsius_input: SOURCE, fahrenheit_input: SOURCE]
 
     celsius_raw: Text/empty() |> HOLD state {
         elements.celsius_input.event.change.text
@@ -76,23 +76,23 @@ FUNCTION converter_row() {
 
             items: LIST {
                 Element/text_input(
-                    element: [event: [change: LINK]]
+                    element: [event: [change: SOURCE]]
                     style: [width: 120]
                     label: Hidden[text: TEXT { Celsius }]
                     text: celsius_text
                     placeholder: [text: TEXT { Celsius }]
                     focus: False
-                ) |> LINK { PASSED.store.elements.celsius_input }
+                ) |> SOURCE { PASSED.store.elements.celsius_input }
                 Element/label(element: [], style: [], label: TEXT { Celsius })
                 Element/label(element: [], style: [], label: TEXT { = })
                 Element/text_input(
-                    element: [event: [change: LINK]]
+                    element: [event: [change: SOURCE]]
                     style: [width: 120]
                     label: Hidden[text: TEXT { Fahrenheit }]
                     text: fahrenheit_text
                     placeholder: [text: TEXT { Fahrenheit }]
                     focus: False
-                ) |> LINK { PASSED.store.elements.fahrenheit_input }
+                ) |> SOURCE { PASSED.store.elements.fahrenheit_input }
                 Element/label(element: [], style: [], label: TEXT { Fahrenheit })
             }
         )

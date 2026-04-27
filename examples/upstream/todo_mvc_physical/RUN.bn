@@ -7,19 +7,19 @@
 store: [
     elements: [
         filter_buttons: [
-            all: LINK
-            active: LINK
-            completed: LINK
+            all: SOURCE
+            active: SOURCE
+            completed: SOURCE
         ]
-        remove_completed_button: LINK
-        toggle_all_checkbox: LINK
-        new_todo_title_text_input: LINK
+        remove_completed_button: SOURCE
+        toggle_all_checkbox: SOURCE
+        new_todo_title_text_input: SOURCE
         theme_switcher: [
-            professional: LINK
-            glassmorphism: LINK
-            neobrutalism: LINK
-            neumorphism: LINK
-            mode_toggle: LINK
+            professional: SOURCE
+            glassmorphism: SOURCE
+            neobrutalism: SOURCE
+            neumorphism: SOURCE
+            mode_toggle: SOURCE
         ]
     ]
     selected_filter: Router/route() |> WHILE {
@@ -75,10 +75,10 @@ store: [
 FUNCTION new_todo(title) {
     [
         todo_elements: [
-            remove_todo_button: LINK
-            editing_todo_title_element: LINK
-            todo_title_element: LINK
-            todo_checkbox: LINK
+            remove_todo_button: SOURCE
+            editing_todo_title_element: SOURCE
+            todo_title_element: SOURCE
+            todo_checkbox: SOURCE
         ]
         id: TodoId[id: Ulid/generate()]
         title_to_update:
@@ -351,7 +351,7 @@ FUNCTION main_panel() {
         ]
         items: LIST {
             new_todo_title_text_input()
-                |> LINK { PASSED.store.elements.new_todo_title_text_input }
+                |> SOURCE { PASSED.store.elements.new_todo_title_text_input }
             PASSED.store.todos
                 |> List/is_not_empty()
                 |> WHILE {
@@ -379,8 +379,8 @@ FUNCTION new_todo_title_text_input() {
     Scene/Element/text_input(
         element:[
             event: [
-                change: LINK
-                key_down: LINK
+                change: SOURCE
+                key_down: SOURCE
             ]
         ]
         style: [
@@ -426,7 +426,7 @@ FUNCTION todos_element() {
                     align: [row: Left, column: Top]
                 ]
                 child: toggle_all_checkbox()
-                    |> LINK { PASSED.store.elements.toggle_all_checkbox }
+                    |> SOURCE { PASSED.store.elements.toggle_all_checkbox }
             )
             Scene/Element/stripe(
                 element: []
@@ -455,7 +455,7 @@ FUNCTION todos_element() {
 FUNCTION todo_element(todo) {
     Scene/Element/stripe(
         element: [
-            hovered: LINK
+            hovered: SOURCE
         ]
         direction: Row
         gap: Theme/spacing(of: Tight)
@@ -468,16 +468,16 @@ FUNCTION todo_element(todo) {
         items: PASSED.store.selected_todo_id == todo.id |> WHILE {
             True => LIST {
                 editing_todo_title_element(todo: todo)
-                    |> LINK { todo.todo_elements.editing_todo_title_element }
+                    |> SOURCE { todo.todo_elements.editing_todo_title_element }
             }
             False => LIST {
                 todo_checkbox(todo: todo)
-                    |> LINK { todo.todo_elements.todo_checkbox }
+                    |> SOURCE { todo.todo_elements.todo_checkbox }
                 todo_title_element(todo: todo)
-                    |> LINK { todo.todo_elements.todo_title_element }
+                    |> SOURCE { todo.todo_elements.todo_title_element }
                 element.hovered |> WHILE {
                     True => remove_todo_button()
-                        |> LINK { todo.todo_elements.remove_todo_button }
+                        |> SOURCE { todo.todo_elements.remove_todo_button }
                     False => NoElement
                 }
             }
@@ -495,8 +495,8 @@ FUNCTION toggle_all_checkbox() {
 
         Scene/Element/checkbox(
             element: [
-                event: [click: LINK]
-                hovered: LINK
+                event: [click: SOURCE]
+                hovered: SOURCE
             ]
             style: [
                 width: Theme/sizing(of: ToggleControl)
@@ -532,9 +532,9 @@ FUNCTION editing_todo_title_element(todo) {
     Scene/Element/text_input(
         element: [
             event: [
-                blur: LINK
-                change: LINK
-                key_down: LINK
+                blur: SOURCE
+                change: SOURCE
+                key_down: SOURCE
             ]
         ]
         style: [
@@ -562,8 +562,8 @@ FUNCTION todo_checkbox(todo) {
     BLOCK {
         Scene/Element/checkbox(
             element: [
-                event: [click: LINK]
-                hovered: LINK
+                event: [click: SOURCE]
+                hovered: SOURCE
             ]
             style: [
                 size: Theme/sizing(of: TouchTarget)
@@ -595,7 +595,7 @@ FUNCTION todo_checkbox(todo) {
 FUNCTION todo_title_element(todo) {
     Scene/Element/label(
         element: [
-            event: [double_click: LINK]
+            event: [double_click: SOURCE]
         ]
         style: [
             width: Fill
@@ -615,8 +615,8 @@ FUNCTION todo_title_element(todo) {
 FUNCTION remove_todo_button() {
     Scene/Element/button(
         element:[
-            event: [press: LINK]
-            hovered: LINK
+            event: [press: SOURCE]
+            hovered: SOURCE
         ]
         style: [
             size: Theme/sizing(of: TouchTarget)
@@ -651,7 +651,7 @@ FUNCTION panel_footer() {
             footer_section(child: PASSED.store.todos
                 |> List/any(item, if: item.completed) |> WHILE {
                     True => remove_completed_button()
-                        |> LINK { PASSED.store.elements.remove_completed_button }
+                        |> SOURCE { PASSED.store.elements.remove_completed_button }
                     False => NoElement
                 }
             )
@@ -697,11 +697,11 @@ FUNCTION filters_element() {
         style: []
         items: LIST {
             filter_button(filter: All)
-                |> LINK { PASSED.store.elements.filter_buttons.all }
+                |> SOURCE { PASSED.store.elements.filter_buttons.all }
             filter_button(filter: Active)
-                |> LINK { PASSED.store.elements.filter_buttons.active }
+                |> SOURCE { PASSED.store.elements.filter_buttons.active }
             filter_button(filter: Completed)
-                |> LINK { PASSED.store.elements.filter_buttons.completed }
+                |> SOURCE { PASSED.store.elements.filter_buttons.completed }
         }
     )
 }
@@ -712,8 +712,8 @@ FUNCTION filter_button(filter) {
 
         Scene/Element/button(
             element: [
-                event: [press: LINK]
-                hovered: LINK
+                event: [press: SOURCE]
+                hovered: SOURCE
             ]
             style: [
                 padding: [row: 8, column: 4]
@@ -745,8 +745,8 @@ FUNCTION filter_button(filter) {
 FUNCTION remove_completed_button() {
     Scene/Element/button(
         element: [
-            event: [press: LINK]
-            hovered: LINK
+            event: [press: SOURCE]
+            hovered: SOURCE
         ]
         style: [
             align: Right
@@ -804,7 +804,7 @@ FUNCTION footer() {
 
 FUNCTION footer_link(label, to) {
     Scene/Element/link(
-        element: [hovered: LINK]
+        element: [hovered: SOURCE]
         style: Theme/text(of: SmallLink[hovered: element.hovered])
         label: label
         to: to
@@ -830,20 +830,20 @@ FUNCTION theme_switcher() {
                 style: []
                 items: LIST {
                     theme_name_button(theme_name: Professional)
-                        |> LINK { PASSED.store.elements.theme_switcher.professional }
+                        |> SOURCE { PASSED.store.elements.theme_switcher.professional }
                     theme_name_button(theme_name: Glassmorphism)
-                        |> LINK { PASSED.store.elements.theme_switcher.glassmorphism }
+                        |> SOURCE { PASSED.store.elements.theme_switcher.glassmorphism }
                     theme_name_button(theme_name: Neobrutalism)
-                        |> LINK { PASSED.store.elements.theme_switcher.neobrutalism }
+                        |> SOURCE { PASSED.store.elements.theme_switcher.neobrutalism }
                     theme_name_button(theme_name: Neumorphism)
-                        |> LINK { PASSED.store.elements.theme_switcher.neumorphism }
+                        |> SOURCE { PASSED.store.elements.theme_switcher.neumorphism }
                 }
             )
             Scene/Element/block(
                 element: []
                 style: [align: [row: Center]]
                 child: mode_toggle_button()
-                    |> LINK { PASSED.store.elements.theme_switcher.mode_toggle }
+                    |> SOURCE { PASSED.store.elements.theme_switcher.mode_toggle }
             )
         }
     )
@@ -855,8 +855,8 @@ FUNCTION theme_name_button(theme_name) {
 
         Scene/Element/button(
             element: [
-                event: [press: LINK]
-                hovered: LINK
+                event: [press: SOURCE]
+                hovered: SOURCE
             ]
             style: [
                 padding: [row: 6, column: 3]
@@ -893,8 +893,8 @@ FUNCTION theme_name_button(theme_name) {
 FUNCTION mode_toggle_button() {
     Scene/Element/button(
         element: [
-            event: [press: LINK]
-            hovered: LINK
+            event: [press: SOURCE]
+            hovered: SOURCE
         ]
         style: [
             padding: [row: 6, column: 3]

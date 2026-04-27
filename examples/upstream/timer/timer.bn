@@ -5,8 +5,8 @@ tick: Duration[milliseconds: 100] |> Timer/interval()
 
 store: [
     elements: [
-        duration_slider: LINK
-        reset_button: LINK
+        duration_slider: SOURCE
+        reset_button: SOURCE
     ]
 
     max_duration: 15 |> HOLD state {
@@ -59,10 +59,10 @@ FUNCTION root_element() {
                 elapsed_row(PASS: [elapsed_display: elapsed_display])
                 duration_row(PASS: [store: PASSED.store, max_duration: max_duration])
                 Element/button(
-                    element: [event: [press: LINK]]
+                    element: [event: [press: SOURCE]]
                     style: [width: Fill]
                     label: TEXT { Reset }
-                ) |> LINK { PASSED.store.elements.reset_button }
+                ) |> SOURCE { PASSED.store.elements.reset_button }
             }
         )
     }
@@ -122,14 +122,14 @@ FUNCTION duration_row() {
             items: LIST {
                 Element/label(element: [], style: [], label: TEXT { Duration: })
                 Element/slider(
-                    element: [event: [change: LINK]]
+                    element: [event: [change: SOURCE]]
                     style: [width: 200]
                     label: Hidden[text: TEXT { Duration }]
                     value: max_duration
                     min: 1
                     max: 30
                     step: 0.1
-                ) |> LINK { PASSED.store.elements.duration_slider }
+                ) |> SOURCE { PASSED.store.elements.duration_slider }
                 Element/label(
                     element: []
                     style: []

@@ -159,6 +159,8 @@ pub const PreviewEvent = union(enum) {
     svg_click: struct { link: LinkId, x: f32, y: f32 },
 };
 
+pub const TextInputHandle = headless.TextInputSessionRef;
+
 pub const PersistStore = struct {
     ptr: *anyopaque,
     read: *const fn (ptr: *anyopaque, allocator: std.mem.Allocator, key: []const u8) anyerror!?[]u8,
@@ -324,17 +326,26 @@ pub const BoonRuntimeHost = struct {
     }
 
     pub fn start(self: *BoonRuntimeHost) !RuntimeOutput {
+        if (try self.startSession()) |diagnostics| return .{ .diagnostics = diagnostics };
+        return try self.snapshotOutput();
+    }
+
+    pub fn startNoSnapshot(self: *BoonRuntimeHost) !void {
+        if (try self.startSession()) |_| return error.RuntimeDiagnostic;
+    }
+
+    fn startSession(self: *BoonRuntimeHost) !?[]const Diagnostic {
         self.clearDiagnostics();
         if (self.compiled == null) {
             const compiled = try self.compileEntry();
             switch (compiled) {
                 .ok => {},
-                .diagnostics => |diagnostics| return .{ .diagnostics = diagnostics },
+                .diagnostics => |diagnostics| return diagnostics,
             }
         }
         if (self.session) |*old_session| old_session.deinit();
         self.session = null;
-        const compiled = self.compiled orelse return .{ .diagnostics = try self.unsupported("BoonRuntimeHost compileEntry did not produce a compiled project") };
+        const compiled = self.compiled orelse return try self.unsupported("BoonRuntimeHost compileEntry did not produce a compiled project");
         self.compiled = null;
         try ensureStateDir();
         const state_file_path = try self.stateFilePathAlloc(self.project_name);
@@ -346,15 +357,54 @@ pub const BoonRuntimeHost = struct {
         switch (outcome) {
             .ok => |session| {
                 self.session = session;
-                return try self.snapshotOutput();
+                return null;
             },
-            .err => |failure| return .{ .diagnostics = try self.diagnosticFromHeadless(failure) },
+            .err => |failure| {
+                return try self.diagnosticFromHeadless(failure);
+            },
         }
     }
 
     pub fn dispatch(self: *BoonRuntimeHost, event: PreviewEvent) !RuntimeOutput {
         self.clearDiagnostics();
-        var session = if (self.session) |*session| session else return .{ .diagnostics = try self.unsupported("BoonRuntimeHost.start must be called before dispatch") };
+        const session = if (self.session) |*session| session else return .{ .diagnostics = try self.unsupported("BoonRuntimeHost.start must be called before dispatch") };
+        try self.dispatchIntoSession(session, event);
+        return try self.snapshotOutput();
+    }
+
+    pub fn dispatchNoSnapshot(self: *BoonRuntimeHost, event: PreviewEvent) !void {
+        self.clearDiagnostics();
+        const session = if (self.session) |*session| session else return error.RuntimeNotStarted;
+        try self.dispatchIntoSession(session, event);
+    }
+
+    pub fn renderTextAlloc(self: *BoonRuntimeHost, allocator: std.mem.Allocator) ![]u8 {
+        var session = if (self.session) |*session| session else return error.RuntimeNotStarted;
+        return try session.renderAlloc(allocator);
+    }
+
+    pub fn textInputHandle(self: *BoonRuntimeHost, index: usize) !TextInputHandle {
+        var session = if (self.session) |*session| session else return error.RuntimeNotStarted;
+        return try session.textInputSessionRef(index);
+    }
+
+    pub fn setTextInputValueWithHandle(self: *BoonRuntimeHost, handle: TextInputHandle, text: []const u8) !void {
+        var session = if (self.session) |*session| session else return error.RuntimeNotStarted;
+        try session.setTextInputValueRef(handle.change, text);
+    }
+
+    pub fn pressTextInputKeyWithHandle(self: *BoonRuntimeHost, handle: TextInputHandle, key: Key, text: []const u8) !void {
+        var session = if (self.session) |*session| session else return error.RuntimeNotStarted;
+        try session.pressTextInputKeyRef(handle.key, handle.change, previewKeyName(key), text);
+    }
+
+    pub fn blurTextInputWithHandle(self: *BoonRuntimeHost, handle: TextInputHandle) !void {
+        const event = handle.blur orelse return;
+        var session = if (self.session) |*session| session else return error.RuntimeNotStarted;
+        try session.blurTextInputRef(event);
+    }
+
+    fn dispatchIntoSession(self: *BoonRuntimeHost, session: *headless.Session, event: PreviewEvent) !void {
         switch (event) {
             .press, .click => |link| try session.clickButton(@intCast(link)),
             .click_text => |label| try session.clickButtonByLabel(self.allocator, label),
@@ -374,7 +424,6 @@ pub const BoonRuntimeHost = struct {
             .slider_change => |payload| try session.setSliderValue(@intCast(payload.link), payload.value),
             .svg_click => |payload| try session.triggerLink(@intCast(payload.link)),
         }
-        return try self.snapshotOutput();
     }
 
     pub fn tick(self: *BoonRuntimeHost, now_ms: u64) !RuntimeOutput {
@@ -424,13 +473,14 @@ pub const BoonRuntimeHost = struct {
 
     fn snapshotOutput(self: *BoonRuntimeHost) !RuntimeOutput {
         var session = if (self.session) |*session| session else return .{ .diagnostics = try self.unsupported("BoonRuntimeHost.start must be called before snapshot") };
-        const rendered = try session.snapshotAlloc(self.allocator);
+        const rendered = try session.renderDurableAlloc(self.allocator);
         defer self.allocator.free(rendered);
         self.clearSnapshotValues();
         self.clearSnapshotEvents();
 
         var builder = SnapshotBuilder.init(self.allocator, session);
-        const semantic_root = try builder.appendValue(try session.semanticRootValue());
+        const semantic_value = try session.semanticRootValue();
+        const semantic_root = try builder.appendValue(semantic_value);
         const rendered_text = try builder.appendValue(.{ .text = rendered });
         const root = try builder.appendElementIds("document", &.{
             .{ .name = "rendered_text", .value = rendered_text },

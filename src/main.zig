@@ -69,6 +69,11 @@ pub fn main(init: std.process.Init) !void {
             try cli.writeHelp(&stderr_writer.interface);
             break :blk 1;
         },
+        error.MissingOutPath => blk: {
+            try stderr_writer.interface.print("error: --out requires a path\n\n", .{});
+            try cli.writeHelp(&stderr_writer.interface);
+            break :blk 1;
+        },
         error.MissingVerifyMode => blk: {
             try stderr_writer.interface.print("error: verify-examples requires either --headless or --terminal-grid\n\n", .{});
             try cli.writeHelp(&stderr_writer.interface);

@@ -23,7 +23,7 @@ document: Document/new(root: Element/stripe(
 ))
 
 FUNCTION send_button(label) {
-    Element/button(element: [event: [press: LINK]], style: [], label: label)
+    Element/button(element: [event: [press: SOURCE]], style: [], label: label)
 }
 
 FUNCTION value_container(value) {

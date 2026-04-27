@@ -1,0 +1,160 @@
+-- CRUD (7GUIs Task 5) terminal projection.
+-- Keeps the original form controls live in the terminal and reports
+-- create/update/delete actions as deterministic terminal status text.
+
+store: [
+    elements: [
+        filter_input: [event: [change: SOURCE]]
+        name_input: [event: [change: SOURCE]]
+        surname_input: [event: [change: SOURCE]]
+        create_button: SOURCE
+        update_button: SOURCE
+        delete_button: SOURCE
+    ]
+
+    filter_text: Text/empty() |> HOLD state {
+        elements.filter_input.event.change |> THEN { elements.filter_input.event.change.text }
+    }
+
+    name_text: Text/empty() |> HOLD state {
+        elements.name_input.event.change |> THEN { elements.name_input.event.change.text }
+    }
+
+    surname_text: Text/empty() |> HOLD state {
+        elements.surname_input.event.change |> THEN { elements.surname_input.event.change.text }
+    }
+
+    status: TEXT { Ready } |> HOLD state {
+        LATEST {
+            elements.create_button.event.press |> THEN { TEXT { Created } }
+            elements.update_button.event.press |> THEN { TEXT { Updated } }
+            elements.delete_button.event.press |> THEN { TEXT { Deleted } }
+        }
+    }
+]
+
+terminal: Terminal/new(root: root_element(PASS: [store: store]), loop: None)
+
+FUNCTION root_element() {
+    BLOCK {
+        store: PASSED.store
+
+        Element/stripe(
+            element: [
+                terminal: [
+                    bindings: LIST {
+                        [
+                            keys: LIST { TEXT { c } }
+                            link: store.elements.create_button
+                            label: TEXT { create }
+                        ]
+                        [
+                            keys: LIST { TEXT { u } }
+                            link: store.elements.update_button
+                            label: TEXT { update }
+                        ]
+                        [
+                            keys: LIST { TEXT { d } }
+                            link: store.elements.delete_button
+                            label: TEXT { delete }
+                        ]
+                    }
+                ]
+            ]
+            direction: Column
+            gap: 16
+            style: [padding: 20, width: 500]
+
+            items: LIST {
+                Element/label(element: [], style: [font: [size: 22, weight: Bold]], label: TEXT { CRUD })
+                filter_row()
+                form_section()
+                button_row()
+                Element/label(element: [], style: [], label: TEXT { Filter:{store.filter_text} })
+                Element/label(element: [], style: [], label: store.status)
+            }
+        )
+    }
+}
+
+FUNCTION filter_row() {
+    Element/stripe(
+        element: []
+        direction: Row
+        gap: 10
+        style: []
+
+        items: LIST {
+            Element/label(element: [], style: [], label: TEXT { Filter prefix: })
+            Element/text_input(
+                element: PASSED.store.elements.filter_input
+                style: [width: 200]
+                label: Hidden[text: TEXT { Filter }]
+                text: PASSED.store.filter_text
+                placeholder: [text: TEXT { Filter by surname }]
+                focus: False
+            )
+        }
+    )
+}
+
+FUNCTION form_section() {
+    Element/stripe(
+        element: []
+        direction: Column
+        gap: 10
+        style: []
+
+        items: LIST {
+            Element/stripe(
+                element: []
+                direction: Row
+                gap: 10
+                style: []
+                items: LIST {
+                    Element/label(element: [], style: [], label: TEXT { Name: })
+                    Element/text_input(
+                        element: PASSED.store.elements.name_input
+                        style: [width: 150]
+                        label: Hidden[text: TEXT { Name }]
+                        text: PASSED.store.name_text
+                        placeholder: [text: TEXT { Name }]
+                        focus: False
+                    )
+                }
+            )
+            Element/stripe(
+                element: []
+                direction: Row
+                gap: 10
+                style: []
+                items: LIST {
+                    Element/label(element: [], style: [], label: TEXT { Surname: })
+                    Element/text_input(
+                        element: PASSED.store.elements.surname_input
+                        style: [width: 150]
+                        label: Hidden[text: TEXT { Surname }]
+                        text: PASSED.store.surname_text
+                        placeholder: [text: TEXT { Surname }]
+                        focus: False
+                    )
+                }
+            )
+        }
+    )
+}
+
+FUNCTION button_row() {
+    Element/stripe(
+        element: []
+        direction: Row
+        gap: 10
+        style: []
+
+        items: LIST {
+            Element/button(element: [event: [press: SOURCE]], style: [], label: TEXT { Create }) |> SOURCE { PASSED.store.elements.create_button }
+            Element/button(element: [event: [press: SOURCE]], style: [], label: TEXT { Update }) |> SOURCE { PASSED.store.elements.update_button }
+            Element/button(element: [event: [press: SOURCE]], style: [], label: TEXT { Delete }) |> SOURCE { PASSED.store.elements.delete_button }
+        }
+    )
+}

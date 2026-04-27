@@ -9,6 +9,49 @@ FUNCTION matching_overrides(column, row) {
     })
 }
 
+FUNCTION force_text(value) {
+    BLOCK {
+        prefixed: TEXT { _{value} }
+        prefixed_length: prefixed |> Text/length()
+        prefixed
+        |> Text/substring(start: 1, length: prefixed_length - 1)
+        |> Text/trim()
+    }
+}
+
+FUNCTION override_cells(state, row, column, text) {
+    BLOCK {
+        text_value: force_text(value: text)
+
+        trimmed_state: state |> List/retain(item, if: item.row == row
+        |> WHEN {
+            True => item.column == column |> WHEN {
+                True => False
+                __ => True
+            }
+
+            __ => True
+        })
+
+        committed_default_text: default_formula(
+            column: column
+            row: row
+        )
+
+        text_value == committed_default_text |> WHEN {
+            True => trimmed_state
+
+            __ => trimmed_state |> List/append(
+                item: [
+                    row: row
+                    column: column
+                    text: text_value
+                ]
+            )
+        }
+    }
+}
+
 FUNCTION cell_formula(column, row) {
     BLOCK {
         matches: matching_overrides(column: column, row: row)
@@ -265,38 +308,87 @@ FUNCTION column_header(column_index) {
     }
 }
 
+FUNCTION cell_name(column, row) {
+    BLOCK {
+        column_text: column_header(column_index: column)
+        TEXT { {column_text}{row} }
+    }
+}
+
+FUNCTION current_formula_bar_text() {
+    editing_active |> WHEN {
+        True => editing_text
+        __ => cell_formula(column: editing_column, row: editing_row)
+    }
+}
+
+FUNCTION cell_display_text(column, row, formula_text, display_value) {
+    BLOCK {
+        base_text:
+            formula_text
+            |> Text/is_empty()
+            |> WHILE {
+                True => Text/empty()
+                __ => TEXT { {display_value} }
+            }
+
+        is_selected:
+            editing_row == row
+            |> WHEN {
+                True => editing_column == column
+                __ => False
+            }
+
+        is_selected |> WHEN {
+            True => TEXT { [{base_text}] }
+            __ => base_text
+        }
+    }
+}
+
 FUNCTION make_cell_element(cell) {
     BLOCK {
         formula_text: cell_formula(column: cell.column, row: cell.row)
         display_value: compute_value(formula_text: formula_text)
         is_editing: is_editing_cell(cell: cell)
-        display_element: [event: [double_click: LINK]]
-        editing_element: [event: [change: LINK, key_down: LINK, blur: LINK]]
+        display_element: [event: [double_click: SOURCE]]
+        editing_element: [event: [change: SOURCE, key_down: SOURCE, blur: SOURCE]]
 
         edit_started_link:
             display_element.event.double_click
             |> THEN { cell.row }
-            |> LINK { event_ports.edit_started_row }
+            |> SOURCE { event_ports.edit_started_row }
 
         edit_started_column_link:
             display_element.event.double_click
             |> THEN { cell.column }
-            |> LINK { event_ports.edit_started_column }
+            |> SOURCE { event_ports.edit_started_column }
 
         edit_started_text_link:
             display_element.event.double_click
             |> THEN { cell_formula(column: cell.column, row: cell.row) }
-            |> LINK { event_ports.edit_text_event }
+            |> SOURCE { event_ports.edit_text_event }
 
         edit_started_active_link:
             display_element.event.double_click
             |> THEN { True }
-            |> LINK { event_ports.edit_active_event }
+            |> SOURCE { event_ports.edit_active_event }
 
         edit_changed_link:
             editing_element.event.change
             |> THEN { editing_element.event.change.text }
-            |> LINK { event_ports.edit_text_event }
+            |> SOURCE { event_ports.edit_text_event }
+
+        edit_live_override_link:
+            editing_element.event.change
+            |> THEN {
+                [
+                    row: cell.row
+                    column: cell.column
+                    text: TEXT { {editing_element.event.change.text} }
+                ]
+            }
+            |> SOURCE { event_ports.edit_live_override }
 
         edit_committed_link:
             editing_element.event.key_down.key
@@ -304,12 +396,12 @@ FUNCTION make_cell_element(cell) {
                 Enter => [
                     row: cell.row
                     column: cell.column
-                    text: editing_element.event.key_down.text
+                    text: TEXT { {editing_element.event.key_down.text} }
                 ]
 
                 __ => SKIP
             }
-            |> LINK { event_ports.edit_committed }
+            |> SOURCE { event_ports.edit_committed }
 
         edit_commit_active_reset_link:
             editing_element.event.key_down.key
@@ -317,7 +409,7 @@ FUNCTION make_cell_element(cell) {
                 Enter => False
                 __ => SKIP
             }
-            |> LINK { event_ports.edit_active_event }
+            |> SOURCE { event_ports.edit_active_event }
 
         edit_commit_text_reset_link:
             editing_element.event.key_down.key
@@ -325,7 +417,7 @@ FUNCTION make_cell_element(cell) {
                 Enter => Text/empty()
                 __ => SKIP
             }
-            |> LINK { event_ports.edit_text_event }
+            |> SOURCE { event_ports.edit_text_event }
 
         edit_cancelled_link:
             editing_element.event.key_down.key
@@ -333,7 +425,7 @@ FUNCTION make_cell_element(cell) {
                 Escape => False
                 __ => SKIP
             }
-            |> LINK { event_ports.edit_active_event }
+            |> SOURCE { event_ports.edit_active_event }
 
         edit_cancel_text_reset_link:
             editing_element.event.key_down.key
@@ -341,17 +433,17 @@ FUNCTION make_cell_element(cell) {
                 Escape => Text/empty()
                 __ => SKIP
             }
-            |> LINK { event_ports.edit_text_event }
+            |> SOURCE { event_ports.edit_text_event }
 
         edit_blurred_link:
             editing_element.event.blur
             |> THEN { False }
-            |> LINK { event_ports.edit_active_event }
+            |> SOURCE { event_ports.edit_active_event }
 
         edit_blur_text_reset_link:
             editing_element.event.blur
             |> THEN { Text/empty() }
-            |> LINK { event_ports.edit_text_event }
+            |> SOURCE { event_ports.edit_text_event }
 
         is_editing |> WHILE {
             True => Element/text_input(
@@ -383,12 +475,12 @@ FUNCTION make_cell_element(cell) {
                 ]
 
                 label:
-                    formula_text
-                    |> Text/is_empty()
-                    |> WHILE {
-                        True => Text/empty()
-                        __ => TEXT { {display_value} }
-                    }
+                    cell_display_text(
+                        column: cell.column
+                        row: cell.row
+                        formula_text: formula_text
+                        display_value: display_value
+                    )
             )
         }
     }
@@ -438,17 +530,103 @@ FUNCTION make_row_data(row_number, row_cells) {
 row_count: 100
 col_count: 26
 
-all_row_cells: List/range(from: 1, to: row_count) |> List/map(row_number, new: make_row_data(
+max_visible_row_count: 24
+max_visible_column_count: 10
+
+visible_row_count: BLOCK {
+    available_rows: Terminal/rows() - 6
+
+    available_rows < 1 |> WHEN {
+        True => 1
+        __ => available_rows > max_visible_row_count |> WHEN {
+            True => max_visible_row_count
+            __ => available_rows
+        }
+    }
+}
+
+visible_column_count: BLOCK {
+    terminal_columns: Terminal/columns()
+
+    terminal_columns >= 96 |> WHEN {
+        True => 10
+        __ => terminal_columns >= 86 |> WHEN {
+            True => 9
+            __ => terminal_columns >= 76 |> WHEN {
+                True => 8
+                __ => terminal_columns >= 66 |> WHEN {
+                    True => 7
+                    __ => terminal_columns >= 56 |> WHEN {
+                        True => 6
+                        __ => terminal_columns >= 46 |> WHEN {
+                            True => 5
+                            __ => terminal_columns >= 36 |> WHEN {
+                                True => 4
+                                __ => terminal_columns >= 26 |> WHEN {
+                                    True => 3
+                                    __ => terminal_columns >= 16 |> WHEN {
+                                        True => 2
+                                        __ => 1
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+visible_rows: List/range(from: 1, to: visible_row_count)
+visible_columns: List/range(from: 1, to: visible_column_count)
+
+all_row_cells: visible_rows |> List/map(row_number, new: make_row_data(
     row_number: row_number
 
     row_cells:
-        List/range(from: 1, to: col_count)
+        visible_columns
         |> List/map(column, new: make_cell(column: column, row: row_number))
 ))
 
 terminal: Terminal/new(
     root: Element/stripe(
-        element: []
+        element: [
+            terminal: [
+                bindings: LIST {
+                    [
+                        keys: LIST { TEXT { Up } }
+                        link: event_ports.move_up
+                        when: editing_active |> Bool/not()
+                        label: TEXT { move up }
+                    ]
+                    [
+                        keys: LIST { TEXT { Down } }
+                        link: event_ports.move_down
+                        when: editing_active |> Bool/not()
+                        label: TEXT { move down }
+                    ]
+                    [
+                        keys: LIST { TEXT { Left } }
+                        link: event_ports.move_left
+                        when: editing_active |> Bool/not()
+                        label: TEXT { move left }
+                    ]
+                    [
+                        keys: LIST { TEXT { Right } }
+                        link: event_ports.move_right
+                        when: editing_active |> Bool/not()
+                        label: TEXT { move right }
+                    ]
+                    [
+                        keys: LIST { TEXT { Enter } }
+                        link: event_ports.edit_selected
+                        when: editing_active |> Bool/not()
+                        label: TEXT { edit }
+                    ]
+                }
+            ]
+        ]
         direction: Column
         gap: 0
 
@@ -464,6 +642,29 @@ terminal: Terminal/new(
                 style: [font: [size: 22, weight: Bold, color: Oklch [lightness: 0.18]]]
                 label: TEXT { Cells Dynamic }
             )
+
+            Element/label(
+                element: []
+                style: []
+                label: TEXT { Arrows move selection, Enter edits, double-click edits }
+            )
+
+            BLOCK {
+                focus_text: cell_name(column: editing_column, row: editing_row)
+                formula_text: current_formula_bar_text()
+
+                Element/label(
+                    element: []
+                    style: [
+                        width: 720
+                        height: 26
+                        padding: [left: 8, right: 8]
+                        background: [color: Oklch [lightness: 0.93]]
+                        font: [color: Oklch [lightness: 0.18]]
+                    ]
+                    label: TEXT { Formula {focus_text} : {formula_text} }
+                )
+            }
 
             Element/stripe(
                 element: []
@@ -490,7 +691,7 @@ terminal: Terminal/new(
                         gap: 0
                         style: []
 
-                        items: List/range(from: 1, to: col_count) |> List/map(
+                        items: visible_columns |> List/map(
                             column
 
                             new: Element/label(
@@ -531,60 +732,80 @@ terminal: Terminal/new(
 )
 
 event_ports: [
-    edit_started_row: LINK
-    edit_started_column: LINK
-    edit_text_event: LINK
-    edit_active_event: LINK
-    edit_committed: LINK
+    move_up: SOURCE
+    move_down: SOURCE
+    move_left: SOURCE
+    move_right: SOURCE
+    edit_selected: SOURCE
+    edit_started_row: SOURCE
+    edit_started_column: SOURCE
+    edit_text_event: SOURCE
+    edit_active_event: SOURCE
+    edit_committed: SOURCE
+    edit_live_override: SOURCE
 ]
 
 edit_committed: event_ports.edit_committed
 
-editing_row: 0 |> HOLD state {
+editing_row: 1 |> HOLD state {
+    event_ports.move_up |> THEN {
+        state == 1 |> WHEN {
+            True => 1
+            __ => state - 1
+        }
+    }
+    event_ports.move_down |> THEN {
+        state == row_count |> WHEN {
+            True => row_count
+            __ => state + 1
+        }
+    }
     event_ports.edit_started_row
 }
 
-editing_column: 0 |> HOLD state {
+editing_column: 1 |> HOLD state {
+    event_ports.move_left |> THEN {
+        state == 1 |> WHEN {
+            True => 1
+            __ => state - 1
+        }
+    }
+    event_ports.move_right |> THEN {
+        state == col_count |> WHEN {
+            True => col_count
+            __ => state + 1
+        }
+    }
     event_ports.edit_started_column
 }
 
 editing_text: Text/empty() |> HOLD state {
+    event_ports.edit_selected |> THEN {
+        cell_formula(column: editing_column, row: editing_row)
+    }
     event_ports.edit_text_event
 }
 
 editing_active: False |> HOLD state {
+    event_ports.edit_selected |> THEN { True }
     event_ports.edit_active_event
 }
 
 overrides: LIST {} |> HOLD state {
+    event_ports.edit_live_override |> THEN {
+        override_cells(
+            state: state
+            row: event_ports.edit_live_override.row
+            column: event_ports.edit_live_override.column
+            text: event_ports.edit_live_override.text
+        )
+    }
     edit_committed |> THEN {
-        BLOCK {
-            trimmed_state: state |> List/retain(item, if: item.row == edit_committed.row
-            |> WHEN {
-                True => item.column == edit_committed.column |> WHEN {
-                    True => False
-                    __ => True
-                }
-
-                __ => True
-            })
-
-            committed_default_text: default_formula(
-                column: edit_committed.column
-                row: edit_committed.row
-            )
-
-            edit_committed.text == committed_default_text |> WHEN {
-                True => trimmed_state
-
-                __ => trimmed_state |> List/append(
-                    item: [
-                        row: edit_committed.row
-                        column: edit_committed.column
-                        text: edit_committed.text
-                    ]
-                )
-            }
-        }
+        override_cells(
+            state: state
+            row: edit_committed.row
+            column: edit_committed.column
+            text: edit_committed.text
+        )
     }
 }

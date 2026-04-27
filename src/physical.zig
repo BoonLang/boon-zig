@@ -593,11 +593,11 @@ pub fn shadedStripFromGeometryRaster(raster: GeometryRaster) ?ShadedStrip {
 
 pub fn cavityPanelFromShadedStrip(shaded: ShadedStrip) CavityPanel {
     var rows: [5][9]u8 = undefined;
-    rows[0] = [_]u8{' ', ' ', '#', '#', '#', '#', '#', ' ', ' '};
+    rows[0] = [_]u8{ ' ', ' ', '#', '#', '#', '#', '#', ' ', ' ' };
     rows[1] = shaded.glyphs;
-    rows[2] = [_]u8{'|', '|', '.', '.', '.', '.', '.', '|', '|'};
-    rows[3] = [_]u8{'|', '|', '.', '.', '.', '.', '.', '|', '|'};
-    rows[4] = [_]u8{' ', ' ', '\\', '\\', '\\', '\\', '\\', ' ', ' '};
+    rows[2] = [_]u8{ '|', '|', '.', '.', '.', '.', '.', '|', '|' };
+    rows[3] = [_]u8{ '|', '|', '.', '.', '.', '.', '.', '|', '|' };
+    rows[4] = [_]u8{ ' ', ' ', '\\', '\\', '\\', '\\', '\\', ' ', ' ' };
     return .{
         .outer_shape = shaded.outer_shape,
         .inner_shape = shaded.inner_shape,
@@ -947,7 +947,7 @@ test "shaded strip builds cavity panel" {
     const shaded = ShadedStrip{
         .outer_shape = "Outer",
         .inner_shape = "Inner",
-        .glyphs = [_]u8{'#', '\\', '.', '.', '.', '.', '.', '/', '#'},
+        .glyphs = [_]u8{ '#', '\\', '.', '.', '.', '.', '.', '/', '#' },
     };
     const panel = cavityPanelFromShadedStrip(shaded);
     try std.testing.expectEqualStrings("Outer", panel.outer_shape.?);
@@ -965,11 +965,11 @@ test "cavity panel builds shaded panel" {
         .outer_shape = "Outer",
         .inner_shape = "Inner",
         .rows = .{
-            [_]u8{' ', ' ', '#', '#', '#', '#', '#', ' ', ' '},
-            [_]u8{'#', '\\', '.', '.', '.', '.', '.', '/', '#'},
-            [_]u8{'|', '|', '.', '.', '.', '.', '.', '|', '|'},
-            [_]u8{'|', '|', '.', '.', '.', '.', '.', '|', '|'},
-            [_]u8{' ', ' ', '\\', '\\', '\\', '\\', '\\', ' ', ' '},
+            [_]u8{ ' ', ' ', '#', '#', '#', '#', '#', ' ', ' ' },
+            [_]u8{ '#', '\\', '.', '.', '.', '.', '.', '/', '#' },
+            [_]u8{ '|', '|', '.', '.', '.', '.', '.', '|', '|' },
+            [_]u8{ '|', '|', '.', '.', '.', '.', '.', '|', '|' },
+            [_]u8{ ' ', ' ', '\\', '\\', '\\', '\\', '\\', ' ', ' ' },
         },
     };
     const shaded = shadedPanelFromCavityPanel(panel);
@@ -988,11 +988,11 @@ test "shaded panel builds lit panel from lighting summary" {
         .outer_shape = "Outer",
         .inner_shape = "Inner",
         .rows = .{
-            [_]u8{' ', ' ', '@', '@', '@', '@', '@', ' ', ' '},
-            [_]u8{'@', 'v', ':', ':', ':', ':', ':', '/', '@'},
-            [_]u8{'#', '#', ':', ':', ':', ':', ':', '#', '#'},
-            [_]u8{'#', '#', ':', ':', ':', ':', ':', '#', '#'},
-            [_]u8{' ', ' ', 'v', 'v', 'v', 'v', 'v', ' ', ' '},
+            [_]u8{ ' ', ' ', '@', '@', '@', '@', '@', ' ', ' ' },
+            [_]u8{ '@', 'v', ':', ':', ':', ':', ':', '/', '@' },
+            [_]u8{ '#', '#', ':', ':', ':', ':', ':', '#', '#' },
+            [_]u8{ '#', '#', ':', ':', ':', ':', ':', '#', '#' },
+            [_]u8{ ' ', ' ', 'v', 'v', 'v', 'v', 'v', ' ', ' ' },
         },
     };
     const lit = litPanelFromShadedPanel(panel, .{
@@ -1015,11 +1015,11 @@ test "lit panel applies material gloss metal and tone" {
         .outer_shape = "Outer",
         .inner_shape = "Inner",
         .rows = .{
-            [_]u8{' ', ' ', '@', '@', '@', '@', '@', ' ', ' '},
-            [_]u8{'@', 'v', ':', ':', ':', ':', ':', '/', '@'},
-            [_]u8{'#', '#', ':', ':', ':', ':', ':', '#', '#'},
-            [_]u8{'#', '#', ':', ':', ':', ':', ':', '#', '#'},
-            [_]u8{' ', ' ', 'v', 'v', 'v', 'v', 'v', ' ', ' '},
+            [_]u8{ ' ', ' ', '@', '@', '@', '@', '@', ' ', ' ' },
+            [_]u8{ '@', 'v', ':', ':', ':', ':', ':', '/', '@' },
+            [_]u8{ '#', '#', ':', ':', ':', ':', ':', '#', '#' },
+            [_]u8{ '#', '#', ':', ':', ':', ':', ':', '#', '#' },
+            [_]u8{ ' ', ' ', 'v', 'v', 'v', 'v', 'v', ' ', ' ' },
         },
     };
     const lit = litPanelFromShadedPanel(panel, .{

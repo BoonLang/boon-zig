@@ -1,0 +1,12 @@
+sources: [
+    keyboard: [event: [key_down: SOURCE]]
+    frame: [event: [tick: SOURCE]]
+]
+
+last_key: 0 |> HOLD last_key {
+    sources.keyboard.event.key_down
+}
+
+frame_count: 0 |> HOLD frame_count {
+    sources.frame.event.tick |> THEN { frame_count + 1 }
+}

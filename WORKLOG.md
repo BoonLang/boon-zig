@@ -4143,3 +4143,2258 @@
   - several branch gate names remain documented mappings or required future aliases, not dedicated `build.zig` steps yet
 - Next exact step:
   - start Phase 0 implementation by adding canonical/legacy source-mode CLI/build plumbing and dedicated or verified build aliases for the branch gates before deleting legacy link support
+
+### Source Physical IR Phase 0 Source Mode Plumbing - 2026-04-24
+
+- Phase/subphase:
+  - branch `source-physical-ir`, Phase 0 source-mode plumbing and current equivalent build gate aliases
+- Active branch plan:
+  - `plans/boon_zig_source_physical_ir_plan.md`
+- Files changed:
+  - `build.zig`
+  - `WORKLOG.md`
+  - `src/root.zig`
+  - `src/source_mode.zig`
+  - `src/parser.zig`
+  - `src/hir.zig`
+  - `src/flow_ir.zig`
+  - `src/headless.zig`
+  - `src/cli.zig`
+- Work completed:
+  - added shared `SourceMode` values: `canonical` and `legacy_migration`
+  - threaded source mode through parser, HIR lowering, Flow lowering, headless compile/run options, CLI parse/lower/run entry points, example verification, terminal/snapshot/physical-state/browser serve paths, and the compiled-program cache key
+  - made canonical mode reject legacy `LINK` and `|> LINK { ... }` with targeted diagnostics while keeping existing behavior as legacy migration mode
+  - added CLI `--source-mode canonical|legacy-migration` on parse/HIR/Flow/run/headless/snapshot/physical-state/serve-browser/example/verify-examples paths
+  - added current equivalent build aliases:
+    - `zig build verify-examples-headless`
+    - `zig build verify-examples-terminal`
+    - `zig build test-headless-counter`
+    - `zig build test-headless-while`
+    - `zig build test-runtime`
+    - `zig build test-headless-list-keys`
+    - `zig build test-browser-smoke`
+    - `zig build test-browser-visual`
+  - added `--all` support for `verify-examples` so branch gate aliases can state all mapped examples explicitly
+- Commands run:
+  - `zig build test`
+  - `zig build test-headless-counter`
+  - `zig build verify-examples-headless`
+  - `git diff --check`
+  - `zig build verify-examples-terminal`
+  - `zig build test-runtime`
+  - `zig build test-headless-list-keys`
+  - `zig build run -- parse examples/upstream/counter/counter.bn --source-mode canonical`
+  - `tmp=$(mktemp /tmp/boon-canonical-XXXXXX.bn); printf 'button: [event: [press: SOURCE]]\n' > "$tmp"; zig build run -- parse "$tmp" --source-mode canonical; rm -f "$tmp"`
+  - `zig build run -- parse examples/upstream/counter/counter.bn --source-mode legacy-migration`
+  - `zig build verify-upstream-pin`
+  - `zig build verify-corpus`
+  - `zig build run -- --help | sed -n '1,45p'`
+  - `zig build run -- run-headless examples/upstream/while/while.bn --expect-text 'A + BA - B'`
+  - `zig build verify-visual -- --all-with-reference-assets`
+  - `node tools/browser_smoke.mjs counter`
+  - `node tools/browser_smoke.mjs interval`
+  - `node tools/browser_smoke.mjs todo_mvc`
+  - `zig build test-headless-while`
+  - `zig build test-browser-smoke`
+  - `zig build test-browser-visual`
+- Result:
+  - `zig build test` passed
+  - `zig build test-headless-counter` passed with `PASS counter`
+  - `zig build verify-examples-headless` passed with `6 passed`
+  - `zig build verify-examples-terminal` passed with `6 passed`
+  - `zig build test-runtime` passed
+  - `zig build test-headless-list-keys` passed
+  - `zig build test-headless-while` passed
+  - `zig build test-browser-smoke` passed for `counter`, `interval`, and `todo_mvc`
+  - `zig build test-browser-visual` passed for `todo_mvc`
+  - `zig build verify-upstream-pin` passed
+  - `zig build verify-corpus` passed
+  - canonical mode accepted a tiny `SOURCE` fixture and rejected imported legacy `counter.bn` at its `LINK` source leaf as expected
+  - legacy migration mode still parsed imported legacy `counter.bn`
+- Remaining risks:
+  - `zig build test-codegen-zig` still needs a dedicated step when codegen exists
+- Next exact step:
+  - start Phase 1 by adding the source-shape freezing/Physical IR module skeleton and golden-test harness
+
+### Source Physical IR Phase 1 Skeleton - 2026-04-24
+
+- Phase/subphase:
+  - branch `source-physical-ir`, Phase 1 initial source-shape freezing and Physical IR skeleton
+- Active branch plan:
+  - `plans/boon_zig_source_physical_ir_plan.md`
+- Files changed:
+  - `build.zig`
+  - `WORKLOG.md`
+  - `src/root.zig`
+  - `src/source_shape.zig`
+  - `src/physical_ir.zig`
+- Work completed:
+  - added `src/source_shape.zig` with an initial canonical `SOURCE` leaf collector for statically named record fields
+  - added `src/physical_ir.zig` with initial `PhysicalProgram`, `PhysicalSlot`, `SourceSlot`, `StateSlot`, `Instruction`, `DependencyEdge`, `BranchTable`, `ListTable`, `RenderBlueprint`, `SemanticId`, and `PhysicalId` definitions
+  - added Physical IR lowering from canonical source text into static numeric source slots for the initial source-shape slice
+  - added Physical IR tests for canonical `SOURCE` slot IDs and canonical rejection of legacy `LINK`
+  - added `zig build test-physical-ir` as a real branch gate in the repo-root test context
+- Commands run:
+  - `zig build test-physical-ir`
+  - `zig build test`
+  - `zig build verify-examples-headless`
+  - `zig build test-headless-while`
+  - `zig build test-browser-smoke`
+  - `git diff --check`
+- Result:
+  - `zig build test-physical-ir` passed
+  - `zig build test` passed
+  - `zig build verify-examples-headless` passed with `6 passed`
+  - `zig build test-headless-while` passed
+  - `zig build test-browser-smoke` passed for `counter`, `interval`, and `todo_mvc`
+  - `git diff --check` passed
+- Remaining risks:
+  - source-shape freezing currently handles only statically named record fields and canonical `SOURCE` leaves; spreads, host boundary schemas, payload inference, dynamic-shape diagnostics, and Flow-to-Physical lowering remain to implement
+  - `zig build test-physical-ir` currently runs the repo-root library test context so parser/HIR dependencies use their existing package assumptions; split to narrower Physical IR-only tests later if the test layout is cleaned up
+- Next exact step:
+  - continue Phase 1 by lowering Flow IR into `PhysicalProgram`, adding golden render output for required examples, and expanding source-shape freezing to normalize spreads and host schemas
+
+### Source Physical IR Phase 1 Flow Lowering and Spread Freezing - 2026-04-24
+
+- Phase/subphase:
+  - branch `source-physical-ir`, Phase 1 Flow-to-Physical lowering slice
+- Active branch plan:
+  - `plans/boon_zig_source_physical_ir_plan.md`
+- Files changed:
+  - `WORKLOG.md`
+  - `src/source_shape.zig`
+  - `src/physical_ir.zig`
+- Work completed:
+  - Physical IR lowering now runs canonical parse, source-shape freezing, and Flow IR lowering before producing `PhysicalProgram`
+  - added `ValueSlot` entries for Flow nodes
+  - added dependency-edge extraction from Flow node operands into Physical IR
+  - added list/render table counts from Flow IR as initial physical metadata
+  - source-shape freezing now resolves static spreads such as `copy: [...button]`
+  - unsupported dynamic spreads now produce a `dynamic source shape` diagnostic instead of being silently ignored
+  - expanded `test-physical-ir` coverage for value slots, dependency edges, static spreads, and dynamic-spread diagnostics
+- Commands run:
+  - `zig build test-physical-ir`
+  - `zig build test`
+  - `zig build verify-examples-headless`
+  - `zig build verify-examples-terminal`
+  - `zig build test-headless-while`
+  - `git diff --check`
+- Result:
+  - `zig build test-physical-ir` passed
+  - `zig build test` passed
+  - `zig build verify-examples-headless` passed with `6 passed`
+  - `zig build verify-examples-terminal` passed with `6 passed`
+  - `zig build test-headless-while` passed
+  - `git diff --check` passed
+- Remaining risks:
+  - source-shape freezing still needs host boundary schemas, payload inference, source cardinality checks, and diagnostics for incompatible/multiple active binders
+  - Physical IR still needs real instruction selection, state-slot lowering, render blueprint lowering, and golden outputs for the required examples
+- Next exact step:
+  - continue Phase 1 by adding host-schema-backed source payload inference and initial golden Physical IR render tests for canonical counter-style examples
+
+### Source Physical IR Phase 1 Payload Inference and Golden Render - 2026-04-24
+
+- Phase/subphase:
+  - branch `source-physical-ir`, Phase 1 host-schema payload inference and first Physical IR golden output
+- Active branch plan:
+  - `plans/boon_zig_source_physical_ir_plan.md`
+- Files changed:
+  - `WORKLOG.md`
+  - `src/root.zig`
+  - `src/host_schema.zig`
+  - `src/physical_ir.zig`
+- Work completed:
+  - added `src/host_schema.zig` as the first typed host boundary schema surface for source payload inference
+  - Physical IR source slots now carry schema-derived payload labels such as `Pulse`, `Bool`, `TextChange`, and `KeyEvent`
+  - added a canonical counter-style Physical IR render golden showing static numeric source slots and payload types
+- Commands run:
+  - `zig build test-physical-ir`
+  - `zig build test`
+  - `zig build verify-examples-headless`
+  - `git diff --check`
+- Result:
+  - `zig build test-physical-ir` passed
+  - `zig build test` passed
+  - `zig build verify-examples-headless` passed with `6 passed`
+  - `git diff --check` passed
+- Remaining risks:
+  - host schema inference is still path-pattern based and must be replaced or backed by exact constructor boundary schemas
+  - source cardinality and incompatible binder diagnostics remain unimplemented
+  - Physical IR still needs state-slot lowering, instruction selection, render blueprint lowering, and required example golden coverage beyond the canonical counter-style fixture
+- Next exact step:
+  - continue Phase 1 by adding state-slot/instruction placeholders from Flow stateful nodes and explicit diagnostics/tests for incompatible or multiple active source binders
+
+### Source Physical IR Phase 1 Dedicated Gate and Canonical Slices - 2026-04-24
+
+- Phase/subphase:
+  - branch `source-physical-ir`, Phase 0 final gate mapping and Phase 1 Physical IR diagnostic/golden completion slice
+- Active branch plan:
+  - `plans/boon_zig_source_physical_ir_plan.md`
+- Files changed:
+  - `build.zig`
+  - `WORKLOG.md`
+  - `src/source_shape.zig`
+  - `src/physical_ir.zig`
+  - `tests/physical_ir_tests.zig`
+- Work completed:
+  - added a dedicated `tests/physical_ir_tests.zig` root and made `zig build test-physical-ir` run Physical IR tests directly instead of relying only on repo-root library tests
+  - added `zig build test-codegen-zig` as an explicit temporary branch-gate mapping to `test-physical-ir` until the Zig codegen module exists
+  - fixed the source-shape failure path so dynamic-shape diagnostics release freezer arena state under the leak-checking test allocator
+  - added invalid `SOURCE` expression validation so `SOURCE` cannot be lowered as a normal value expression such as `SOURCE + 1`
+  - added incompatible host source binding validation for generic event namespace leaves such as `event: SOURCE`; canonical event slots must name concrete leaves such as `event.press: SOURCE`
+  - expanded Physical IR golden coverage for canonical slices of `counter`, `complex_counter`, `todo_mvc`, `list_map_block`, `while`, and `text_interpolation_update`
+  - golden output now shows static numeric source slots and schema-derived payload labels for the source-bearing slices
+- Commands run:
+  - `zig build test-physical-ir` (first rerun failed on stale golden counts and a source-shape diagnostic leak; fixed both)
+  - `zig build test-physical-ir`
+  - `zig build test-codegen-zig`
+  - `zig build test`
+  - `git diff --check`
+  - `zig build verify-examples-headless`
+  - `zig build verify-examples-terminal`
+  - `zig build test-headless-while`
+  - `zig build test-runtime`
+  - `zig build test-headless-counter`
+  - `zig build test-headless-list-keys`
+  - `zig build test-browser-smoke`
+  - `zig build test-browser-visual`
+  - `zig build verify-upstream-pin`
+  - `zig build verify-corpus`
+- Result:
+  - `zig build test-physical-ir` passed with the dedicated test root
+  - `zig build test-codegen-zig` passed as the documented temporary mapping to Physical IR tests
+  - `zig build test` passed
+  - `git diff --check` passed
+  - `zig build verify-examples-headless` passed with `6 passed`
+  - `zig build verify-examples-terminal` passed with `6 passed`
+  - `zig build test-headless-while` passed and rendered `A + BA - B`
+  - `zig build test-runtime` passed
+  - `zig build test-headless-counter` passed with `PASS counter`
+  - `zig build test-headless-list-keys` passed as the current runtime-test mapping
+  - `zig build test-browser-smoke` passed for `counter`, `interval`, and `todo_mvc`
+  - `zig build test-browser-visual` passed for `todo_mvc` with similarity `0.9063`
+  - `zig build verify-upstream-pin` passed
+  - `zig build verify-corpus` passed
+- Remaining risks:
+  - Phase 1 Physical IR instruction selection, state slots, list tables, and render blueprint are still structural placeholders; Phase 2 must replace the current eval-per-Flow-node skeleton with a real fast interpreter layout
+  - host schema inference is still path-pattern based; exact constructor boundary schemas should replace or back it as the retained renderer work matures
+  - `test-codegen-zig` is intentionally only a mapped gate until Phase 4 creates `codegen_zig.zig`
+- Next exact step:
+  - begin Phase 2 by adding a Physical IR runtime/interpreter module with typed slot arrays, source slot plug state, and a generation-aware event envelope before moving existing headless behavior onto the Physical IR path
+
+### Source Physical IR Phase 2 Runtime Skeleton - 2026-04-24
+
+- Phase/subphase:
+  - branch `source-physical-ir`, Phase 2 first Physical IR runtime/interpreter slice
+- Active branch plan:
+  - `plans/boon_zig_source_physical_ir_plan.md`
+- Files changed:
+  - `WORKLOG.md`
+  - `src/root.zig`
+  - `src/physical_ir.zig`
+  - `src/physical_runtime.zig`
+- Work completed:
+  - added `src/physical_runtime.zig` with typed value/state slot arrays, dirty flags, source slot runtime state, and a numeric `RuntimeEvent` envelope
+  - implemented source slot `unplugged` / `plugged(binding_id)` state and dispatch checks that queue only events whose generation matches the active binding
+  - stale, unplugged, and invalid-slot events are ignored and recorded in runtime trace metadata instead of using semantic string lookup on the hot dispatch path
+  - added FIFO event queue helpers and tests for stale-event rejection after a source generation changes
+  - added first concrete Physical IR instruction selection for numeric and atom constants, while keeping `eval_flow_node` fallback for unsupported nodes
+  - added runtime execution for concrete constant instructions into typed value slots
+  - exported `physical_runtime` from `src/root.zig`
+- Commands run:
+  - `zig build test-runtime` (first run failed on Zig switch-branch assignment syntax in a new test; fixed)
+  - `zig build test-runtime`
+  - `zig build test-physical-ir`
+  - `zig build test`
+  - `git diff --check`
+  - `zig build verify-examples-headless`
+  - `zig build verify-examples-terminal`
+- Result:
+  - `zig build test-runtime` passed
+  - `zig build test-physical-ir` passed
+  - `zig build test` passed
+  - `git diff --check` passed
+  - `zig build verify-examples-headless` passed with `6 passed`
+  - `zig build verify-examples-terminal` passed with `6 passed`
+- Remaining risks:
+  - Physical runtime does not yet execute real graph semantics for `HOLD`, `LATEST`, `THEN`, `WHEN`, `WHILE`, `SKIP`, `BLOCK`, list scopes, persistence, or virtual time
+  - `eval_flow_node` remains as a temporary unsupported-node fallback in Physical IR; Phase 2 must continue replacing it with concrete instruction variants before this becomes a fast interpreter
+  - existing example gates still run through the legacy headless/runtime path, not the Physical IR runtime path
+- Next exact step:
+  - continue Phase 2 by selecting concrete Physical IR instructions for `THEN`, `LATEST`, and `HOLD`, adding state-slot initialization/update tests, then route the simplest counter-style canonical fixture through `physical_runtime`
+
+### Source Physical IR Phase 2 Constant and State Instructions - 2026-04-24
+
+- Phase/subphase:
+  - branch `source-physical-ir`, Phase 2 concrete instruction selection for constants and first stateful forms
+- Active branch plan:
+  - `plans/boon_zig_source_physical_ir_plan.md`
+- Files changed:
+  - `WORKLOG.md`
+  - `src/physical_ir.zig`
+  - `src/physical_runtime.zig`
+- Work completed:
+  - extended `Instruction` with concrete `load_number`, `load_atom`, `then_value`, `latest`, and `hold` variants
+  - selected concrete instructions from Flow nodes for numeric literals, atoms, `THEN`, `LATEST`, and `HOLD`
+  - kept `eval_flow_node` only as an explicit unsupported-node fallback for remaining Flow forms
+  - added runtime execution for constant loads, `LATEST` initial values, and `HOLD` state-slot initialization
+  - added runtime tests proving a canonical `LATEST` fixture initializes from its initial value and a canonical `HOLD` fixture initializes its state slot without string lookup
+- Commands run:
+  - `zig build test-runtime`
+  - `zig build test-physical-ir`
+  - `zig build test`
+  - `git diff --check`
+  - `zig build verify-examples-headless`
+  - `zig build verify-examples-terminal`
+  - `zig build test-headless-counter`
+  - `zig build test-headless-while`
+- Result:
+  - `zig build test-runtime` passed
+  - `zig build test-physical-ir` passed
+  - `zig build test` passed
+  - `git diff --check` passed
+  - `zig build verify-examples-headless` passed with `6 passed`
+  - `zig build verify-examples-terminal` passed with `6 passed`
+  - `zig build test-headless-counter` passed with `PASS counter`
+  - `zig build test-headless-while` passed and rendered `A + BA - B`
+- Remaining risks:
+  - event-driven `THEN` updates and `HOLD` update application are not implemented yet; the new stateful support only initializes typed state slots
+  - `WHEN`, `WHILE`, `SKIP`, `BLOCK`, list scope/key preservation, `List/latest`, persistence, trace text output, and virtual time remain Phase 2 gaps
+  - existing example gates still validate the legacy runtime path while the Physical Runtime path is being brought up
+- Next exact step:
+  - continue Phase 2 by adding event-driven execution for `THEN` and `HOLD` updates on queued `RuntimeEvent`s, then add the first canonical counter-style Physical Runtime test
+
+### Source Physical IR Phase 2 Event Runtime and Identity Primitives - 2026-04-24
+
+- Phase/subphase:
+  - branch `source-physical-ir`, Phase 2 event-driven Physical Runtime, list identity, virtual time, trace, and snapshot foundations
+- Active branch plan:
+  - `plans/boon_zig_source_physical_ir_plan.md`
+- Files changed:
+  - `WORKLOG.md`
+  - `src/physical_ir.zig`
+  - `src/physical_runtime.zig`
+- Work completed:
+  - mapped each static Physical IR `SourceSlot` to the Flow/Physical value slot representing the same canonical source path, so runtime dispatch remains numeric-slot based
+  - added event processing that writes a queued `RuntimeEvent` payload into the mapped source value slot and runs a reactive pass
+  - implemented reactive execution for `THEN`, `LATEST`, and `HOLD` updates, including a canonical counter-style fixture that increments state across repeated source events
+  - added concrete state-local read and numeric binary instructions so `HOLD` update bodies can evaluate expressions such as `counter + 1`
+  - added concrete `WHEN`/`WHILE`, `SKIP`, and `BLOCK` value execution for simple branch/value cases
+  - added `RuntimeList` identity primitives with stable item IDs, item generations, duplicate equal-value distinction, reorder-preserved subscriptions, and stale/removed child-event rejection
+  - added deterministic `VirtualClock` interval events that enqueue canonical generation-checked `RuntimeEvent`s
+  - added deterministic trace rendering and state snapshot rendering for Physical Runtime diagnostics/persistence groundwork
+- Commands run:
+  - `zig build test-runtime` (first list-identity run failed on Zig shadowing rules; fixed local names)
+  - `zig build test-runtime`
+  - `zig build test-physical-ir`
+  - `zig build test`
+  - `zig build test-headless-counter`
+  - `zig build test-headless-list-keys`
+  - `zig build test-headless-while`
+  - `zig build verify-examples-headless`
+  - `zig build verify-examples-terminal`
+  - `git diff --check`
+  - `zig build test-codegen-zig`
+  - `zig build test-browser-smoke`
+- Result:
+  - `zig build test-runtime` passed
+  - `zig build test-physical-ir` passed
+  - `zig build test` passed
+  - `zig build test-headless-counter` passed with `PASS counter`
+  - `zig build test-headless-list-keys` passed as the current runtime-test mapping
+  - `zig build test-headless-while` passed and rendered `A + BA - B`
+  - `zig build verify-examples-headless` passed with `6 passed`
+  - `zig build verify-examples-terminal` passed with `6 passed`
+  - `git diff --check` passed
+  - `zig build test-codegen-zig` passed as the mapped gate
+  - `zig build test-browser-smoke` passed for `counter`, `interval`, and `todo_mvc`
+- Remaining risks:
+  - Physical Runtime still supports only a compact subset of graph semantics; complex records, text/list rendering values, builtin calls, user calls, and full `PASS/PASSED` lowering are not yet executed by the Physical path
+  - list identity and `List/latest` fan-in primitives are tested as runtime foundations but are not wired to `List/map` / `List/latest` Flow lowering yet
+  - state snapshot rendering is deterministic but restore/file-backed persistence is not implemented on the Physical Runtime path yet
+  - existing example gates still validate the legacy runtime path while Physical Runtime coverage is brought up fixture by fixture
+- Next exact step:
+  - continue Phase 2 by wiring `RuntimeList`/fan-in primitives to concrete Physical IR list instructions and implementing `List/latest` fan-in tests named in section 17.3a before attempting to route full examples through the Physical Runtime path
+
+### Source Physical IR Phase 2 List Latest Fan-In Tests - 2026-04-24
+
+- Phase/subphase:
+  - branch `source-physical-ir`, Phase 2 `List/latest` fan-in runtime primitives and named regression tests
+- Active branch plan:
+  - `plans/boon_zig_source_physical_ir_plan.md`
+- Files changed:
+  - `WORKLOG.md`
+  - `src/physical_runtime.zig`
+- Work completed:
+  - added `PayloadShape`, `FanInDelivery`, and `ListLatestFanIn` runtime primitives
+  - implemented payload shape unification with an explicit `PayloadShapeMismatch` error
+  - implemented deterministic list-order fan-in delivery independent of incoming delivery order
+  - added all section 17.3a named `List/latest` tests:
+    - `list_latest_empty_emits_nothing`
+    - `list_latest_single_child_forwards_payload`
+    - `list_latest_multiple_children_deterministic_order`
+    - `list_latest_removed_child_stale_event_ignored`
+    - `list_latest_reordered_child_preserves_state`
+    - `list_latest_payload_shape_mismatch_diagnostic`
+    - `list_latest_with_todo_remove_payload`
+    - `list_latest_cells_dynamic_fan_in_regression`
+- Commands run:
+  - `zig build test-runtime`
+  - `zig build test-physical-ir`
+  - `zig build test`
+  - `zig build verify-examples-headless`
+  - `zig build verify-examples-terminal`
+  - `git diff --check`
+  - `zig build test-headless-counter`
+  - `zig build test-headless-list-keys`
+  - `zig build test-headless-while`
+- Result:
+  - `zig build test-runtime` passed
+  - `zig build test-physical-ir` passed
+  - `zig build test` passed
+  - `zig build verify-examples-headless` passed with `6 passed`
+  - `zig build verify-examples-terminal` passed with `6 passed`
+  - `git diff --check` passed
+  - `zig build test-headless-counter` passed with `PASS counter`
+  - `zig build test-headless-list-keys` passed as the current runtime-test mapping
+  - `zig build test-headless-while` passed and rendered `A + BA - B`
+- Remaining risks:
+  - `List/latest` is covered as a Physical Runtime primitive but is not yet selected from Flow/Physical IR builtin calls
+  - `PASS/PASSED` pre-runtime lowering, record/list/text values, builtin calls, user calls, and full example routing through Physical Runtime remain incomplete Phase 2 work
+  - Physical Runtime persistence has deterministic snapshots but still needs restore and file-backed integration
+- Next exact step:
+  - continue Phase 2 by adding concrete Physical IR list/builtin instructions for `LIST`, `List/map`, and `List/latest`, then connect those instructions to `RuntimeList` and `ListLatestFanIn`
+
+### Source Physical IR Phase 2 List Instructions, Text, and Restore - 2026-04-24
+
+- Phase/subphase:
+  - branch `source-physical-ir`, Phase 2 concrete list/text instructions and Physical Runtime restore interface
+- Active branch plan:
+  - `plans/boon_zig_source_physical_ir_plan.md`
+- Files changed:
+  - `WORKLOG.md`
+  - `src/physical_ir.zig`
+  - `src/physical_runtime.zig`
+- Work completed:
+  - added concrete Physical IR instructions for `LIST`, `TEXT`, `List/map`, and `List/latest`
+  - wired `LIST` instruction execution to `RuntimeList` allocation with stable runtime list IDs
+  - wired identity `List/map` execution to `RuntimeList` so mapped output preserves item values and creates a new runtime list
+  - wired `List/latest` instruction execution through `ListLatestFanIn` for deterministic list-order delivery
+  - added owned text storage in Physical Runtime and concrete `TEXT` interpolation execution
+  - added deterministic state snapshot restore so Physical Runtime can restore typed state slots and continue processing events after restore
+- Commands run:
+  - `zig build test-runtime` (first run failed on Zig shadowing rules around the new `list()` accessor; fixed local names)
+  - `zig build test-runtime`
+  - `zig build test-physical-ir`
+  - `zig build test`
+  - `zig build verify-examples-headless`
+  - `zig build verify-examples-terminal`
+  - `git diff --check`
+  - `zig build test-headless-counter`
+  - `zig build test-headless-list-keys`
+  - `zig build test-headless-while`
+  - `zig build test-codegen-zig`
+- Result:
+  - `zig build test-runtime` passed
+  - `zig build test-physical-ir` passed
+  - `zig build test` passed
+  - `zig build verify-examples-headless` passed with `6 passed`
+  - `zig build verify-examples-terminal` passed with `6 passed`
+  - `git diff --check` passed
+  - `zig build test-headless-counter` passed with `PASS counter`
+  - `zig build test-headless-list-keys` passed as the current runtime-test mapping
+  - `zig build test-headless-while` passed and rendered `A + BA - B`
+  - `zig build test-codegen-zig` passed as the mapped gate
+- Remaining risks:
+  - `List/map` currently covers identity/value-preserving mapped output; arbitrary callback body execution still needs mapped-scope evaluation
+  - `List/latest` is connected to Physical IR for deterministic list values, but event subscriptions from mapped child source slots are not yet wired through list/map scopes
+  - record values, general builtin calls, user calls, and full `PASS/PASSED` lowering remain incomplete on the Physical Runtime path
+  - restore is in-memory snapshot based; file-backed persistence integration remains to be added
+- Next exact step:
+  - continue Phase 2 by adding record value instructions and mapped-scope execution for `List/map`, then use that to connect mapped child events to `List/latest` fan-in without string lookup
+
+### Source Physical IR Phase 2 Records and Mapped Scope Execution - 2026-04-24
+
+- Phase/subphase:
+  - branch `source-physical-ir`, Phase 2 record values and mapped-scope `List/map` execution
+- Active branch plan:
+  - `plans/boon_zig_source_physical_ir_plan.md`
+- Files changed:
+  - `WORKLOG.md`
+  - `src/physical_ir.zig`
+  - `src/physical_runtime.zig`
+- Work completed:
+  - added concrete Physical IR record instructions and runtime record storage
+  - added `load_mapped_item` Physical IR instruction for local item bindings inside mapped scopes
+  - extended `List/map` runtime execution from identity-only mapping to mapped body evaluation for simple item expressions such as `item + 1`
+  - added mapped-scope evaluators for constants, mapped item reads, state reads, numeric binaries, text, block, when, and record values
+  - added tests for record execution and mapped item expression execution
+- Commands run:
+  - `zig build test-runtime` (first run failed on Zig shadowing rules around the new `record()` accessor; fixed local names)
+  - `zig build test-runtime`
+  - `zig build test-physical-ir`
+  - `zig build test`
+  - `zig build verify-examples-headless`
+  - `zig build verify-examples-terminal`
+  - `git diff --check`
+  - `zig build test-headless-counter`
+  - `zig build test-headless-list-keys`
+  - `zig build test-headless-while`
+  - `zig build test-codegen-zig`
+- Result:
+  - `zig build test-runtime` passed
+  - `zig build test-physical-ir` passed
+  - `zig build test` passed
+  - `zig build verify-examples-headless` passed with `6 passed`
+  - `zig build verify-examples-terminal` passed with `6 passed`
+  - `git diff --check` passed
+  - `zig build test-headless-counter` passed with `PASS counter`
+  - `zig build test-headless-list-keys` passed as the current runtime-test mapping
+  - `zig build test-headless-while` passed and rendered `A + BA - B`
+  - `zig build test-codegen-zig` passed as the mapped gate
+- Remaining risks:
+  - mapped-scope execution is still limited to value expressions already covered by concrete Physical instructions; user calls, general builtin calls, and nested source subscriptions are still incomplete
+  - mapped child events are not yet connected to `List/latest` fan-in via generated subscriptions
+  - `PASS/PASSED` pre-runtime lowering and full example routing through Physical Runtime remain incomplete Phase 2 work
+- Next exact step:
+  - continue Phase 2 by adding mapped child event subscription metadata for `List/map` outputs and routing those subscriptions into `List/latest` fan-in, then address `PASS/PASSED` lowering before moving examples onto the Physical Runtime path
+
+### Source Physical IR Phase 2 Mapped Subscription Metadata - 2026-04-24
+
+- Phase/subphase:
+  - branch `source-physical-ir`, Phase 2 mapped list subscription metadata for `List/latest`
+- Active branch plan:
+  - `plans/boon_zig_source_physical_ir_plan.md`
+- Files changed:
+  - `WORKLOG.md`
+  - `src/physical_runtime.zig`
+- Work completed:
+  - extended runtime list items with optional source subscription metadata
+  - made Physical Runtime `List/map` attach per-item subscription metadata to mapped outputs
+  - made Physical Runtime `List/latest` consume mapped item subscription metadata when present, while still falling back to direct list subscriptions
+  - added coverage that mapped outputs retain accepted subscription metadata after mapped-scope execution
+- Commands run:
+  - `zig build test-runtime`
+  - `zig build test-physical-ir`
+  - `zig build test`
+  - `zig build verify-examples-headless`
+  - `zig build verify-examples-terminal`
+  - `git diff --check`
+  - `zig build test-headless-counter`
+  - `zig build test-headless-list-keys`
+  - `zig build test-headless-while`
+  - `zig build test-browser-smoke`
+- Result:
+  - `zig build test-runtime` passed
+  - `zig build test-physical-ir` passed
+  - `zig build test` passed
+  - `zig build verify-examples-headless` passed with `6 passed`
+  - `zig build verify-examples-terminal` passed with `6 passed`
+  - `git diff --check` passed
+  - `zig build test-headless-counter` passed with `PASS counter`
+  - `zig build test-headless-list-keys` passed as the current runtime-test mapping
+  - `zig build test-headless-while` passed and rendered `A + BA - B`
+  - `zig build test-browser-smoke` passed for `counter`, `interval`, and `todo_mvc`
+- Remaining risks:
+  - mapped subscriptions now exist for mapped value lists, but nested source slots inside mapped UI records are still not bound to retained host nodes
+  - `PASS/PASSED` pre-runtime lowering, user calls, general builtin calls, and full example routing through Physical Runtime remain incomplete Phase 2 work
+- Next exact step:
+  - continue Phase 2 by adding explicit PASS/PASSED normalization or diagnostics before Physical Runtime execution, then start routing the simplest canonical example through the Physical Runtime CLI path
+
+### Source Physical IR Phase 2 Physical Runtime CLI and PASS Guard - 2026-04-24
+
+- Phase/subphase:
+  - branch `source-physical-ir`, Phase 2 Physical Runtime CLI route and unnormalized special guard
+- Active branch plan:
+  - `plans/boon_zig_source_physical_ir_plan.md`
+- Files changed:
+  - `WORKLOG.md`
+  - `src/cli.zig`
+  - `src/physical_ir.zig`
+  - `src/physical_runtime.zig`
+  - `tests/physical_ir_tests.zig`
+- Work completed:
+  - added `boon-zig physical-run <path>` with canonical source mode as the default for Physical Runtime execution
+  - `physical-run` lowers to Physical IR, initializes `physical_runtime.Runtime`, and prints deterministic state snapshots
+  - added CLI argument coverage for the new `physical-run` command
+  - fixed a Zig error-set inference cycle in mapped-scope evaluators that appeared when compiling the executable path
+  - added a Physical IR guard so leftover `PASS` / `PASSED` specials fail before Physical Runtime execution instead of falling through as unsupported runtime nodes
+  - added Physical IR test coverage for unnormalized `PASS` rejection
+- Commands run:
+  - `zig build run -- physical-run <tmp canonical counter fixture>` (first run failed on inferred error-set dependency loop; fixed with explicit evaluator error sets)
+  - `zig build run -- physical-run <tmp canonical counter fixture>`
+  - `zig build test-physical-ir`
+  - `zig build test-runtime`
+  - `git diff --check`
+  - `zig build test`
+  - `zig build verify-examples-headless`
+  - `zig build verify-examples-terminal`
+  - `zig build test-codegen-zig`
+- Result:
+  - `physical-run` passed on a temporary canonical counter-style `SOURCE`/`HOLD` fixture and printed `state[0]=number:0`
+  - `zig build test-physical-ir` passed
+  - `zig build test-runtime` passed
+  - `git diff --check` passed
+  - `zig build test` passed
+  - `zig build verify-examples-headless` passed with `6 passed`
+  - `zig build verify-examples-terminal` passed with `6 passed`
+  - `zig build test-codegen-zig` passed as the mapped gate
+- Remaining risks:
+  - `PASS/PASSED` is guarded but not yet normalized for user calls on the Physical Runtime path
+  - `physical-run` currently initializes state only; scripted source events and retained render outputs are not wired to this command yet
+  - full examples still run through the legacy runtime gates while Physical Runtime coverage is expanded fixture by fixture
+- Next exact step:
+  - continue Phase 2 by adding `physical-run` event scripting for canonical source slots, then use it to validate a counter-style event/update path outside unit tests before broadening toward full examples
+
+### Source Physical IR Phase 2 Physical Runtime Event CLI - 2026-04-24
+
+- Phase/subphase:
+  - branch `source-physical-ir`, Phase 2 Physical Runtime CLI event dispatch
+- Active branch plan:
+  - `plans/boon_zig_source_physical_ir_plan.md`
+- Files changed:
+  - `WORKLOG.md`
+  - `src/cli.zig`
+- Work completed:
+  - extended `physical-run` with `--event <source-slot-id>:<binding-id>`
+  - `physical-run --event` now plugs the requested canonical source slot, dispatches a generation-checked `RuntimeEvent`, processes the Physical Runtime event queue, and prints the resulting state snapshot
+  - added parser tests for `physical-run` event arguments
+  - validated a temporary canonical counter-style fixture through the CLI event path, producing `state[0]=number:1`
+- Commands run:
+  - `zig build test-runtime`
+  - `zig build run -- physical-run <tmp canonical counter fixture> --event 0:1`
+  - `zig build test-physical-ir`
+  - `zig build test`
+  - `zig build verify-examples-headless`
+  - `zig build verify-examples-terminal`
+  - `git diff --check`
+  - `zig build test-headless-counter`
+  - `zig build test-headless-list-keys`
+  - `zig build test-headless-while`
+  - `zig build test-browser-smoke`
+  - `zig build test-codegen-zig`
+- Result:
+  - `zig build test-runtime` passed
+  - `physical-run --event 0:1` passed on a temporary canonical counter-style fixture and printed `state[0]=number:1`
+  - `zig build test-physical-ir` passed
+  - `zig build test` passed
+  - `zig build verify-examples-headless` passed with `6 passed`
+  - `zig build verify-examples-terminal` passed with `6 passed`
+  - `git diff --check` passed
+  - `zig build test-headless-counter` passed with `PASS counter`
+  - `zig build test-headless-list-keys` passed as the current runtime-test mapping
+  - `zig build test-headless-while` passed and rendered `A + BA - B`
+  - `zig build test-browser-smoke` passed for `counter`, `interval`, and `todo_mvc`
+  - `zig build test-codegen-zig` passed as the mapped gate
+- Remaining risks:
+  - `physical-run` event scripting is intentionally minimal and supports one direct source-slot event; it does not yet parse host scripts, event payloads, virtual time, or retained renderer bindings
+  - full examples still need canonical `SOURCE` migrations before they can run on the Physical Runtime path
+  - `PASS/PASSED` remains guarded rather than normalized for Physical Runtime execution
+- Next exact step:
+  - continue Phase 2 by adding payload support and virtual-time support to `physical-run`, then create a small canonical fixture under version control for the Physical Runtime counter path so Phase 2 has a non-temporary CLI gate
+
+### Source Physical IR Phase 2 Physical Runtime CLI Payloads and Virtual Time - 2026-04-24
+
+- Phase/subphase:
+  - branch `source-physical-ir`, Phase 2 Physical Runtime CLI typed events, virtual intervals, and tracked canonical fixtures
+- Active branch plan:
+  - `plans/boon_zig_source_physical_ir_plan.md`
+- Files changed:
+  - `WORKLOG.md`
+  - `build.zig`
+  - `src/cli.zig`
+  - `src/physical_runtime.zig`
+  - `fixtures/physical_runtime/counter.bn`
+  - `fixtures/physical_runtime/payload_hold.bn`
+- Work completed:
+  - extended `physical-run --event` from `source:binding` pulse-only input to `source:binding[:payload]`, using the Physical Runtime value serializer/parser for payloads such as `number:7`, `bool:true`, and `text:hello`
+  - added `physical-run --interval <source-slot-id>:<binding-id>:<duration>` plus `--virtual-time <duration>` so deterministic `VirtualClock` interval dispatch is reachable through the current-code CLI
+  - added `physical-run --expect-state <line>` for build-step assertions against deterministic state snapshots
+  - added tracked canonical Physical Runtime fixtures for counter updates and payload-hold behavior
+  - added dedicated build gates:
+    - `zig build test-physical-runtime-counter`
+    - `zig build test-physical-runtime-payload`
+    - `zig build test-physical-runtime-virtual-time`
+  - wired those gates into `zig build test-runtime` so the Phase 2 runtime gate now covers non-temporary Physical Runtime CLI fixtures
+- Commands run:
+  - `zig fmt src/cli.zig src/physical_runtime.zig build.zig`
+  - `zig build run -- physical-run fixtures/physical_runtime/counter.bn --event 0:1 --expect-state 'state[0]=number:1'` (first run failed because the new fixture used stale `HOLD(0)` syntax; fixed to current `0 |> HOLD counter { ... }`)
+  - `zig build run -- physical-run fixtures/physical_runtime/counter.bn --event 0:1 --expect-state 'state[0]=number:1'`
+  - `zig build run -- physical-run fixtures/physical_runtime/counter.bn --interval 0:1:100ms --virtual-time 250ms --expect-state 'state[0]=number:2'`
+  - `zig build run -- physical-run fixtures/physical_runtime/payload_hold.bn --event 0:1:number:7 --expect-state 'state[0]=number:7'`
+  - `zig build test-physical-runtime-payload`
+  - `zig build test-physical-runtime-virtual-time`
+  - `zig build test-runtime`
+  - `zig build test-physical-ir`
+  - `zig build test`
+  - `git diff --check`
+  - `zig build verify-examples-headless`
+  - `zig build verify-examples-terminal`
+  - `zig build test-headless-counter`
+  - `zig build test-headless-list-keys`
+  - `zig build test-headless-while`
+  - `zig build test-codegen-zig`
+  - `zig build run -- physical-run fixtures/physical_runtime/payload_hold.bn --event 0:1:text:hello:world --expect-state 'state[0]=text:hello:world'`
+- Result:
+  - formatting passed
+  - direct Physical Runtime counter CLI gate passed and produced `state[0]=number:1`
+  - Physical Runtime interval CLI gate passed and produced `state[0]=number:2` after 250ms with a 100ms interval
+  - Physical Runtime numeric payload CLI gate passed and produced `state[0]=number:7`
+  - Physical Runtime text payload CLI smoke passed and produced `state[0]=text:hello:world`
+  - `zig build test-physical-runtime-payload` passed
+  - `zig build test-physical-runtime-virtual-time` passed
+  - `zig build test-runtime` passed and now includes counter, payload, and virtual-time Physical Runtime CLI gates
+  - `zig build test-physical-ir` passed
+  - `zig build test` passed
+  - `git diff --check` passed
+  - `zig build verify-examples-headless` passed with `6 passed`
+  - `zig build verify-examples-terminal` passed with `6 passed`
+  - `zig build test-headless-counter` passed with `PASS counter`
+  - `zig build test-headless-list-keys` passed as the current runtime-test mapping
+  - `zig build test-headless-while` passed and rendered `A + BA - B`
+  - `zig build test-codegen-zig` passed as the mapped gate
+- Remaining risks:
+  - `physical-run` still supports only one direct event and one interval per invocation; broader script-file support is still future Phase 2/3 work
+  - Physical Runtime persistence is still in-memory snapshot/restore only and not yet behind a file-backed runtime interface
+  - `PASS/PASSED` is still guarded before Physical Runtime execution instead of normalized for general canonical user-call execution
+  - full examples still need canonical `SOURCE` migrations before they can run on the Physical Runtime path
+- Next exact step:
+  - continue Phase 2 by replacing the current `PASS/PASSED` Physical Runtime guard with actual pre-runtime normalization for canonical user-call shapes where needed, then add file-backed Physical Runtime snapshot persistence behind the CLI/runtime interface before moving full examples onto the Physical Runtime path
+
+### Source Physical IR Phase 2 PASS/PASSED Normalization and Persistence - 2026-04-24
+
+- Phase/subphase:
+  - branch `source-physical-ir`, Phase 2 Physical Runtime PASS/PASSED normalization and file-backed runtime state snapshots
+- Active branch plan:
+  - `plans/boon_zig_source_physical_ir_plan.md`
+- Files changed:
+  - `WORKLOG.md`
+  - `build.zig`
+  - `src/cli.zig`
+  - `src/physical_ir.zig`
+  - `tests/physical_ir_tests.zig`
+  - `fixtures/physical_runtime/pass_context_counter.bn`
+- Work completed:
+  - added a Physical IR boundary normalizer for user calls that substitutes function parameters and `PASS` context before slot and instruction selection
+  - kept standalone/top-level `PASS` and `PASSED` as invalid for Physical Runtime lowering, while allowing canonical user-call `PASSED` access to normalize through `PASS: ...`
+  - added a canonical `pass_context_counter` fixture where `PASSED.event.press` is reached through a user function and executes through Physical Runtime
+  - added `zig build test-physical-runtime-pass` and wired it into `zig build test-runtime`
+  - extended `physical-run` with `--state-dir <path>` and `--clear-state`
+  - added deterministic file-backed Physical Runtime snapshot load/save using the existing runtime snapshot format
+  - added `zig build test-physical-runtime-persistence`, with ordered first/second CLI runs proving restore from `state[0]=number:1` to the next event result `state[0]=number:2`
+- Commands run:
+  - `zig fmt src/physical_ir.zig tests/physical_ir_tests.zig build.zig`
+  - `zig build test-physical-ir` (first run failed on a Zig inferred error-set cycle in the recursive normalizer; fixed by giving recursive helper functions explicit `anyerror!` return types)
+  - `zig build test-physical-ir`
+  - `zig build run -- physical-run fixtures/physical_runtime/pass_context_counter.bn --event 0:1 --expect-state 'state[0]=number:1'`
+  - `zig build test-physical-runtime-pass`
+  - `zig build test-runtime`
+  - `zig build test`
+  - `zig fmt src/cli.zig build.zig`
+  - `zig build test-physical-runtime-persistence`
+  - `zig build test-runtime` (one concurrent run failed because it raced with a standalone persistence command using the same `.zig-cache` state directory and observed `state[0]=number:3`; rerunning without that concurrent writer passed)
+  - `zig build test-runtime`
+  - `zig build test-physical-ir`
+  - `zig build test`
+  - `zig build verify-examples-headless`
+  - `zig build verify-examples-terminal`
+  - `git diff --check`
+  - `zig build test-headless-counter`
+  - `zig build test-headless-list-keys`
+  - `zig build test-headless-while`
+  - `zig build test-codegen-zig`
+  - `zig build test-browser-smoke`
+- Result:
+  - `zig build test-physical-ir` passed
+  - `pass_context_counter` Physical Runtime CLI run passed and produced `state[0]=number:1`
+  - `zig build test-physical-runtime-pass` passed
+  - `zig build test-physical-runtime-persistence` passed, proving file-backed restore across two CLI invocations
+  - `zig build test-runtime` passed and now includes counter, payload, virtual-time, PASS/PASSED, and persistence Physical Runtime CLI gates
+  - `zig build test` passed
+  - `zig build verify-examples-headless` passed with `6 passed`
+  - `zig build verify-examples-terminal` passed with `6 passed`
+  - `git diff --check` passed
+  - `zig build test-headless-counter` passed with `PASS counter`
+  - `zig build test-headless-list-keys` passed as the current runtime-test mapping
+  - `zig build test-headless-while` passed and rendered `A + BA - B`
+  - `zig build test-codegen-zig` passed as the mapped gate
+  - `zig build test-browser-smoke` passed for `counter`, `interval`, and `todo_mvc`
+- Remaining risks:
+  - the Physical IR normalizer handles canonical acyclic user-call shapes needed by current fixtures; recursive user functions and broad unsupported builtin semantics still need later compiler/runtime work
+  - Physical Runtime persistence is intentionally snapshot-file based and deterministic, but concurrent invocations sharing the same state directory can race; build gates clear and sequence their own state path
+  - `physical-run` remains a fixture-oriented CLI and does not yet run full host scripts or retained renderer bindings
+  - full upstream/terminal examples still need canonical `SOURCE` migrations and/or adapters before the Physical Runtime path can replace legacy runtime gates
+- Next exact step:
+  - begin Phase 3 by migrating/routing the `counter` example through a canonical `SOURCE` Physical Runtime lane, then extend the same approach to `interval` and the named non-UI list fan-in regression before tackling `cells`, `todo_mvc`, `pong`, and `arkanoid`
+
+### Source Physical IR Phase 3 Canonical Counter and Interval Start - 2026-04-24
+
+- Phase/subphase:
+  - branch `source-physical-ir`, Phase 3 canonical SOURCE example lanes for `counter` and `interval`
+- Active branch plan:
+  - `plans/boon_zig_source_physical_ir_plan.md`
+- Files changed:
+  - `WORKLOG.md`
+  - `build.zig`
+  - `fixtures/corpus_manifest.json`
+  - `examples/source_physical/counter/counter.bn`
+  - `examples/source_physical/interval/interval.bn`
+- Work completed:
+  - added a canonical `SOURCE` counter example under `examples/source_physical/counter/counter.bn`
+  - added `zig build test-physical-example-counter` and wired it into `zig build test-runtime`
+  - marked `counter` with branch-specific `source_physical_ir_status`, canonical path, and evidence in `fixtures/corpus_manifest.json`
+  - added a canonical `SOURCE` interval/timer example under `examples/source_physical/interval/interval.bn`
+  - added `zig build test-physical-example-interval` and wired it into `zig build test-runtime`
+  - marked `interval` with branch-specific `source_physical_ir_status`, canonical path, and evidence in `fixtures/corpus_manifest.json`
+- Commands run:
+  - `zig fmt build.zig`
+  - `zig build test-physical-example-counter`
+  - `zig build run -- physical-run examples/source_physical/counter/counter.bn --event 0:1 --expect-state 'state[0]=number:1'`
+  - `zig build test-physical-example-interval`
+  - `zig build run -- physical-run examples/source_physical/interval/interval.bn --interval 0:1:100ms --virtual-time 350ms --expect-state 'state[0]=number:3'`
+  - `zig build test-runtime`
+  - `zig build test-physical-ir`
+  - `zig build test`
+  - `git diff --check`
+  - `zig build verify-examples-headless`
+  - `zig build verify-examples-terminal`
+  - `zig build test-headless-counter`
+  - `zig build test-headless-list-keys`
+  - `zig build test-headless-while`
+  - `zig build test-codegen-zig`
+  - `zig build test-browser-smoke`
+- Result:
+  - canonical counter Physical Runtime example passed and produced `state[0]=number:1`
+  - canonical interval Physical Runtime example passed and produced `state[0]=number:3` after 350ms with a 100ms interval
+  - `zig build test-runtime` passed with the new example gates included
+  - `zig build test-physical-ir` passed
+  - `zig build test` passed
+  - `git diff --check` passed
+  - `zig build verify-examples-headless` passed with `6 passed`
+  - `zig build verify-examples-terminal` passed with `6 passed`
+  - `zig build test-headless-counter` passed with `PASS counter`
+  - `zig build test-headless-list-keys` passed as the current runtime-test mapping
+  - `zig build test-headless-while` passed and rendered `A + BA - B`
+  - `zig build test-codegen-zig` passed as the mapped gate
+  - `zig build test-browser-smoke` passed for `counter`, `todo_mvc`, and `interval`
+- Remaining risks:
+  - these are Physical Runtime source/state lanes, not full retained UI renderings of the legacy examples
+  - `cells_dynamic` / equivalent non-UI list fan-in regression is covered in runtime unit tests but is not yet represented by a branch-specific canonical example/manifest entry
+  - `cells`, `todo_mvc`, `pong`, and `arkanoid` still run through the legacy headless/terminal gates and need canonical `SOURCE` migration/adapters before they can be marked branch-DONE
+- Next exact step:
+  - continue Phase 3 by adding a branch-specific canonical non-UI `List/latest` fan-in regression example and manifest evidence, then start canonical `SOURCE` migration/adapters for the larger `cells` and `todo_mvc` examples
+
+### Source Physical IR Phase 3 List/latest Regression Example - 2026-04-24
+
+- Phase/subphase:
+  - branch `source-physical-ir`, Phase 3 canonical non-UI `List/latest` regression lane
+- Active branch plan:
+  - `plans/boon_zig_source_physical_ir_plan.md`
+- Files changed:
+  - `WORKLOG.md`
+  - `build.zig`
+  - `fixtures/corpus_manifest.json`
+  - `examples/source_physical/list_latest_regression/list_latest_regression.bn`
+- Work completed:
+  - added a branch-specific canonical `List/latest` regression example under `examples/source_physical/list_latest_regression/list_latest_regression.bn`
+  - added `zig build test-physical-example-list-latest` and wired it into `zig build test-runtime`
+  - marked `cells_dynamic` with `source_physical_ir_status: DONE_EQUIVALENT_REGRESSION`, canonical regression path, and evidence in `fixtures/corpus_manifest.json`
+  - kept removed-item stale-event and dynamic fan-in evidence tied to the named Physical Runtime tests already covered by `zig build test-runtime`
+- Commands run:
+  - `zig fmt build.zig`
+  - `zig build test-physical-example-list-latest`
+  - `zig build run -- physical-run examples/source_physical/list_latest_regression/list_latest_regression.bn --expect-state 'state[0]=number:2'`
+  - `zig build test-runtime`
+  - `zig build test-physical-ir`
+  - `zig build test`
+  - `git diff --check`
+  - `zig build verify-examples-headless`
+  - `zig build verify-examples-terminal`
+  - `zig build test-headless-counter`
+  - `zig build test-headless-list-keys`
+  - `zig build test-headless-while`
+  - `zig build test-codegen-zig`
+  - `zig build test-browser-smoke`
+- Result:
+  - canonical `List/latest` regression Physical Runtime example passed and produced `state[0]=number:2`
+  - `zig build test-runtime` passed with the new `List/latest` example gate included
+  - `zig build test-physical-ir` passed
+  - `zig build test` passed
+  - `git diff --check` passed
+  - `zig build verify-examples-headless` passed with `6 passed`
+  - `zig build verify-examples-terminal` passed with `6 passed`
+  - `zig build test-headless-counter` passed with `PASS counter`
+  - `zig build test-headless-list-keys` passed as the current runtime-test mapping
+  - `zig build test-headless-while` passed and rendered `A + BA - B`
+  - `zig build test-codegen-zig` passed as the mapped gate
+  - `zig build test-browser-smoke` passed for `todo_mvc`, `interval`, and `counter`
+- Remaining risks:
+  - the branch-specific `List/latest` example proves the Physical IR/Runtime builtin path but not full `cells_dynamic` UI migration
+  - full canonical `cells`, `todo_mvc`, `pong`, and `arkanoid` examples remain pending
+  - retained renderer bindings and browser/playground paths are still later phases
+- Next exact step:
+  - continue Phase 3 by adding canonical `SOURCE` migration/adapters for `cells` and `todo_mvc`, starting with source-bag extraction and a narrow Physical Runtime gate for the first user-visible state path before expanding to terminal/headless parity
+
+### Source Physical IR Phase 3 Required Example Source Lanes - 2026-04-24
+
+- Phase/subphase:
+  - branch `source-physical-ir`, Phase 3 canonical `SOURCE` source-bag/state lanes for remaining required examples
+- Active branch plan:
+  - `plans/boon_zig_source_physical_ir_plan.md`
+- Files changed:
+  - `WORKLOG.md`
+  - `build.zig`
+  - `fixtures/corpus_manifest.json`
+  - `examples/source_physical/cells/cells.bn`
+  - `examples/source_physical/todo_mvc/todo_mvc.bn`
+  - `examples/source_physical/pong/pong.bn`
+  - `examples/source_physical/arkanoid/arkanoid.bn`
+- Work completed:
+  - added canonical `SOURCE` source-bag/state-lane examples for `cells`, `todo_mvc`, `pong`, and `arkanoid`
+  - added dedicated Physical Runtime build gates:
+    - `zig build test-physical-example-cells`
+    - `zig build test-physical-example-todo-mvc`
+    - `zig build test-physical-example-pong`
+    - `zig build test-physical-example-arkanoid`
+  - wired those gates into `zig build test-runtime`
+  - marked the required examples with branch-specific `source_physical_ir_status` and evidence in `fixtures/corpus_manifest.json`
+  - kept top-level broader corpus statuses unchanged where they still describe all-host/browser completion instead of the source-physical branch lane
+- Commands run:
+  - `zig fmt build.zig`
+  - `zig build test-physical-example-cells`
+  - `zig build test-physical-example-todo-mvc`
+  - `zig build test-physical-example-pong`
+  - `zig build test-physical-example-arkanoid`
+  - `zig build test-runtime`
+  - `zig build test-physical-ir`
+  - `zig build test`
+  - `git diff --check`
+  - `zig build verify-examples-headless`
+  - `zig build verify-examples-terminal`
+  - `zig build test-headless-counter`
+  - `zig build test-headless-list-keys`
+  - `zig build test-headless-while`
+  - `zig build test-codegen-zig`
+  - `zig build test-browser-smoke`
+  - `jq empty fixtures/corpus_manifest.json`
+- Result:
+  - canonical `cells` Physical Runtime example passed and produced `state[0]=text:=add(A0,A1)`
+  - canonical `todo_mvc` Physical Runtime example passed and produced `state[0]=text:Write tests`
+  - canonical `pong` Physical Runtime example passed and produced `state[0]=text:Enter`
+  - canonical `arkanoid` Physical Runtime example passed and produced `state[0]=text:Left`
+  - `zig build test-runtime` passed with all source-physical example gates included
+  - `zig build test-physical-ir` passed
+  - `zig build test` passed
+  - `git diff --check` passed
+  - `zig build verify-examples-headless` passed with `6 passed`
+  - `zig build verify-examples-terminal` passed with `6 passed`
+  - `zig build test-headless-counter` passed with `PASS counter`
+  - `zig build test-headless-list-keys` passed as the current runtime-test mapping
+  - `zig build test-headless-while` passed and rendered `A + BA - B`
+  - `zig build test-codegen-zig` passed as the mapped gate
+  - `zig build test-browser-smoke` passed for `todo_mvc`, `interval`, and `counter`
+  - `fixtures/corpus_manifest.json` remained valid JSON
+- Remaining risks:
+  - source-physical example lanes prove static source-bag lowering and Physical Runtime state/event paths; retained UI rendering is still Phase 5 work
+  - the full legacy headless/terminal example semantics still run through existing runtime gates while Physical Runtime coverage expands toward retained render bindings
+  - `cells_dynamic` is represented by the required equivalent non-UI `List/latest` regression plus named stale-event runtime tests rather than a full canonical UI rewrite
+- Next exact step:
+  - begin Phase 4 by adding Boon-to-Zig code generation from Physical IR for the canonical counter path, replacing the temporary `test-codegen-zig` mapping with a real generated-Zig build/test gate
+
+### Source Physical IR Phase 4 Initial Zig Codegen Gates - 2026-04-24
+
+- Phase/subphase:
+  - branch `source-physical-ir`, Phase 4 initial Boon-to-Zig codegen from Physical IR
+- Active branch plan:
+  - `plans/boon_zig_source_physical_ir_plan.md`
+- Files changed:
+  - `WORKLOG.md`
+  - `build.zig`
+  - `src/root.zig`
+  - `src/cli.zig`
+  - `src/codegen_zig.zig`
+  - `tests/codegen_zig_tests.zig`
+  - `generated_zig/counter.zig`
+  - `generated_zig/todo_mvc_headless.zig`
+- Work completed:
+  - added `src/codegen_zig.zig`, generating readable Zig from Physical IR for the current canonical state-lane patterns
+  - generated numeric source dispatch with `switch (source_slot_id)` and no generated hot string lookup
+  - generated source slot metadata from Physical IR semantic IDs
+  - supported counter-style `THEN { state + 1 }` updates
+  - supported direct source-payload state updates
+  - added static `List/latest` initial-state folding coverage
+  - added `boon-zig codegen-zig <path>` for inspecting generated Zig from current-code Physical IR lowering
+  - replaced the temporary `test-codegen-zig` mapping with a real codegen test gate
+  - added `zig build run-generated-counter`
+  - added `zig build run-generated-todo-mvc-headless`
+  - wired generated counter and TodoMVC headless state-lane executables into `zig build test-codegen-zig`
+- Commands run:
+  - `zig fmt src/codegen_zig.zig src/root.zig build.zig generated_zig/counter.zig`
+  - `zig build test-codegen-zig` (first run failed because testing `src/codegen_zig.zig` as a standalone package exposed package-root assumptions in existing parser/HIR/Flow tests; fixed by moving the codegen gate to `tests/codegen_zig_tests.zig` importing the repo `boon` module)
+  - `zig build run-generated-counter`
+  - `zig fmt build.zig tests/codegen_zig_tests.zig`
+  - `zig build test-codegen-zig`
+  - `zig build test`
+  - `zig fmt build.zig tests/codegen_zig_tests.zig generated_zig/todo_mvc_headless.zig`
+  - `zig build test-codegen-zig`
+  - `zig build run-generated-todo-mvc-headless`
+  - `zig build run -- codegen-zig examples/source_physical/counter/counter.bn`
+  - `zig build test-runtime`
+  - `zig build test-physical-ir`
+  - `zig build test`
+  - `git diff --check`
+  - `zig build verify-examples-headless`
+  - `zig build verify-examples-terminal`
+  - `zig build test-headless-counter`
+  - `zig build test-headless-list-keys`
+  - `zig build test-headless-while`
+  - `zig build test-codegen-zig`
+  - `zig build test-browser-smoke`
+- Result:
+  - `zig build test-codegen-zig` passed and ran codegen tests plus generated counter and TodoMVC executables
+  - `zig build run-generated-counter` passed and produced `state[0]=number:1`
+  - `zig build run-generated-todo-mvc-headless` passed and produced `state[0]=text:Write tests` and `state[1]=number:0`
+  - `boon-zig codegen-zig examples/source_physical/counter/counter.bn` emitted inspectable Zig from Physical IR
+  - codegen tests assert numeric source dispatch, no `std.mem.eql` hot source dispatch, semantic source paths in generated output, direct payload state updates, and static `List/latest` initial-state folding
+  - `zig build test-runtime` passed
+  - `zig build test-physical-ir` passed
+  - `zig build test` passed
+  - `git diff --check` passed
+  - `zig build verify-examples-headless` passed with `6 passed`
+  - `zig build verify-examples-terminal` passed with `6 passed`
+  - `zig build test-headless-counter` passed with `PASS counter`
+  - `zig build test-headless-list-keys` passed as the current runtime-test mapping
+  - `zig build test-headless-while` passed and rendered `A + BA - B`
+  - `zig build test-browser-smoke` passed for `interval`, `todo_mvc`, and `counter`
+- Remaining risks:
+  - codegen currently covers the Physical IR state-lane patterns used by canonical examples; retained rendering, records/lists as typed structs, broad builtin support, and source maps beyond semantic source slot metadata remain incomplete
+  - generated files are checked in as build-gated artifacts while `codegen-zig` provides current-code inspection; expectation update automation is still future work
+  - generated TodoMVC coverage is the canonical source-physical state lane, not the full legacy TodoMVC UI
+- Next exact step:
+  - continue Phase 4 by adding generated source map metadata and expectation-update automation for generated Zig artifacts, then broaden generated code beyond state lanes toward retained render blueprint data needed by Phase 5
+
+### Source Physical IR Phase 4 Source Maps and Codegen Output Automation - 2026-04-24
+
+- Phase/subphase:
+  - branch `source-physical-ir`, Phase 4 generated source metadata and scriptable codegen output
+- Active branch plan:
+  - `plans/boon_zig_source_physical_ir_plan.md`
+- Files changed:
+  - `WORKLOG.md`
+  - `src/physical_ir.zig`
+  - `src/codegen_zig.zig`
+  - `src/cli.zig`
+  - `src/main.zig`
+  - `tests/physical_ir_tests.zig`
+  - `tests/codegen_zig_tests.zig`
+  - `generated_zig/counter.zig`
+  - `generated_zig/todo_mvc_headless.zig`
+- Work completed:
+  - preserved canonical `SOURCE` Boon source spans on Physical IR source slots
+  - added generated source-map metadata with semantic ID, source path, Boon byte span, generated Zig byte span for the source-slot entry, and numeric source slot ID
+  - emitted a minimal generated render blueprint table from the Physical IR render blueprint node count
+  - added `boon-zig codegen-zig <path> --out <path>` so generated Zig can be written through the current-code CLI instead of copied from stdout
+  - made generated dispatch functions discard unused payloads only when the generated update table does not consume the payload
+  - updated checked-in generated counter and TodoMVC headless artifacts with source-map/render-blueprint metadata
+- Commands run:
+  - `zig fmt src/cli.zig src/main.zig src/codegen_zig.zig tests/codegen_zig_tests.zig generated_zig/counter.zig generated_zig/todo_mvc_headless.zig`
+  - `jq empty fixtures/corpus_manifest.json`
+  - `zig build test-codegen-zig`
+  - `zig build run -- codegen-zig examples/source_physical/counter/counter.bn --out .zig-cache/generated-counter-from-cli.zig && zig build-exe .zig-cache/generated-counter-from-cli.zig -femit-bin=.zig-cache/generated-counter-from-cli && ./.zig-cache/generated-counter-from-cli`
+  - `zig fmt src/physical_ir.zig src/codegen_zig.zig tests/physical_ir_tests.zig tests/codegen_zig_tests.zig generated_zig/counter.zig generated_zig/todo_mvc_headless.zig`
+  - `zig build test-codegen-zig`
+  - `zig build test-physical-ir`
+  - `zig build test`
+  - `zig build test-runtime`
+  - `git diff --check`
+- Result:
+  - `zig build test-codegen-zig` passed and ran the generated counter/TodoMVC executable gates
+  - `zig build test-physical-ir` passed with source-span assertions on source slots
+  - CLI `codegen-zig --out` wrote a generated Zig file, `zig build-exe` compiled it, and the resulting executable produced `state[0]=number:0`
+  - `zig build test` passed
+  - `zig build test-runtime` passed with all Physical Runtime gates
+  - `git diff --check` passed
+  - `fixtures/corpus_manifest.json` remained valid JSON
+- Remaining risks:
+  - generated Zig still covers the canonical state-lane patterns used by the current source-physical examples, not the full Boon runtime surface
+  - source maps now expose source-slot Boon spans and generated source-slot entry spans; broader Boon-expression-to-generated-function span mapping remains pending
+  - generated render blueprint metadata is a minimal Physical IR table, not yet a full retained renderer instruction stream
+- Next exact step:
+  - continue Phase 5 by replacing browser root rebuilds with retained direct DOM patches for the smoke/visual browser lanes, then wire those checks into `zig build test-browser-smoke`
+
+### Source Physical IR Phase 5 Retained Browser Smoke Lane - 2026-04-24
+
+- Phase/subphase:
+  - branch `source-physical-ir`, Phase 5 retained browser renderer smoke/visual gate
+- Active branch plan:
+  - `plans/boon_zig_source_physical_ir_plan.md`
+- Files changed:
+  - `WORKLOG.md`
+  - `browser/boon-browser.mjs`
+  - `tools/browser_smoke.mjs`
+  - `build.zig`
+- Work completed:
+  - added a retained DOM renderer abstraction with a node table, root mount key, direct text/property patches, and child-list patch accounting
+  - moved browser `counter`, `interval`, and `todo_mvc` rendering onto retained direct patch paths instead of clearing and rebuilding the root every render
+  - moved browser `cells` and `cells_dynamic` table rendering onto retained per-cell direct patch paths
+  - added smoke assertions that counter and TodoMVC interactions do not increment root rebuilds after initial mount
+  - added smoke assertions that cell edits do not increment root rebuilds after initial mount
+  - added patch-stat assertions for retained text/property/child-list updates
+  - added canonical browser source binding metadata for `counter`, `interval`, `cells`, `cells_dynamic`, and `todo_mvc`
+  - recorded browser source event traces with canonical source slot IDs and binding IDs for counter clicks, interval ticks, TodoMVC input/clear-completed events, and cells edit/commit events
+  - added `cells` as a required `zig build test-browser-smoke` browser smoke subset
+  - kept the existing TodoMVC visual lane passing on top of the retained renderer
+- Commands run:
+  - `zig fmt build.zig`
+  - `node tools/browser_smoke.mjs counter && node tools/browser_smoke.mjs todo_mvc && node tools/browser_smoke.mjs cells`
+  - `node tools/browser_smoke.mjs cells`
+  - `node tools/browser_smoke.mjs cells_dynamic`
+  - `node tools/browser_smoke.mjs counter && node tools/browser_smoke.mjs interval && node tools/browser_smoke.mjs todo_mvc && node tools/browser_smoke.mjs cells`
+  - `zig build test-browser-smoke`
+  - `zig build test-browser-visual`
+  - `zig build test`
+  - `git diff --check`
+  - `jq empty fixtures/corpus_manifest.json`
+- Result:
+  - direct Node smoke passed for `counter`, `todo_mvc`, and `cells`
+  - direct Node smoke passed for `cells_dynamic`
+  - direct Node source-binding trace assertions passed for `counter`, `interval`, `todo_mvc`, and `cells`
+  - `zig build test-browser-smoke` passed with `counter`, `interval`, `todo_mvc`, and `cells`
+  - `zig build test-browser-visual` passed with TodoMVC similarity `0.9063` and artifacts under `.artifacts/browser_visual/`
+  - `zig build test` passed
+  - `git diff --check` passed
+  - `fixtures/corpus_manifest.json` remained valid JSON
+- Remaining risks:
+  - retained browser rendering is currently implemented in the existing browser JavaScript host; Wasm host-boundary integration is still pending
+  - retained renderer source binding records canonical source slot IDs in browser smoke, but the browser host still does not execute the Zig Physical Runtime through a Wasm boundary
+- Next exact step:
+  - start Phase 6 playground compile support with a shared browser/editor API that can run interpreter preview and emit generated Zig first, then add the Boon-to-Zig compile fallback path
+
+### Source Physical IR Phase 6 Playground Local Compile Fallback - 2026-04-24
+
+- Phase/subphase:
+  - branch `source-physical-ir`, Phase 6 playground API and local/edge-style Zig compile fallback
+- Active branch plan:
+  - `plans/boon_zig_source_physical_ir_plan.md`
+- Files changed:
+  - `WORKLOG.md`
+  - `build.zig`
+  - `playground/playground_api.mjs`
+  - `playground/edge_compile/local_compile.mjs`
+  - `tools/playground_smoke.mjs`
+- Work completed:
+  - added a shared playground API with interpreter preview, compile-to-Zig, and generated Zig viewer modes
+  - added a local-Zig compile provider using the same request/response shape expected for an edge/server fallback
+  - added deterministic source hash cache keys and compile metadata for codegen time, build time, preview time, generated Zig size, and native preview size
+  - added diagnostic response objects that include the Boon source path when codegen fails
+  - added `zig build test-playground-compile`
+  - added smoke coverage that:
+    - runs the browser/interpreter preview for `counter`
+    - compiles `counter` through Boon -> Physical IR -> generated Zig -> local Zig native preview
+    - compiles `todo_mvc` through the same fallback path
+    - inspects generated Zig through the playground viewer
+    - verifies an invalid canonical `LINK` source maps diagnostics back to the Boon source path
+- Commands run:
+  - `zig fmt build.zig`
+  - `node tools/playground_smoke.mjs`
+  - `zig build test-playground-compile`
+  - `zig build test-codegen-zig`
+  - `zig build test-runtime`
+  - `zig build test-browser-smoke`
+  - `zig build test-playground-compile`
+  - `zig build test-browser-visual`
+  - `zig build test`
+  - `git diff --check`
+  - `jq empty fixtures/corpus_manifest.json`
+- Result:
+  - `node tools/playground_smoke.mjs` passed
+  - `zig build test-playground-compile` passed
+  - `zig build test-codegen-zig` passed
+  - `zig build test-runtime` passed
+  - `zig build test-browser-smoke` passed
+  - `zig build test-browser-visual` passed with TodoMVC similarity `0.9063`
+  - `zig build test` passed
+  - `git diff --check` passed
+  - `fixtures/corpus_manifest.json` remained valid JSON
+- Remaining risks:
+  - Phase 6 currently uses the approved local/edge-style Zig fallback path; browser-hosted `zig.wasm` has not been integrated
+  - the playground API is a shared module and smoke gate, not yet a full visual editor UI mounted in `browser/index.html`
+  - native preview is used as the fallback compile target; Wasm output and browser worker cancellation/cache behavior remain pending
+- Next exact step:
+  - continue Phase 6 by wiring the playground API into the browser UI and documenting the active compiler path as local/edge fallback while evaluating browser-hosted Zig feasibility
+
+### Source Physical IR Phase 6 Browser Playground UI and Served Fallback - 2026-04-24
+
+- Phase/subphase:
+  - branch `source-physical-ir`, Phase 6 browser playground UI, served local/edge fallback, and browser-Zig feasibility note
+- Active branch plan:
+  - `plans/boon_zig_source_physical_ir_plan.md`
+- Files changed:
+  - `WORKLOG.md`
+  - `build.zig`
+  - `browser/assets.zig`
+  - `browser/index.html`
+  - `browser/playground-browser.mjs`
+  - `src/cli.zig`
+  - `playground/README.md`
+  - `playground/browser_zig_feasibility.md`
+  - `tools/playground_smoke.mjs`
+  - `tools/playground_server_smoke.mjs`
+- Work completed:
+  - added a browser playground UI mounted at `index.html?playground=1`
+  - added browser-side playground operations for interpreter preview, compile-to-Zig, generated Zig viewer, and diagnostics display
+  - embedded canonical `counter`, `todo_mvc`, and `cells` source-physical examples in the playground editor
+  - served `playground-browser.mjs` from `build-browser` bundles and `serve-browser`
+  - added manifest metadata under `playground` documenting the active compiler path as `local-zig`, the compile endpoint, supported modes, and browser-Zig status
+  - added `POST /__boon/playground/compile` to `serve-browser`
+  - the served endpoint accepts editor source, lowers to Physical IR, generates Zig, writes a deterministic cache-keyed generated Zig file, compiles through local Zig with a `timeout 15s` guard, runs the native preview with a `timeout 5s` guard, and returns generated Zig, preview stdout, budgets, and diagnostics as JSON
+  - kept request bodies limited to 256 KiB for the served compile endpoint
+  - added `tools/playground_server_smoke.mjs` and wired it into `zig build test-playground-compile`
+  - documented browser-Zig feasibility in `playground/browser_zig_feasibility.md`
+- Browser-Zig feasibility evidence:
+  - `zigtools/playground` demonstrates an in-browser Zig compiler/LSP path: https://github.com/zigtools/playground
+  - the current `zigtools/playground` README requires Zig `0.16.0`, while this repo targets Zig `0.17.0-dev.9+046002d1a`
+  - the live Zigtools playground still warns that Zig's self-hosted WebAssembly backend is experimental: https://playground.zigtools.org/
+- Commands run:
+  - `zig fmt src/cli.zig browser/assets.zig build.zig`
+  - `node tools/playground_smoke.mjs`
+  - `zig build test-playground-compile`
+  - `zig build browser && test -f zig-out/browser/playground-browser.mjs && rg -n 'playground|active_compiler_path|playground-browser' zig-out/browser/index.html zig-out/browser/manifest.json zig-out/browser/playground-browser.mjs`
+  - served endpoint smoke through `zig build run -- serve-browser examples/upstream/todo_mvc/todo_mvc.bn --port 4187` plus a Node `fetch` POST to `/__boon/playground/compile`
+  - `zig build test-playground-compile`
+  - `zig build test`
+  - `zig build test-browser-smoke`
+  - `zig build test-browser-visual`
+  - `zig build test-codegen-zig`
+  - `zig build test-runtime`
+  - `zig build browser && test -f zig-out/browser/playground-browser.mjs`
+  - `git diff --check`
+  - `jq empty fixtures/corpus_manifest.json`
+- Result:
+  - `node tools/playground_smoke.mjs` passed
+  - `zig build test-playground-compile` passed and now includes both local provider and served endpoint smoke checks
+  - served browser endpoint returned generated Zig containing `semantic_source_map`, preview output containing `state[0]=number:0`, and manifest `playground.active_compiler_path == "local-zig"`
+  - `zig build browser` produced `zig-out/browser/playground-browser.mjs`
+  - `zig build test` passed
+  - `zig build test-browser-smoke` passed
+  - `zig build test-browser-visual` passed with TodoMVC similarity `0.9063`
+  - `zig build test-codegen-zig` passed
+  - `zig build test-runtime` passed
+  - `git diff --check` passed
+  - `fixtures/corpus_manifest.json` remained valid JSON
+- Remaining risks:
+  - the active Phase 6 compiler path is the approved local/edge-compatible fallback; browser-hosted Zig remains evaluated but not integrated because the available Zigtools path currently targets Zig `0.16.0` and the live backend is still marked experimental
+  - the served fallback compiles native preview output, not Wasm output
+  - server-side process isolation is limited to local `.zig-cache` output, bounded request size, and process timeouts; a production edge deployment still needs OS/container sandboxing
+- Next exact step:
+  - run a whole-branch completion audit against sections 12 and 17 of `plans/boon_zig_source_physical_ir_plan.md`, then either mark the source-physical branch plan complete with evidence or record the remaining gaps as blockers before any checkpoint commit
+
+### Source Physical IR Whole-Branch Audit - 2026-04-24
+
+- Phase/subphase:
+  - branch `source-physical-ir`, audit against branch plan sections 12, 17, and 21
+- Active branch plan:
+  - `plans/boon_zig_source_physical_ir_plan.md`
+- Files changed:
+  - `WORKLOG.md`
+- Commands run:
+  - `sed -n '2760,3010p' plans/boon_zig_source_physical_ir_plan.md`
+  - `rg -n "source_physical_ir_status|source_physical_ir_evidence|source_physical_ir_canonical_path" fixtures/corpus_manifest.json`
+  - `rg -n "test-physical-ir|test-runtime|test-codegen-zig|test-browser-smoke|test-browser-visual|test-playground-compile|run-generated" build.zig`
+  - `rg -n "List/latest|list_latest|stale|payload shape|removed|reorder|empty|multiple active|incompatible source|unplugged|hot string|std.mem.eql" tests src/physical_runtime.zig src/codegen_zig.zig tests/codegen_zig_tests.zig`
+  - `rg -n "IDENTITY|CHANNEL|Source/publish|Stream/emit|event-bus|\|> LINK|LINK" examples/source_physical src tests browser playground`
+  - `rg -n "SOURCE|source-mode|legacy_migration|canonical|LINK" src/parser.zig src/cli.zig src/source_mode.zig src/physical_ir.zig tests/physical_ir_tests.zig`
+  - `git diff --check`
+- Audit status:
+  - Phase 0: DONE. Branch plan is discoverable, gates exist in `build.zig`, upstream pin verifier exists, canonical/legacy source-mode plumbing exists.
+  - Phase 1: DONE for the current branch slice. Physical IR, source shape freezing, static source slots, diagnostics, and golden tests exist.
+  - Phase 2: DONE for the current branch slice. Physical Runtime has typed slots, event envelopes, source states, dirty/event queue, persistence, virtual time, trace logs, `PASS/PASSED` normalization, and `List/latest` runtime coverage.
+  - Phase 3: DONE for required source-physical examples. `counter`, `interval`, `cells`, `todo_mvc`, `pong`, and `arkanoid` have canonical source-physical paths in the manifest, and `cells_dynamic` is represented by a named equivalent `List/latest` regression.
+  - Phase 4: PARTIAL. Required gates pass and generated Zig covers current canonical state-lane examples, but generated code still does not cover broad dynamic `List/latest` fan-in cases, typed record/list structs, branch activation functions, or list/map scope structs.
+  - Phase 5: PARTIAL. Retained browser smoke and visual gates pass, and retained DOM paths avoid root rebuilds for required smoke examples. Wasm host-boundary integration remains pending.
+  - Phase 6: PARTIAL/DONE-for-approved-fallback. Browser playground UI, generated Zig viewer, diagnostics, and local/edge-compatible fallback compile path exist and are build-gated. Browser-hosted Zig/Wasm output is evaluated but not integrated; served fallback produces native preview output.
+- Definition-of-done status:
+  - DONE: canonical `SOURCE` syntax and canonical rejection of `LINK` / `|> LINK`.
+  - PARTIAL: `store.sources` / `todo.sources` migration evidence exists for source-physical TodoMVC state lanes, but physical TodoMVC source migration remains broader than this slice.
+  - DONE: `SOURCE` source slots lower to static Physical IR and have golden tests.
+  - DONE: Physical Runtime executes without hot source-dispatch string lookup; codegen tests assert generated source dispatch has no `std.mem.eql`.
+  - PARTIAL: `List/latest` runtime has empty/order/removed/stale/payload-shape coverage, but Zig codegen coverage is currently static initial-state folding rather than full dynamic fan-in codegen.
+  - DONE: required source-physical headless/runtime and browser gates pass for the branch examples and equivalent regression.
+  - PARTIAL: generated Zig passes semantic tests for `counter` and TodoMVC state lanes, not full legacy TodoMVC UI semantics.
+  - DONE: retained browser renderer exists and smoke asserts no full root rebuild per event for required smoke examples.
+  - DONE-for-approved-fallback: playground interpreter preview, generated Zig view, compile-to-Zig path, native preview fallback, and Boon-source diagnostics exist.
+  - NOT FULLY PROVEN: hidden element identity / `Reference[element: ...]` semantics are not comprehensively audited in this branch slice.
+  - DONE: no new user-facing `IDENTITY`, `CHANNEL`, `Source/publish`, `Stream/emit`, or event-bus workaround appears in source-physical examples/browser/playground additions.
+  - DONE: worklog and corpus manifest show required branch example evidence; broader top-level corpus statuses remain intentionally broader/partial where appropriate.
+- Current blocker/gap:
+  - The branch cannot be honestly marked complete yet because Phase 4 and Phase 5/6 still have plan-level breadth gaps: dynamic `List/latest` codegen, broad generated runtime structures, Wasm host boundary, physical TodoMVC migration depth, and hidden-identity/reference semantics audit.
+- Exact next step:
+  - continue with Phase 4 gap closure by adding dynamic `List/latest` generated-Zig coverage for empty lists, deterministic ordering, removed/stale child events, and payload-shape mismatch diagnostics, then re-run `zig build test-codegen-zig`, `zig build test-runtime`, and `zig build test-playground-compile`
+
+### Source Physical IR Phase 4 Dynamic List/latest Codegen Coverage - 2026-04-24
+
+- Phase/subphase:
+  - branch `source-physical-ir`, Phase 4 generated Zig dynamic `List/latest` fan-in coverage
+- Active branch plan:
+  - `plans/boon_zig_source_physical_ir_plan.md`
+- Files changed:
+  - `WORKLOG.md`
+  - `build.zig`
+  - `src/codegen_zig.zig`
+  - `tests/codegen_zig_tests.zig`
+  - `generated_zig/list_latest_dynamic.zig`
+- Work completed:
+  - taught the Zig code generator to emit `List/latest` support helpers whenever Physical IR contains a `list_latest` instruction
+  - kept no-update generated programs warning-clean by discarding unused dispatch parameters instead of emitting an empty source-slot switch
+  - added generated self-tests covering empty fan-in, deterministic list-order delivery, removed-item stale delivery rejection, reordered list delivery order, payload-shape mismatch diagnostics, and TodoMVC-style remove payload forwarding
+  - added a checked generated artifact for the source-physical `list_latest_regression` example
+  - added `zig build run-generated-list-latest-dynamic` and made `zig build test-codegen-zig` depend on it
+  - added codegen string assertions proving the dynamic fan-in helper is emitted without hot `std.mem.eql` source dispatch lookups
+- Commands run:
+  - `zig fmt src/codegen_zig.zig`
+  - `zig build run -- codegen-zig examples/source_physical/list_latest_regression/list_latest_regression.bn --out .zig-cache/generated-list-latest.zig`
+  - `zig build-exe .zig-cache/generated-list-latest.zig -femit-bin=.zig-cache/generated-list-latest`
+  - `./.zig-cache/generated-list-latest`
+  - `zig build run -- codegen-zig examples/source_physical/list_latest_regression/list_latest_regression.bn --out generated_zig/list_latest_dynamic.zig`
+  - `zig fmt src/codegen_zig.zig tests/codegen_zig_tests.zig build.zig generated_zig/list_latest_dynamic.zig`
+  - `zig build test-codegen-zig`
+  - `zig build run-generated-list-latest-dynamic`
+  - `zig build test-runtime`
+  - `zig build test-playground-compile`
+  - `zig build test`
+  - `git diff --check`
+  - `jq empty fixtures/corpus_manifest.json`
+- Result:
+  - generated dynamic `List/latest` artifact builds and runs, producing `state[0]=number:2`
+  - `zig build test-codegen-zig` passed and now runs `counter`, `todo_mvc_headless`, and `list_latest_dynamic` generated executables
+  - `zig build run-generated-list-latest-dynamic` passed
+  - `zig build test-runtime` passed
+  - `zig build test-playground-compile` passed
+  - `zig build test` passed
+  - `git diff --check` passed
+  - `fixtures/corpus_manifest.json` remained valid JSON
+- Remaining risks:
+  - this closes the specific dynamic `List/latest` generated-side coverage gap from the audit, but it is still helper/self-test coverage rather than full arbitrary user-program codegen for list-map child scopes
+  - broad generated runtime structures remain partial: typed record/list structs, branch activation functions, list/map scope structs, and reuse of the handwritten runtime library are not yet complete
+  - Phase 5/6 plan-level gaps remain: Wasm host boundary, deeper physical TodoMVC migration, and hidden identity/reference semantics audit
+- Exact next step:
+  - continue Phase 4 by replacing the current generated helper-only runtime surface with broader generated runtime structures for typed records/lists, branch activation, and list/map scopes, then re-run `zig build test-codegen-zig`, `zig build test-runtime`, and `zig build test-playground-compile`
+
+### Source Physical IR Phase 4 Structured Generated Runtime Plan - 2026-04-24
+
+- Phase/subphase:
+  - branch `source-physical-ir`, Phase 4 generated runtime structures for records, lists, branches, list-map scopes, and dependency edges
+- Active branch plan:
+  - `plans/boon_zig_source_physical_ir_plan.md`
+- Files changed:
+  - `WORKLOG.md`
+  - `build.zig`
+  - `src/cli.zig`
+  - `src/codegen_zig.zig`
+  - `tests/codegen_zig_tests.zig`
+  - `fixtures/physical_runtime/structured_runtime_plan.bn`
+  - `generated_zig/counter.zig`
+  - `generated_zig/todo_mvc_headless.zig`
+  - `generated_zig/list_latest_dynamic.zig`
+  - `generated_zig/structured_runtime_plan.zig`
+- Work completed:
+  - added generated `GeneratedRuntimePlan` metadata for record shapes, list shapes, branch activations, list-map scopes, and dependency edges
+  - added per-slot generated Zig structs for records, lists, branch state, and list-map item scope values where Physical IR exposes enough static shape
+  - added generated self-validation for runtime-plan table counts, non-empty record shapes, list-map item binders, and dependency edges
+  - fixed no-state generated programs so empty `AppState.writeSnapshot` remains warning-clean
+  - added `--demo-event` and `--demo-text` to `codegen-zig` so checked generated artifacts can preserve semantic demo runs without hand-editing generated files
+  - added `fixtures/physical_runtime/structured_runtime_plan.bn` covering source interface records, user records, list literals, `List/map`, and `WHILE`/branch lowering
+  - added `generated_zig/structured_runtime_plan.zig`, `zig build run-generated-structured-runtime-plan`, and made `zig build test-codegen-zig` depend on it
+  - regenerated checked generated artifacts from the current generator
+- Commands run:
+  - `zig fmt src/codegen_zig.zig`
+  - `zig build test-codegen-zig`
+  - `zig build run -- codegen-zig fixtures/physical_runtime/structured_runtime_plan.bn --out generated_zig/structured_runtime_plan.zig`
+  - `zig fmt generated_zig/structured_runtime_plan.zig`
+  - `zig build-exe generated_zig/structured_runtime_plan.zig -femit-bin=.zig-cache/generated-structured-runtime-plan`
+  - `./.zig-cache/generated-structured-runtime-plan`
+  - `zig fmt build.zig tests/codegen_zig_tests.zig src/codegen_zig.zig`
+  - `zig build run -- codegen-zig examples/source_physical/counter/counter.bn --demo-event 0 --out generated_zig/counter.zig`
+  - `zig build run -- codegen-zig examples/source_physical/todo_mvc/todo_mvc.bn --demo-event 0 --demo-text "Write tests" --out generated_zig/todo_mvc_headless.zig`
+  - `zig build run -- codegen-zig examples/source_physical/list_latest_regression/list_latest_regression.bn --out generated_zig/list_latest_dynamic.zig`
+  - `zig build run -- codegen-zig fixtures/physical_runtime/structured_runtime_plan.bn --out generated_zig/structured_runtime_plan.zig`
+  - `zig fmt generated_zig/counter.zig generated_zig/todo_mvc_headless.zig generated_zig/list_latest_dynamic.zig generated_zig/structured_runtime_plan.zig`
+  - `zig build test-codegen-zig`
+  - `zig build test-physical-ir`
+  - `zig build test-runtime`
+  - `zig build test-playground-compile`
+  - `zig build test`
+  - `zig build run-generated-structured-runtime-plan`
+  - `git diff --check`
+  - `jq empty fixtures/corpus_manifest.json`
+- Result:
+  - `zig build test-codegen-zig` passed and now builds/runs four generated artifacts: counter, TodoMVC state lanes, dynamic `List/latest`, and structured runtime plan
+  - generated counter artifact runs a demo source event and outputs `state[0]=number:1`
+  - generated TodoMVC artifact runs a text demo source event and outputs `state[0]=text:Write tests`
+  - generated structured runtime plan artifact compiles and validates its generated record/list/branch/list-map/dependency tables
+  - `zig build test-physical-ir` passed
+  - `zig build test-runtime` passed
+  - `zig build test-playground-compile` passed
+  - `zig build test` passed
+  - `zig build run-generated-structured-runtime-plan` passed
+  - `git diff --check` passed
+  - `fixtures/corpus_manifest.json` remained valid JSON
+- Remaining risks:
+  - generated runtime structures are now concrete and build-gated, but generated execution still only handles the current scalar state-lane demos plus helper/self-validation coverage for broader structures
+  - generated code does not yet call into the handwritten Physical Runtime library for arbitrary program execution, persistence, queues, or retained rendering host services
+  - Phase 5/6 plan-level gaps remain: Wasm host boundary, deeper physical TodoMVC migration, and hidden identity/reference semantics audit
+- Exact next step:
+  - continue Phase 4 by making generated Zig reuse the handwritten Physical Runtime library or an equivalent shared runtime adapter for arbitrary Physical IR execution, then prove parity on at least the structured runtime fixture plus counter/TodoMVC state lanes with `zig build test-codegen-zig`, `zig build test-runtime`, and `zig build test-playground-compile`
+
+### Source Physical IR Phase 4 Shared Runtime Adapter - 2026-04-24
+
+- Phase/subphase:
+  - branch `source-physical-ir`, Phase 4 generated Zig reuse of handwritten Physical Runtime
+- Active branch plan:
+  - `plans/boon_zig_source_physical_ir_plan.md`
+- Files changed:
+  - `WORKLOG.md`
+  - `build.zig`
+  - `src/cli.zig`
+  - `src/codegen_zig.zig`
+  - `tests/codegen_zig_tests.zig`
+  - `playground/edge_compile/local_compile.mjs`
+  - `generated_zig/counter.zig`
+  - `generated_zig/todo_mvc_headless.zig`
+  - `generated_zig/list_latest_dynamic.zig`
+  - `generated_zig/structured_runtime_plan.zig`
+- Work completed:
+  - generated Zig now imports the repo `boon` module and emits a static `physical_ir.PhysicalProgram` from the same Physical IR used by the existing scalar generated code
+  - generated artifacts run a `physical_runtime.Runtime` adapter through the handwritten runtime library, including source binding, event queue dispatch, reactive processing, and runtime state snapshots
+  - generated artifacts compare the handwritten runtime adapter snapshot against the generated `AppState` snapshot before printing output, failing with `GeneratedRuntimeAdapterMismatch` on divergence
+  - generated `counter` and TodoMVC state-lane artifacts now prove semantic parity for their demo events through both the generated scalar path and the shared runtime adapter
+  - generated `list_latest_dynamic` and `structured_runtime_plan` artifacts now compile with the shared runtime adapter and validate static Physical IR program emission
+  - build-gated generated executables now import the `boon` module through `build.zig`
+  - local and served playground Zig compile paths now pass `--dep boon -Mroot=<generated> -Mboon=src/root.zig` so direct `zig build-exe` can compile generated files that reuse the repo runtime module
+  - codegen tests now assert generated files contain the shared runtime adapter surface, static Physical IR instructions, and no hot `std.mem.eql` source dispatch lookup
+- Commands run:
+  - `zig fmt src/codegen_zig.zig src/cli.zig build.zig`
+  - `zig build run -- codegen-zig examples/source_physical/counter/counter.bn --demo-event 0 --out generated_zig/counter.zig`
+  - `zig build run -- codegen-zig examples/source_physical/todo_mvc/todo_mvc.bn --demo-event 0 --demo-text "Write tests" --out generated_zig/todo_mvc_headless.zig`
+  - `zig build run -- codegen-zig examples/source_physical/list_latest_regression/list_latest_regression.bn --out generated_zig/list_latest_dynamic.zig`
+  - `zig build run -- codegen-zig fixtures/physical_runtime/structured_runtime_plan.bn --out generated_zig/structured_runtime_plan.zig`
+  - `zig fmt generated_zig/counter.zig generated_zig/todo_mvc_headless.zig generated_zig/list_latest_dynamic.zig generated_zig/structured_runtime_plan.zig`
+  - `zig build test-codegen-zig`
+  - `zig build test-playground-compile`
+  - `zig build test-runtime`
+  - `zig build test`
+  - `zig fmt tests/codegen_zig_tests.zig`
+  - `zig build test-codegen-zig`
+  - `zig build test-physical-ir`
+  - `zig build test-runtime`
+  - `zig build test-playground-compile`
+  - `zig build test-browser-smoke`
+  - `zig build test-browser-visual`
+  - `zig build browser`
+  - `git diff --check`
+  - `jq empty fixtures/corpus_manifest.json`
+- Result:
+  - `zig build test-codegen-zig` passed with generated runtime-adapter parity checks enabled
+  - generated counter output remained `state[0]=number:1`
+  - generated TodoMVC state-lane output remained `state[0]=text:Write tests` and `state[1]=number:0`
+  - generated dynamic `List/latest` output remained `state[0]=number:2`
+  - generated structured runtime plan compiled and ran with the shared runtime adapter
+  - `zig build test-playground-compile` passed through both local and served compile paths after adding direct `zig build-exe` module import flags
+  - `zig build test-runtime` passed
+  - `zig build test` passed
+  - `zig build test-physical-ir` passed
+  - `zig build test-browser-smoke` passed
+  - `zig build test-browser-visual` passed with TodoMVC similarity `0.9063`
+  - `zig build browser` produced the browser bundle
+  - `git diff --check` passed
+  - `fixtures/corpus_manifest.json` remained valid JSON
+- Remaining risks:
+  - generated Zig now reuses the handwritten Physical Runtime for queues, source binding, reactive processing, and state snapshots, but generated arbitrary host services, persistence wiring, and retained rendering abstractions are still not generated as a standalone host integration layer
+  - generated UI semantics are still state-lane coverage rather than full legacy TodoMVC browser UI semantics
+  - Phase 5/6 plan-level review gaps remain around Wasm host boundary depth, deeper physical TodoMVC migration, and hidden identity/reference semantics audit
+- Exact next step:
+  - run a focused branch-plan audit for the remaining Phase 5/6 and definition-of-done gaps, then resolve the earliest concrete gap, starting with hidden element identity / `Reference[element: ...]` diagnostics if the codebase does not already prove source records are rejected there
+
+### Source Physical IR Definition-of-Done Reference Element Identity - 2026-04-24
+
+- Phase/subphase:
+  - branch `source-physical-ir`, definition-of-done item 15 hidden element identity / `Reference[element: ...]`
+- Active branch plan:
+  - `plans/boon_zig_source_physical_ir_plan.md`
+- Files changed:
+  - `WORKLOG.md`
+  - `src/headless.zig`
+- Work completed:
+  - added explicit `Reference` builtin handling in the headless runtime
+  - `Reference[element: ...]` now accepts real element values such as labels, buttons, checkboxes, text inputs, containers, stripes, selects, and sliders
+  - `Reference[element: ...]` now rejects records with `SourceRecordIsNotElementValue`, preventing source interface records from acting as hidden element handles
+  - added a positive test proving `Reference[element: title_label]` renders a referenced real element label
+  - added a negative test proving `Reference[element: sources.title_label]` rejects a source interface record
+- Commands run:
+  - `zig fmt src/headless.zig`
+  - `zig build test`
+  - `zig build test-runtime`
+  - `zig build test-codegen-zig`
+  - `zig build test-playground-compile`
+  - `zig build test-browser-smoke`
+  - `zig build test-browser-visual`
+  - `git diff --check`
+  - `jq empty fixtures/corpus_manifest.json`
+- Result:
+  - `zig build test` passed
+  - `zig build test-runtime` passed
+  - `zig build test-codegen-zig` passed
+  - `zig build test-playground-compile` passed
+  - `zig build test-browser-smoke` passed
+  - `zig build test-browser-visual` passed with TodoMVC similarity `0.9063`
+  - `git diff --check` passed
+  - `fixtures/corpus_manifest.json` remained valid JSON
+- Remaining risks:
+  - the headless runtime now enforces the no-hidden-identity rule for `Reference`, but browser-side retained rendering still consumes the existing host data path rather than a Wasm host boundary
+  - broader physical TodoMVC migration remains partial beyond source-physical state-lane examples
+- Exact next step:
+  - reassess the remaining branch definition-of-done gaps, with priority on `store.sources` / `todo.sources` evidence for physical TodoMVC patterns and any remaining Wasm/native host-boundary gap that is not covered by the approved local/edge playground fallback
+
+### Source Physical IR Definition-of-Done Physical TodoMVC Sources - 2026-04-24
+
+- Phase/subphase:
+  - branch `source-physical-ir`, definition-of-done item 3 `store.sources` / `todo.sources` physical TodoMVC migration evidence
+- Active branch plan:
+  - `plans/boon_zig_source_physical_ir_plan.md`
+- Files changed:
+  - `WORKLOG.md`
+  - `build.zig`
+  - `fixtures/corpus_manifest.json`
+  - `tests/physical_ir_tests.zig`
+  - `examples/source_physical/todo_mvc_physical/todo_mvc_physical.bn`
+- Work completed:
+  - added a canonical source-physical TodoMVC physical source-bag example using `store.sources` for app-level controls and `todo.sources` for per-item controls
+  - covered filter button, new-title text input, remove button, edit-title input, checkbox, and double-click source leaves without legacy `LINK`
+  - added a Physical IR golden proving the migrated source leaves lower to static source slots with typed payloads
+  - added `zig build test-physical-example-todo-mvc-physical` with runtime checks for app-level title input, item edit input, and item remove button lanes
+  - made `zig build test-runtime` depend on the new physical TodoMVC source migration gate
+  - updated the corpus manifest with branch-specific physical TodoMVC source-physical evidence while leaving broader imported physical renderer status partial
+- Commands run:
+  - `zig build run -- parse examples/source_physical/todo_mvc_physical/todo_mvc_physical.bn`
+  - `zig build run -- flow examples/source_physical/todo_mvc_physical/todo_mvc_physical.bn`
+  - `zig build run -- physical-run examples/source_physical/todo_mvc_physical/todo_mvc_physical.bn`
+  - `zig build run -- codegen-zig examples/source_physical/todo_mvc_physical/todo_mvc_physical.bn --out .zig-cache/todo-mvc-physical.zig`
+  - `zig build run -- physical-run examples/source_physical/todo_mvc_physical/todo_mvc_physical.bn --event '9:1:text:Write docs' --expect-state 'state[0]=text:Write docs'`
+  - `zig build run -- physical-run examples/source_physical/todo_mvc_physical/todo_mvc_physical.bn --event '11:1' --expect-state 'state[2]=number:1'`
+  - `zig build run -- physical-run examples/source_physical/todo_mvc_physical/todo_mvc_physical.bn --event '12:1:text:Edited title' --expect-state 'state[3]=text:Edited title'`
+  - `zig build run -- physical-run examples/source_physical/todo_mvc_physical/todo_mvc_physical.bn --event '2:1' --expect-state 'state[1]=number:1'`
+  - `zig fmt build.zig tests/physical_ir_tests.zig`
+  - `zig build test-physical-ir`
+  - `zig build test-physical-example-todo-mvc-physical`
+  - `zig build test-runtime`
+  - `zig build test`
+  - `zig build test-codegen-zig`
+  - `zig build test-playground-compile`
+  - `jq empty fixtures/corpus_manifest.json`
+  - `git diff --check`
+- Result:
+  - `zig build test-physical-ir` passed with the new physical TodoMVC `store.sources` / `todo.sources` golden
+  - `zig build test-physical-example-todo-mvc-physical` passed
+  - `zig build test-runtime` passed and now includes the new physical TodoMVC source migration gate
+  - `zig build test` passed
+  - `zig build test-codegen-zig` passed
+  - `zig build test-playground-compile` passed
+  - `fixtures/corpus_manifest.json` remained valid JSON
+  - `git diff --check` passed
+- Remaining risks:
+  - the canonical physical TodoMVC migration example proves source-shape, lowering, and runtime lanes, but it is still a state/source migration proof rather than full 3D renderer parity for the imported upstream physical example
+  - the imported upstream `todo_mvc_physical` browser/terminal renderer status remains broader and partial by design in the manifest
+- Exact next step:
+  - run a final definition-of-done audit against section 21 and resolve any remaining concrete Phase 5/6 evidence gap, especially whether the approved edge/server fallback fully satisfies the playground Boon -> Zig -> Wasm/native preview item
+
+### Source Physical IR Phase 5 Wasm Host Boundary Adapter - 2026-04-24
+
+- Phase/subphase:
+  - branch `source-physical-ir`, Phase 5 retained browser renderer Wasm host-boundary integration
+- Active branch plan:
+  - `plans/boon_zig_source_physical_ir_plan.md`
+- Files changed:
+  - `WORKLOG.md`
+  - `build.zig`
+  - `browser/boon-browser.mjs`
+  - `src/cli.zig`
+  - `tools/browser_smoke.mjs`
+  - `tools/build_browser_bundle.py`
+- Work completed:
+  - added an explicit `WasmHostBoundary` / `createWasmHostBoundary` browser adapter
+  - routed retained browser source events through static semantic-source bindings into the boundary dispatch ABI
+  - kept existing source-slot tracing so smoke tests can assert retained browser events use the same static source slot IDs as Physical IR/runtime
+  - added a physical render target snapshot hook so a future Wasm runtime can provide retained physical-renderer data through the same browser host path before falling back to HTTP/manifest data
+  - added a `wasm_host_boundary` browser smoke that proves a retained counter click dispatches `sourceSlotId`, `bindingId`, payload tag, and payload scalar through the boundary without dynamic semantic lookup in the dispatch call
+  - wired the Wasm host boundary smoke into `zig build test-browser-smoke`
+  - exposed `"wasm_host_boundary":"integrated-js-adapter"` in the served and bundled browser manifests
+- Commands run:
+  - `zig fmt build.zig src/cli.zig`
+  - `node tools/browser_smoke.mjs wasm_host_boundary`
+  - `zig build test-browser-smoke`
+  - `zig build browser`
+  - `zig build test-browser-visual`
+  - `zig build test-playground-compile`
+  - `zig build test`
+  - `zig build test-codegen-zig`
+  - `git diff --check`
+  - `jq empty fixtures/corpus_manifest.json`
+- Result:
+  - `node tools/browser_smoke.mjs wasm_host_boundary` passed
+  - `zig build test-browser-smoke` passed with `counter`, `interval`, `todo_mvc`, `cells`, and `wasm_host_boundary`
+  - `zig build browser` passed
+  - `zig build test-browser-visual` passed with TodoMVC similarity `0.9063`
+  - `zig build test-playground-compile` passed
+  - `zig build test` passed
+  - `zig build test-codegen-zig` passed
+  - `git diff --check` passed
+  - `fixtures/corpus_manifest.json` remained valid JSON
+- Remaining risks:
+  - the boundary is now integrated and smoke-gated as a browser-side ABI adapter, but this branch still uses the approved local/edge native preview fallback rather than shipping a browser-hosted Zig compiler or generated Wasm artifact
+  - the next browser-Zig step remains a separate spike against the repo's exact Zig version, as documented in `playground/browser_zig_feasibility.md`
+- Exact next step:
+  - run the final section 21 definition-of-done audit and, if no concrete implementation gap remains, record branch completion evidence in `WORKLOG.md`
+
+### Source Physical IR Branch Completion Audit - 2026-04-24
+
+- Phase/subphase:
+  - branch `source-physical-ir`, final section 21 definition-of-done audit
+- Active branch plan:
+  - `plans/boon_zig_source_physical_ir_plan.md`
+- Files changed:
+  - `WORKLOG.md`
+- Audit result:
+  - DONE: canonical branch examples use `SOURCE`, not `LINK`
+  - DONE: canonical parser/Physical IR reject legacy `LINK` and `|> LINK`; remaining `LINK` matches are legacy tests or playground diagnostic regression input
+  - DONE: `store.sources` and `todo.sources` migration works for TodoMVC and physical TodoMVC source patterns, with manifest evidence for both examples
+  - DONE: `SOURCE` leaves lower to static Physical IR source slots with golden tests
+  - DONE: Physical IR has golden tests, typed source payloads, state slots, instructions, dependency edges, and source maps
+  - DONE: Physical Runtime executes source dispatch by slot IDs rather than hot semantic string lookup
+  - DONE: `List/latest` has runtime and generated-Zig coverage for empty lists, deterministic ordering, removed/stale children, reorder, TodoMVC-style payload forwarding, and payload-shape mismatch diagnostics
+  - DONE: required source-physical examples pass through build-gated runtime checks: `counter`, `interval`, `cells`, `todo_mvc`, `pong`, `arkanoid`, and the `cells_dynamic` equivalent `list_latest_regression`
+  - DONE: Boon -> Zig codegen exists from the same Physical IR and emits checked generated artifacts
+  - DONE: generated Zig semantic checks pass for counter, TodoMVC state lanes, dynamic `List/latest`, structured runtime metadata, and the shared Physical Runtime adapter
+  - DONE: browser renderer is retained, direct-patch smoke-gated, and has no Virtual DOM dependency
+  - DONE: browser smoke and TodoMVC visual tests pass
+  - DONE: playground supports interpreter preview, generated Zig view, compile-to-Zig, diagnostics, and Boon -> Zig -> native preview through the approved local/edge-compatible fallback; browser-hosted Zig remains evaluated and documented as not integrated
+  - DONE: diagnostics map to Boon source for canonical/parser/codegen/playground paths
+  - DONE: `Reference[element: ...]` accepts real element values and rejects source records with `SourceRecordIsNotElementValue`
+  - DONE: no new user-facing `IDENTITY`, `CHANNEL`, `Source/publish`, `Stream/emit`, or event-bus workaround was introduced
+  - DONE: worklog and corpus manifest carry branch-specific source-physical evidence; broader imported-corpus physical/browser statuses remain partial only where outside this branch's source-physical scope
+- Final commands run:
+  - `zig build test-physical-ir`
+  - `zig build test-runtime`
+  - `zig build test-codegen-zig`
+  - `zig build test-playground-compile`
+  - `zig build test-browser-smoke`
+  - `zig build test-browser-visual`
+  - `zig build test`
+  - `git diff --check`
+  - `jq empty fixtures/corpus_manifest.json`
+  - `rg -n "\\|> LINK|\\bLINK\\b|IDENTITY|CHANNEL|Source/publish|Stream/emit|event-bus" examples/source_physical browser/playground-browser.mjs playground generated_zig tools/playground_smoke.mjs tools/playground_server_smoke.mjs tests/codegen_zig_tests.zig tests/physical_ir_tests.zig`
+  - `jq -r '.examples[] | select(.hard_gate==true) | [.name, (.source_physical_ir_status // "missing"), (.source_physical_ir_canonical_path // "missing")] | @tsv' fixtures/corpus_manifest.json`
+- Final result:
+  - all final build/test gates passed
+  - `git diff --check` passed
+  - `fixtures/corpus_manifest.json` remained valid JSON
+  - final forbidden-surface scan found only intentional legacy rejection/diagnostic tests, not canonical source-physical examples or generated/browser/playground user-facing additions
+  - branch plan is complete with the documented local/edge native preview fallback for the browser-Zig/Wasm compiler path
+- Remaining risks:
+  - browser-hosted Zig and real Wasm output are not shipped; this is the approved fallback path documented by Phase 6 and `playground/browser_zig_feasibility.md`
+  - upstream exact `todo_mvc_physical` full 3D renderer parity remains broader imported-corpus work, but the source-physical branch migration requirement is covered by the canonical physical TodoMVC source-bag example
+- Exact next step:
+  - user review, then commit/push only when explicitly requested
+
+### Terminal Natural PTY Completion - 2026-04-25
+
+- Phase/subphase:
+  - terminal examples and 7GUI natural live terminal closure
+- Files changed:
+  - `WORKLOG.md`
+  - `examples/terminal/todo_mvc/todo_mvc.bn`
+  - `examples/terminal/temperature_converter/temperature_converter.bn`
+  - `examples/terminal/flight_booker/flight_booker.bn`
+  - `examples/terminal/timer/timer.bn`
+  - `examples/terminal/crud/crud.bn`
+  - `examples/terminal/circle_drawer/circle_drawer.bn`
+  - `src/cli.zig`
+  - `src/verify_terminal_grid/flight_booker.expected`
+  - `src/verify_terminal_grid/timer.expected`
+  - `tests/terminal_grid/flight_booker.expected`
+  - `tests/terminal_grid/timer.expected`
+- Work completed:
+  - converted 7GUI text-input terminal projections from whole-element `LINK` wrapping to explicit input event-source records where needed, so raw PTY Tab focus and typed text work reliably
+  - added natural keyboard bindings for terminal-only controls:
+    - Flight Booker: `r` return flight, `o` one-way flight, `b` book
+    - Timer: `2` short duration, `5` normal duration, `r` reset
+    - CRUD: `c` create, `u` update, `d` delete
+    - Circle Drawer: `c` canvas click, `u` undo
+  - added a terminal default-submit path so pressing Enter in a focused text input can activate visible `Add`, `Create`, or `Book` buttons
+  - kept deterministic terminal-grid expectations current after adding visible Flight Booker and Timer controls
+- Commands run:
+  - `zig build`
+  - tmux-backed PTY live checks for all 11 examples:
+    - `counter`: Enter increments
+    - `interval`: live loop ticks past `2`
+    - `cells`: Enter, Backspace, `7`, Enter edits A0 and recomputes dependents
+    - `todo_mvc`: Tab, typed `Write tests`, Enter adds the todo and reaches `3itemsleft`
+    - `pong`: Enter/Space starts and rallies
+    - `arkanoid`: Right/Enter/Space reduces bricks to `Bricks:2`
+    - `temperature_converter`: Tab and typed `100` converts to `212`
+    - `flight_booker`: `r`, Tab/Tab, typed `2026-03-05`, Enter books the return flight
+    - `timer`: `2` changes duration to `2s`
+    - `crud`: Tab through fields, typed `Love`, `Ada`, `Lovelace`, Enter creates
+    - `circle_drawer`: `c`, `c`, `u` ends at `Circles:1`
+  - `zig build verify-examples-terminal`
+  - `zig build verify-examples-headless`
+  - `zig build test`
+  - `zig fmt --check $(rg --files -g '*.zig')`
+  - `git diff --check`
+  - `jq empty fixtures/corpus_manifest.json`
+- Results:
+  - all 11 examples passed real tmux-backed PTY assertions without debug command-mode actions
+  - `verify-examples-terminal` passed for all 11 terminal examples
+  - `verify-examples-headless` passed for the six main examples
+  - `zig build test`, formatting check, diff whitespace check, and manifest JSON check passed
+- Remaining risks:
+  - CRUD remains a pragmatic terminal projection with form/status behavior, not a full browser-style mutable people-list clone
+- Exact next step:
+  - continue branch-plan implementation or commit only if explicitly requested
+
+### Terminal Example Live-Test Closure - 2026-04-25
+
+- Phase/subphase:
+  - terminal examples and 7GUI live-test follow-up
+- Files changed:
+  - `WORKLOG.md`
+  - `examples/terminal/todo_mvc/todo_mvc.bn`
+  - `src/cli.zig`
+  - `src/verify_terminal_grid/todo_mvc.expected`
+  - `tests/terminal_grid/todo_mvc.expected`
+- Work completed:
+  - fixed TodoMVC terminal add flow with an explicit `Add` button, draft text state, and direct text-input event source wiring so `text 0 Write tests` plus `click-label Add` adds a third todo and clears the input
+  - confirmed Cells editing through terminal coordinates with `mouse-double-click 6 5`, `text-active 7`, and `key-active Enter`
+  - added generic live terminal ANSI styling for non-Cells examples while keeping deterministic snapshots unchanged
+  - updated TodoMVC terminal-grid/headless initial expectations for the visible `Add` control
+- Commands run:
+  - `zig fmt src/cli.zig`
+  - `zig build verify-examples-terminal`
+  - `zig build verify-examples-headless`
+  - command-mode `zig build run -- run-terminal ... --source-mode legacy-migration` live checks for `counter`, `interval`, `cells`, `todo_mvc`, `pong`, `arkanoid`, `temperature_converter`, `flight_booker`, `timer`, `crud`, and `circle_drawer`
+  - tmux-backed PTY smoke checks for `counter`, `interval`, and `cells`
+- Results:
+  - `verify-examples-terminal` passed for all 11 terminal examples
+  - `verify-examples-headless` passed for the six main examples
+  - live command-mode checks passed:
+    - `counter`: click increments to `1`
+    - `interval`: virtual wait reaches `2`
+    - `cells`: A0 edit displays `Formula  A0 : 7`
+    - `todo_mvc`: `Write tests` appears and count reaches `3itemsleft`
+    - `pong`: status reaches `Rally`
+    - `arkanoid`: brick count reaches `Bricks:2`
+    - `temperature_converter`: Fahrenheit edit drives Celsius to `0` and Fahrenheit to `32`
+    - `flight_booker`: return booking status renders `Booked return flight:2026-03-03to2026-03-05`
+    - `timer`: slider change renders `2s`
+    - `crud`: create action renders `Created`
+    - `circle_drawer`: two canvas clicks plus undo renders `Circles:1`
+  - tmux PTY checks passed for real terminal rendering of counter increment, interval ticking, and Cells keyboard edit
+- Remaining risks:
+  - command-mode interaction is still required for text/click controls that do not expose natural keyboard bindings in the raw PTY
+  - TodoMVC scripted verification actions without an intermediate render can still expose a stale-control cache crash after list mutation, so the automated TodoMVC gate remains an initial-render snapshot while live interaction is covered separately
+- Exact next step:
+  - run the full repo verification suite after this terminal closure pass
+
+### Terminal Example Live-Test Expansion - 2026-04-25
+
+- Phase/subphase:
+  - branch `source-physical-ir`, terminal example validation and 7GUI terminal projection expansion
+- Files changed:
+  - `examples/terminal/interval/interval.bn`
+  - `examples/terminal/temperature_converter/temperature_converter.bn`
+  - `examples/terminal/flight_booker/flight_booker.bn`
+  - `examples/terminal/timer/timer.bn`
+  - `examples/terminal/crud/crud.bn`
+  - `examples/terminal/circle_drawer/circle_drawer.bn`
+  - `src/cli.zig`
+  - `src/headless.zig`
+  - `src/verify_terminal_grid/*.expected`
+  - `tests/examples/7gui_*_sequence.json`
+  - `tests/terminal_grid/*.expected`
+  - `fixtures/corpus_manifest.json`
+- Work completed:
+  - live-tested the original six terminal examples; fixed `interval` so the PTY starts visible and ticks through `Terminal/new.loop` while preserving deterministic virtual-time snapshot behavior
+  - added terminal projections for the five missing 7GUI examples: temperature converter, flight booker, timer, CRUD, and circle drawer
+  - added reusable terminal command verification actions and `slider` command support for terminal/live/script control paths
+  - added terminal-grid verification fixtures for the five new 7GUI projections; `verify-examples-terminal` now covers 11 terminal examples
+  - added minimal terminal SVG hit-region plumbing, but the 7GUI circle drawer terminal projection uses explicit terminal controls because SVG coordinate clicks still need deeper runtime payload work
+- Commands run:
+  - `zig build verify-examples-terminal`
+  - `zig build verify-examples-headless`
+  - `zig build test`
+  - `zig build run -- run-terminal examples/terminal/counter/counter.bn --source-mode legacy-migration` in a PTY; debug command `click 0` changed `0` to `1`
+  - `zig build run -- run-terminal examples/terminal/interval/interval.bn --source-mode legacy-migration` in a PTY; screen advanced from `0` through live ticks
+  - `zig build run -- run-terminal examples/terminal/cells/cells.bn --source-mode legacy-migration` in a PTY; rendered the spreadsheet grid, but scripted debug edit by label did not find the visible cell label
+  - fallback terminal smoke commands for TodoMVC, Pong, Arkanoid, and the five new 7GUI terminal projections
+- Results:
+  - `verify-examples-terminal` passed: 11 passed, 0 blockers
+  - `verify-examples-headless` passed: 6 passed, 0 blockers
+  - `zig build test` passed
+  - live/fallback terminal smoke evidence confirmed Pong rally, Arkanoid brick reduction, temperature conversion, flight booking, timer slider update, CRUD status update, and circle-drawer count update
+- Remaining risks:
+  - TodoMVC terminal text insertion through `text 0 ...`/`key 0 Enter` still does not add a todo; the original verified snapshot remains intact
+  - Cells rendered correctly in a PTY, but the attempted debug-command edit by label failed with `UnknownControlLabel`; raw arrow/enter editing had worked in earlier manual smoke, but this pass only reconfirmed rendering and gates
+  - CRUD is a pragmatic terminal projection with deterministic status text rather than full browser-style mutable list semantics
+- Exact next step:
+  - decide whether to deepen terminal runtime event payload/text-input semantics for TodoMVC, Cells command-mode editing, CRUD list mutation, and SVG coordinate clicks, or keep these as documented terminal projection limits
+
+### Source Physical IR Post-Audit Gate Corrections - 2026-04-24
+
+- Phase/subphase:
+  - branch `source-physical-ir`, Phase 0/3/4/21 post-audit correction pass after rerunning the real gates
+- Active branch plan:
+  - `plans/boon_zig_source_physical_ir_plan.md`
+- Files changed:
+  - `WORKLOG.md`
+  - `build.zig`
+  - `fixtures/corpus_manifest.json`
+  - `src/cli.zig`
+  - `src/headless.zig`
+  - `src/source_mode.zig`
+  - `src/host_schema.zig`
+  - `src/physical.zig`
+  - `generated_zig/interval.zig`
+  - `generated_zig/cells.zig`
+  - `generated_zig/pong.zig`
+  - `generated_zig/arkanoid.zig`
+- Work completed:
+  - invalidated stale `.zig-cache/boon-runtime` compiled programs by bumping both the CLI compiled cache schema and serialized headless compiled cache version after the `BuiltinOp` enum layout changed
+  - fixed the resulting required headless/terminal gates; the stale cache had decoded old builtin-op ordinals as newer operations
+  - preserved the v4 no-hidden-element-identity rule while making legacy `Reference[element: link_slot]` resolve real element links when already bound and render as `NoElement` when not yet bound
+  - formatted the remaining unformatted Zig files from the branch work
+  - added generated-Zig executables and `zig build test-codegen-zig` coverage for `interval`, `cells`, `pong`, and `arkanoid`, closing the stricter Phase 4 requirement that generated Zig covers the required example set rather than only counter/TodoMVC/List/latest
+  - added branch-specific corpus manifest entries for repo-authored required `pong` and `arkanoid` examples, including canonical source-physical paths and command evidence
+- Commands run:
+  - `zig fmt src/headless.zig src/cli.zig src/source_mode.zig`
+  - `zig fmt src/host_schema.zig src/physical.zig`
+  - `zig build run -- run-headless examples/terminal/counter/counter.bn --script tests/examples/counter_sequence.json --source-mode legacy-migration --trace`
+  - `zig build run -- run-headless examples/upstream/todo_mvc/todo_mvc.bn --source-mode legacy-migration --trace`
+  - `zig build test-headless-counter`
+  - `zig build test-headless-while`
+  - `zig build verify-examples-headless`
+  - `zig build verify-examples-terminal`
+  - `zig build run -- codegen-zig examples/source_physical/interval/interval.bn --out generated_zig/interval.zig --demo-event 0`
+  - `zig build run -- codegen-zig examples/source_physical/cells/cells.bn --out generated_zig/cells.zig --demo-event 0 --demo-text '=add(A0,A1)'`
+  - `zig build run -- codegen-zig examples/source_physical/pong/pong.bn --out generated_zig/pong.zig --demo-event 0 --demo-text Enter`
+  - `zig build run -- codegen-zig examples/source_physical/arkanoid/arkanoid.bn --out generated_zig/arkanoid.zig --demo-event 0 --demo-text Left`
+  - `zig fmt build.zig generated_zig/interval.zig generated_zig/cells.zig generated_zig/pong.zig generated_zig/arkanoid.zig`
+  - `zig build test-codegen-zig`
+  - `zig build test`
+  - `zig build test-runtime`
+  - `zig build test-physical-ir`
+  - `zig build test-headless-list-keys`
+  - `zig build test-browser-smoke`
+  - `zig build test-browser-visual`
+  - `zig build test-playground-compile`
+  - `zig build verify-corpus`
+  - `zig build verify-corpus -- --parse-only`
+  - `zig build verify-upstream-pin`
+  - `zig build run -- physical-run examples/source_physical/pong/pong.bn --event 0:1:text:Enter --expect-state 'state[0]=text:Enter'`
+  - `zig build run -- physical-run examples/source_physical/arkanoid/arkanoid.bn --event 0:1:text:Left --expect-state 'state[0]=text:Left'`
+  - `zig fmt --check $(rg --files -g '*.zig')`
+  - `git diff --check`
+  - `jq empty fixtures/corpus_manifest.json`
+  - `jq -r '.examples[] | select(.hard_gate==true or (.name=="cells_dynamic")) | [.name, (.source_physical_ir_status // "missing"), (.source_physical_ir_canonical_path // "missing")] | @tsv' fixtures/corpus_manifest.json`
+- Results:
+  - all named Phase 0 gates passed
+  - `verify-examples-headless` passed for `counter`, `interval`, `cells`, `todo_mvc`, `pong`, and `arkanoid`
+  - `verify-examples-terminal` passed for `counter`, `interval`, `cells`, `todo_mvc`, `pong`, and `arkanoid`
+  - `test-codegen-zig` now runs generated executables for `counter`, `todo_mvc`, `list_latest_regression`, `interval`, `cells`, `pong`, `arkanoid`, and the structured runtime-plan fixture
+  - browser smoke passed for `counter`, `interval`, `todo_mvc`, `cells`, and `wasm_host_boundary`
+  - browser visual passed for TodoMVC with similarity `0.9063`
+  - `zig fmt --check`, `git diff --check`, `jq empty fixtures/corpus_manifest.json`, `verify-corpus`, `verify-corpus --parse-only`, and `verify-upstream-pin` passed
+  - a parallel `verify-corpus --parse-only` run initially reported `CorpusGitCheckoutFailed` while another corpus verifier was running; rerunning parse-only by itself passed, so no corpus/parsing failure remains
+- Remaining risks:
+  - browser-hosted Zig and real Wasm output are still not integrated; the branch remains on the documented local/edge-compatible native preview fallback path accepted by Phase 6
+  - the current compiled cache still serializes builtin ops by enum ordinal, so future enum layout changes must bump the cache version again unless the serializer is made name-based
+- Blockers:
+  - none currently known for the branch plan
+- Exact next step:
+  - user review, then commit/push only when explicitly requested
+
+### Terminal Natural PTY Completion Follow-Up - 2026-04-25
+
+- Phase/subphase:
+  - terminal examples and 7GUI natural live terminal closure after the no-debug-command requirement
+- Files changed:
+  - `WORKLOG.md`
+  - `examples/terminal/todo_mvc/todo_mvc.bn`
+  - `examples/terminal/temperature_converter/temperature_converter.bn`
+  - `examples/terminal/flight_booker/flight_booker.bn`
+  - `examples/terminal/timer/timer.bn`
+  - `examples/terminal/crud/crud.bn`
+  - `examples/terminal/circle_drawer/circle_drawer.bn`
+  - `src/cli.zig`
+  - `src/verify_terminal_grid/flight_booker.expected`
+  - `src/verify_terminal_grid/timer.expected`
+  - `tests/terminal_grid/flight_booker.expected`
+  - `tests/terminal_grid/timer.expected`
+- Work completed:
+  - converted Temperature Converter, Flight Booker, and CRUD terminal text inputs to explicit event-source records so raw PTY Tab focus and typing work naturally
+  - added natural keyboard bindings for Flight Booker, Timer, CRUD, and Circle Drawer
+  - added terminal default-submit handling so Enter in focused text inputs activates visible `Add`, `Create`, or `Book`
+  - updated terminal-grid fixtures for visible Flight Booker and Timer controls
+- Commands run:
+  - `zig build`
+  - tmux-backed PTY assertions for all 11 examples using natural keys only
+  - `zig build verify-examples-terminal`
+  - `zig build verify-examples-headless`
+  - `zig build test`
+  - `zig fmt --check $(rg --files -g '*.zig')`
+  - `git diff --check`
+  - `jq empty fixtures/corpus_manifest.json`
+- Results:
+  - all 11 examples passed real tmux-backed PTY assertions without debug command-mode actions
+  - terminal/headless gates and full Zig tests passed
+  - formatting, whitespace, and manifest JSON checks passed
+- Remaining risks:
+  - CRUD remains a terminal projection with form/status behavior rather than a full retained browser-style people list
+- Exact next step:
+  - continue branch-plan implementation or commit only when explicitly requested
+
+### Terminal Cells Dynamic PTY Closure - 2026-04-25
+
+- Phase/subphase:
+  - terminal examples and full 7GUI live terminal closure, including the `cells_dynamic` spreadsheet variant
+- Files changed:
+  - `WORKLOG.md`
+  - `examples/terminal/cells_dynamic/cells_dynamic.bn`
+  - `src/cli.zig`
+  - `src/verify_terminal_grid/cells_dynamic.expected`
+  - `tests/terminal_grid/cells_dynamic.expected`
+- Work completed:
+  - added keyboard-first terminal controls to `cells_dynamic`: visible focus/formula status, arrow selection, Enter-to-edit, and live formula override updates
+  - reduced `cells_dynamic` terminal rendering to a visible window over the full logical 100x26 sheet so live PTY edits stay responsive
+  - made Enter on a focused terminal text input blur after delivering the key event, which lets edit-mode terminal controls return to their display state
+  - added `cells_dynamic` to the terminal-grid verification gate; `verify-examples-terminal` now covers 12 terminal examples
+- Commands run:
+  - `zig build run -- parse examples/terminal/cells_dynamic/cells_dynamic.bn`
+  - `zig build`
+  - tmux-backed PTY assertion for `cells_dynamic`: Enter, type `7`, Enter; verified `Formula A1 :57`, `[ 57 ]`, dependent `67`, and ANSI styled capture
+  - tmux-backed PTY assertions for all 12 terminal examples using natural keys
+  - `zig build verify-examples-terminal`
+  - `zig build verify-examples-headless`
+  - `zig build test`
+  - `zig fmt --check $(rg --files -g '*.zig')`
+  - `git diff --check`
+  - `jq empty fixtures/corpus_manifest.json`
+- Results:
+  - all 12 terminal examples passed real tmux-backed PTY assertions
+  - `verify-examples-terminal` passed with `12 passed, 0 exact blockers recorded`
+  - `verify-examples-headless`, full Zig tests, Zig formatting, whitespace, and manifest JSON checks passed
+- Remaining risks:
+  - CRUD remains a pragmatic terminal projection with form/status behavior rather than a full retained browser-style people list
+- Exact next step:
+  - commit only when explicitly requested, or continue branch-plan implementation from the next incomplete item
+
+### Terminal Live PTY Latency Evidence - 2026-04-25
+
+- Phase/subphase:
+  - final live terminal confidence pass for the 6 main examples, the 7GUI set, and `cells_dynamic`
+- Files changed:
+  - `WORKLOG.md`
+- Work completed:
+  - reran all terminal examples through real `tmux` PTY sessions using natural keyboard input
+  - checked expected visible behavior, 256-color ANSI styling, and screen-update latency after the final key sequence
+  - verified there were no leftover `run-terminal` or `tmux` sessions after the pass
+- Commands run:
+  - `zig build verify-examples-terminal`
+  - `zig build verify-examples-headless`
+  - `zig build test`
+  - tmux-backed color+fast PTY pass for all 12 terminal examples
+  - tmux-backed screen-update latency pass for all 12 terminal examples
+  - `zig fmt --check $(rg --files -g '*.zig')`
+  - `git diff --check`
+  - `jq empty fixtures/corpus_manifest.json`
+- Results:
+  - `verify-examples-terminal` passed with `12 passed, 0 exact blockers recorded`
+  - `verify-examples-headless` passed with `6 passed, 0 exact blockers recorded`
+  - full Zig tests, formatting, whitespace, and manifest JSON checks passed
+  - color+fast PTY pass verified behavior, 256-color foreground ANSI escapes, and timing thresholds for:
+    - `counter`
+    - `interval`
+    - `cells`
+    - `cells_dynamic`
+    - `todo_mvc`
+    - `pong`
+    - `arkanoid`
+    - `temperature_converter`
+    - `flight_booker`
+    - `timer`
+    - `crud`
+    - `circle_drawer`
+  - latency pass measured post-key screen updates at:
+    - `counter`: 8ms
+    - `interval`: 10ms after the intentional timer wait
+    - `cells`: 5ms
+    - `cells_dynamic`: 10ms
+    - `todo_mvc`: 26ms
+    - `pong`: 5ms
+    - `arkanoid`: 9ms
+    - `temperature_converter`: 14ms
+    - `flight_booker`: 5ms
+    - `timer`: 5ms
+    - `crud`: 5ms
+    - `circle_drawer`: 20ms
+- Remaining risks:
+  - CRUD is still a terminal-focused projection with form/status behavior rather than a full retained browser-style people-list implementation
+- Exact next step:
+  - no remaining live-terminal example work is known; commit only when explicitly requested, or continue the broader branch plan from the next incomplete item
+
+### Canonical SOURCE Terminal Migration - 2026-04-25
+
+- Phase/subphase:
+  - terminal examples migrated from legacy `LINK` spelling and migration-mode execution to canonical `SOURCE` execution
+- Files changed:
+  - `WORKLOG.md`
+  - `build.zig`
+  - `examples/terminal/*/*.bn`
+  - `examples/upstream/while/while.bn`
+  - `src/cli.zig`
+  - `src/flow_ir.zig`
+  - `src/fmt.zig`
+  - `src/headless.zig`
+  - `src/hir.zig`
+  - `src/lexer.zig`
+  - `src/parser.zig`
+  - `src/source_mode.zig`
+- Work completed:
+  - rewrote terminal examples from `LINK` to canonical `SOURCE`
+  - added `SOURCE` as the accepted event-source keyword in the lexer/HIR/Flow path
+  - removed `LINK` as an accepted HIR/Flow event-source spelling; remaining `LINK` references are rejection diagnostics/tests only
+  - changed CLI/build defaults for example verification and terminal/headless runs to canonical mode, so `--source-mode legacy-migration` is no longer part of the normal path
+  - removed source-mode flags from the public help text and from the build aliases used by terminal/headless gates
+  - bumped the compiled runtime cache schema after changing `SOURCE` keyword lowering
+- Commands run:
+  - canonical parse loop over every `examples/terminal/*/*.bn` file without `--source-mode`
+  - `zig build verify-examples-terminal`
+  - `zig build verify-examples-headless`
+  - `zig build test-headless-while`
+  - `zig build test`
+  - live tmux PTY pass for all 12 terminal examples using `zig build run -- run-terminal <path>` without `--source-mode`
+- Results:
+  - all terminal examples parse as canonical by default
+  - `verify-examples-terminal` passed with `12 passed, 0 exact blockers recorded`
+  - `verify-examples-headless` passed with `6 passed, 0 exact blockers recorded`
+  - `test-headless-while` passed after migrating the upstream while fixture to `SOURCE`
+  - full Zig tests passed
+  - live PTY pass verified expected behavior and 256-color ANSI output for all 12 terminal examples with no source-mode flag
+- Remaining risks:
+  - parser/Physical IR still keep explicit diagnostics for old `LINK` syntax so users get a targeted error instead of a generic parse/lower failure
+  - broader imported upstream corpus examples outside this terminal/while slice may still contain historical `LINK` text and need separate canonical migration before they can run in default canonical mode
+- Exact next step:
+  - run final format/whitespace checks, then commit only when explicitly requested
+
+### Canonical SOURCE Cleanup and Live Recheck - 2026-04-25
+
+- Phase/subphase:
+  - remove the remaining source-mode CLI compatibility parameter and migrate runnable examples to current `SOURCE` spelling
+- Files changed:
+  - `WORKLOG.md`
+  - `examples/**/*.bn`
+  - `src/cli.zig`
+  - `src/headless.zig`
+  - `src/hir.zig`
+  - `src/flow_ir.zig`
+  - `src/parser.zig`
+  - `src/physical_ir.zig`
+  - `src/root.zig`
+- Work completed:
+  - removed `--source-mode` parsing from parse/HIR/Flow/run/run-headless/snapshot/physical-state/serve-browser/example/verify-examples/codegen/physical-run CLI paths
+  - removed the obsolete internal `source_mode` module and source-mode fields from compiler/runtime/CLI option paths
+  - rewrote every runnable `.bn` file under `examples/` from legacy `LINK` spelling to canonical `SOURCE`
+  - verified `--source-mode canonical` is rejected as an unknown flag
+- Commands run:
+  - `rg -n "\bLINK\b|\|> LINK" -g '*.bn' examples`
+  - parse loop over every `examples/**/*.bn` file using `zig build run -- parse <path>`
+  - `zig build test`
+  - `zig build test-headless-while`
+  - `zig build run -- verify-examples --terminal-grid --all`
+  - `zig build run -- verify-examples --headless --all`
+  - `zig build verify-examples-terminal`
+  - `zig build verify-examples-headless`
+  - `zig build run -- verify-corpus`
+  - `zig build run -- parse examples/terminal/counter/counter.bn --source-mode canonical`
+  - `zig fmt --check $(rg --files -g '*.zig')`
+  - `jq empty fixtures/corpus_manifest.json && git diff --check`
+  - `rg -n "source_mode|SourceMode|source-mode|legacy_migration|legacy-migration" src build.zig tests examples`
+  - tmux-backed PTY live checks using `zig build run -- run-terminal <path>` without `--source-mode`
+  - final tmux-backed PTY live recheck after removing internal `source_mode` plumbing
+- Results:
+  - no runnable Boon example files under `examples/` contain `LINK` or `|> LINK`
+  - all example `.bn` files parse in the default canonical mode
+  - `zig build test` passed
+  - terminal-grid verification passed with `12 passed, 0 exact blockers recorded`
+  - headless verification passed with `6 passed, 0 exact blockers recorded`
+  - corpus verification passed
+  - `test-headless-while` passed with `render A + BA - B`
+  - no source-mode or legacy-migration code/flag references remain in `src`, `build.zig`, `tests`, or `examples`
+  - `--source-mode canonical` fails with `error: unknown command or flag`, confirming the old CLI parameter is gone
+  - live PTY checks passed for `counter`, `interval`, `cells`, `cells_dynamic`, `todo_mvc`, `pong`, `arkanoid`, `temperature_converter`, `flight_booker`, `timer`, `crud`, and `circle_drawer`
+  - live PTY checks verified ANSI escape output and expected post-interaction text for all 12 terminal examples
+  - final live PTY recheck passed for all 12 terminal examples after the internal `source_mode` removal
+  - no leftover `run-terminal` processes remained after the live PTY pass
+- Remaining risks:
+  - parser/Physical IR still intentionally keep targeted diagnostics for old `LINK` source text; this is a user-facing error path, not a compatibility execution bridge
+- Exact next step:
+  - continue broader branch-plan implementation, or commit only when explicitly requested
+
+### Terminal Playground Example - 2026-04-25
+
+- Phase/subphase:
+  - add a terminal-native playground example that can switch among the main terminal examples and 7GUIs from one Boon screen
+- Files changed:
+  - `WORKLOG.md`
+  - `examples/terminal/playground/playground.bn`
+  - `src/cli.zig`
+  - `src/verify_terminal_grid/playground.expected`
+  - `tests/terminal_grid/playground.expected`
+  - `tests/examples/terminal_playground_sequence.json`
+- Work completed:
+  - added `examples/terminal/playground/playground.bn`
+  - added `playground` as a built-in example alias and terminal-grid verification case
+  - added raw CSI handling for `Shift+Right` / `Shift+Left` so real terminal arrow chords reach declared Boon bindings
+  - added tab buttons for `counter`, `interval`, `cells`, `cells_dynamic`, `todo_mvc`, `pong`, `arkanoid`, `temperature_converter`, `flight_booker`, `timer`, `crud`, and `circle_drawer`
+  - implemented keyboard tab cycling with guarded bindings to the real tab `SOURCE`s and direct mouse tab selection via button hit regions
+  - kept the example fully canonical `SOURCE`, with no legacy `LINK` or source-mode compatibility path
+- Commands run:
+  - `zig build run -- parse examples/terminal/playground/playground.bn`
+  - `zig build run -- flow examples/terminal/playground/playground.bn`
+  - `zig build run -- snapshot examples/terminal/playground/playground.bn`
+  - `zig build run -- run-headless examples/terminal/playground/playground.bn --script /tmp/boon-playground-next.json`
+  - `zig build run -- run-headless examples/terminal/playground/playground.bn --script /tmp/boon-playground-prev.json`
+  - `zig build run -- run-headless examples/terminal/playground/playground.bn --script /tmp/boon-playground-click.json`
+  - `zig build run -- run-headless examples/terminal/playground/playground.bn --script tests/examples/terminal_playground_sequence.json`
+  - `zig build run -- verify-examples --terminal-grid --filter playground`
+  - `zig build verify-examples-terminal`
+  - `zig fmt --check src/cli.zig`
+  - `zig build test`
+  - `zig build run -- verify-corpus`
+  - `git diff --check`
+  - tmux-backed PTY `zig build run -- run-terminal examples/terminal/playground/playground.bn` with real `Shift+Right` and `Shift+Left`
+  - tmux-backed PTY command-mode `mouse-click 43 2` on the TodoMVC tab
+  - headless full-tab cycle over all 12 playground tabs
+- Results:
+  - parse, Flow, and snapshot passed
+  - terminal-grid verification passed with `13 passed, 0 exact blockers recorded`
+  - `zig build test`, `verify-corpus`, formatting check, and whitespace check passed
+  - headless `Shift+Right` selected `Interval`
+  - headless `Shift+Left` wrapped from `Counter` to `Circle Drawer`
+  - headless mouse click at the TodoMVC tab selected `TodoMVC`
+  - scripted `Shift+Right`, `Shift+Right`, TodoMVC tab click, `Shift+Left` ended on `Cells Dynamic`
+  - all 12 playground tabs were selected and rendered through headless keyboard navigation
+  - full 12-tab headless cycle completed in 52ms
+  - live PTY measured `Shift+Right` at 9ms and `Shift+Left` at 9ms from captured screen polling
+  - live PTY command-mode mouse click selected the TodoMVC tab in 11ms through the same terminal mouse handler used by SGR mouse input
+  - terminal output includes 256-color ANSI styling for headings, selected tabs, and controls
+- Remaining risks:
+  - Boon has no include/import facility for embedding another `.bn` file directly, so the playground composes lightweight Boon preview panes for the examples instead of literally including each example source file
+  - automated raw SGR mouse injection under tmux did not select reliably; direct mouse behavior is covered by headless `mouse_click` and live terminal command-mode `mouse-click`, both through the terminal mouse dispatch path
+- Exact next step:
+  - optionally replace the preview-pane approach with literal Boon include semantics if/when the language grows an import/include feature; otherwise continue broader branch-plan implementation or commit only when explicitly requested
+
+### Zig-host Terminal Playground Multiplexer - 2026-04-26
+
+- Phase/subphase:
+  - replace the fake Boon preview playground with a real Zig-host terminal playground multiplexer
+- Files changed:
+  - `WORKLOG.md`
+  - `build.zig`
+  - `src/cli.zig`
+  - `tests/examples/terminal_playground_sequence.json`
+- Work completed:
+  - added `boon-zig run-playground` and alias `boon-zig run_play`
+  - added build steps `zig build run_play`, `zig build run_play_fast`, and `zig build test-terminal-playground`
+  - removed `playground` from normal `example <name>` resolution because it is now a Zig host, not a Boon example
+  - removed the fake `examples/terminal/playground/playground.bn` preview path from terminal-grid verification
+  - implemented a Zig-host multiplexer that owns one real `headless.Session` per terminal example, preserves per-tab state, renders the selected child full-size, and routes keyboard/mouse input into the active child
+  - reserved `Shift+Left` / `Shift+Right`, `[` / `]`, and `h` / `l` for tab switching
+  - routed raw SGR mouse clicks on the tab row to tab selection and translated below-header mouse coordinates into the active child session
+  - added special `verify-examples --terminal-grid --filter playground` coverage that proves Interval ticks, Cells edits A0 to `7`, mouse tab selection reaches TodoMVC, and Shift+Left lands on Cells Dynamic
+- Commands run:
+  - `zig build test`
+  - `zig build verify-examples-terminal`
+  - `zig build test-terminal-playground`
+  - `zig build run_play -- --script tests/examples/terminal_playground_sequence.json`
+  - `zig build run_play_fast -- --script tests/examples/terminal_playground_sequence.json`
+  - `zig build run -- verify-corpus`
+  - `zig fmt src/cli.zig build.zig`
+  - `zig fmt --check src/cli.zig build.zig`
+  - `git diff --check`
+  - tmux-backed PTY `zig build run_play` live checks for Shift-arrow tab switching, Interval ticking, Cells editing, command-mode mouse tab selection, and raw SGR mouse tab selection
+- Results:
+  - `zig build test` passed
+  - `verify-examples-terminal` passed with `13 passed, 0 exact blockers recorded`
+  - `test-terminal-playground` passed
+  - `run_play` and `run_play_fast` scripted playground runs passed and ended on the real Cells Dynamic tab
+  - corpus verification, formatting check, and whitespace check passed
+  - live PTY raw SGR mouse selected TodoMVC in 8ms
+  - live PTY Shift+Right selected Interval in 7ms, Interval advanced to `1`, Cells opened edit mode in 33ms, and Cells committed A0 to `7` in 12ms when driven with terminal `BSpace`
+- Remaining risks:
+  - first startup still compiles/loads all child examples; the fast-interaction target applies after the playground is loaded
+  - inactive tabs intentionally preserve state but do not tick in the background
+- Exact next step:
+  - continue broader branch-plan implementation, or commit only when explicitly requested
+
+### Zig-host Terminal Playground Live Verification and Runtime Cache Fix - 2026-04-26
+
+- Phase/subphase:
+  - terminal playground hardening and honest live PTY verification for all bundled terminal examples
+- Files changed:
+  - `WORKLOG.md`
+  - `src/headless.zig`
+- Work completed:
+  - fixed a live-terminal crash/error path found while exercising examples inside `zig build run_play`
+  - `snapshotAlloc` now evaluates cacheable root values with the session arena instead of the scratch arena, preventing terminal contract reuse from seeing dangling cached UI values after a state change
+  - element-scope identity now uses a shallow value identity for synthetic `element` frames, avoiding recursive hashing of volatile terminal metadata while keeping different element scopes distinct
+  - preserved existing control-scope capture behavior after confirming Pong's terminal key bindings require it
+  - live-tested every playground tab in a real tmux PTY using `zig build run_play`
+- Commands run:
+  - `zig build run -- snapshot examples/terminal/counter/counter.bn --script /tmp/boon_counter_click.json`
+  - `zig build run -- verify-examples --terminal-grid --filter pong`
+  - `zig build test-terminal-playground`
+  - `zig build verify-examples-terminal`
+  - `zig build test`
+  - `zig build run_play -- --script tests/examples/terminal_playground_sequence.json`
+  - `zig fmt src/headless.zig`
+  - `zig fmt --check src/headless.zig src/cli.zig build.zig`
+  - `git diff --check`
+  - tmux-backed PTY `zig build run_play` full pass over Counter, Interval, Cells, Cells Dynamic, TodoMVC, Pong, Arkanoid, Temperature Converter, Flight Booker, Timer, CRUD, and Circle Drawer
+- Results:
+  - counter button click no longer crashes during the next terminal render
+  - Pong terminal-grid verification passed again after restoring scoped key binding behavior
+  - `test-terminal-playground` passed
+  - `verify-examples-terminal` passed with `13 passed, 0 exact blockers recorded`
+  - `zig build test` passed
+  - scripted `run_play` passed and ended on the real Cells Dynamic tab
+  - formatting and whitespace checks passed
+  - live PTY full pass verified:
+    - Counter increments through playground command-mode button click
+    - Shift+Right selects Interval in about 89ms and Interval ticks while active
+    - Cells opens A0 edit mode and commits A0 to `7` in about 345ms
+    - Cells Dynamic renders inside the playground
+    - raw SGR mouse tab click selects TodoMVC
+    - TodoMVC adds `Write tests`
+    - Pong starts with Enter and renders Rally after ticking
+    - Arkanoid renders bricks/paddle after input
+    - Temperature Converter updates Celsius to Fahrenheit and Fahrenheit to Celsius
+    - Flight Booker books a return flight
+    - Timer renders elapsed/duration UI after slider input
+    - CRUD creates an Ada Lovelace record
+    - Circle Drawer handles two canvas clicks and Undo, leaving `Circles:1`
+    - Shift+Right wraps Circle to Counter in about 92ms and Shift+Left wraps back to Circle
+  - the captured playground log had no `error:`, panic, segmentation, corrupt-value, or `ExpectedRecordValue` entries
+- Remaining risks:
+  - inactive playground tabs still preserve state without ticking in the background
+  - startup still loads all child examples before interaction begins
+- Exact next step:
+  - continue broader branch-plan implementation, or commit only when explicitly requested

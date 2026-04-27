@@ -1,7 +1,7 @@
 -- Test: Do objects in a list have independent HOLD state?
 FUNCTION make_counter() {
     [
-        button: LINK
+        button: SOURCE
 
         count: 0 |> HOLD state {
             button.event.press |> THEN { state + 1 }
@@ -44,11 +44,11 @@ document: Document/new(root: Element/stripe(
 
                 items: LIST {
                     Element/button(
-                        element: [event: [press: LINK]]
+                        element: [event: [press: SOURCE]]
                         style: [padding: 10]
                         label: TEXT { Click me }
                     )
-                    |> LINK { counter.button }
+                    |> SOURCE { counter.button }
 
                     Element/label(
                         element: []

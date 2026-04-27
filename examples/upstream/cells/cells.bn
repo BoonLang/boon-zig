@@ -301,33 +301,33 @@ FUNCTION make_cell_element(cell) {
         formula_text: cell_formula(column: cell.column, row: cell.row)
         display_value: compute_value(formula_text: formula_text)
         is_editing: is_editing_cell(cell: cell)
-        display_element: [event: [double_click: LINK]]
-        editing_element: [event: [change: LINK, key_down: LINK, blur: LINK]]
+        display_element: [event: [double_click: SOURCE]]
+        editing_element: [event: [change: SOURCE, key_down: SOURCE, blur: SOURCE]]
 
         edit_started_link:
             display_element.event.double_click
             |> THEN { cell.row }
-            |> LINK { event_ports.edit_started_row }
+            |> SOURCE { event_ports.edit_started_row }
 
         edit_started_column_link:
             display_element.event.double_click
             |> THEN { cell.column }
-            |> LINK { event_ports.edit_started_column }
+            |> SOURCE { event_ports.edit_started_column }
 
         edit_started_text_link:
             display_element.event.double_click
             |> THEN { cell_formula(column: cell.column, row: cell.row) }
-            |> LINK { event_ports.edit_text_event }
+            |> SOURCE { event_ports.edit_text_event }
 
         edit_started_active_link:
             display_element.event.double_click
             |> THEN { True }
-            |> LINK { event_ports.edit_active_event }
+            |> SOURCE { event_ports.edit_active_event }
 
         edit_changed_link:
             editing_element.event.change
             |> THEN { editing_element.event.change.text }
-            |> LINK { event_ports.edit_text_event }
+            |> SOURCE { event_ports.edit_text_event }
 
         edit_committed_link:
             editing_element.event.key_down.key
@@ -340,7 +340,7 @@ FUNCTION make_cell_element(cell) {
 
                 __ => SKIP
             }
-            |> LINK { event_ports.edit_committed }
+            |> SOURCE { event_ports.edit_committed }
 
         edit_commit_active_reset_link:
             editing_element.event.key_down.key
@@ -348,7 +348,7 @@ FUNCTION make_cell_element(cell) {
                 Enter => False
                 __ => SKIP
             }
-            |> LINK { event_ports.edit_active_event }
+            |> SOURCE { event_ports.edit_active_event }
 
         edit_commit_text_reset_link:
             editing_element.event.key_down.key
@@ -356,7 +356,7 @@ FUNCTION make_cell_element(cell) {
                 Enter => Text/empty()
                 __ => SKIP
             }
-            |> LINK { event_ports.edit_text_event }
+            |> SOURCE { event_ports.edit_text_event }
 
         edit_cancelled_link:
             editing_element.event.key_down.key
@@ -364,7 +364,7 @@ FUNCTION make_cell_element(cell) {
                 Escape => False
                 __ => SKIP
             }
-            |> LINK { event_ports.edit_active_event }
+            |> SOURCE { event_ports.edit_active_event }
 
         edit_cancel_text_reset_link:
             editing_element.event.key_down.key
@@ -372,17 +372,17 @@ FUNCTION make_cell_element(cell) {
                 Escape => Text/empty()
                 __ => SKIP
             }
-            |> LINK { event_ports.edit_text_event }
+            |> SOURCE { event_ports.edit_text_event }
 
         edit_blurred_link:
             editing_element.event.blur
             |> THEN { False }
-            |> LINK { event_ports.edit_active_event }
+            |> SOURCE { event_ports.edit_active_event }
 
         edit_blur_text_reset_link:
             editing_element.event.blur
             |> THEN { Text/empty() }
-            |> LINK { event_ports.edit_text_event }
+            |> SOURCE { event_ports.edit_text_event }
 
         is_editing |> WHILE {
             True => Element/text_input(
@@ -548,11 +548,11 @@ document: Document/new(root: Element/stripe(
 ))
 
 event_ports: [
-    edit_started_row: LINK
-    edit_started_column: LINK
-    edit_text_event: LINK
-    edit_active_event: LINK
-    edit_committed: LINK
+    edit_started_row: SOURCE
+    edit_started_column: SOURCE
+    edit_text_event: SOURCE
+    edit_active_event: SOURCE
+    edit_committed: SOURCE
 ]
 
 edit_committed: event_ports.edit_committed

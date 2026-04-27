@@ -1,3 +1,17 @@
 tick: Duration [seconds: 1] |> Timer/interval()
-value: tick |> THEN { 1 } |> Math/sum()
-terminal: Terminal/new(root: value, loop: None)
+elements: [tick_button: SOURCE]
+
+value: LATEST {
+    0
+    tick |> THEN { 1 } |> Math/sum()
+    elements.tick_button.event.press |> THEN { 1 } |> Math/sum()
+}
+
+terminal: Terminal/new(
+    root: value
+    loop: [
+        pulse: elements.tick_button
+        while: True
+        every: Duration [seconds: 1]
+    ]
+)

@@ -1,0 +1,12 @@
+sources: [
+    keyboard: [event: [key_down: SOURCE]]
+    frame: [event: [tick: SOURCE]]
+]
+
+paddle_input: 0 |> HOLD paddle_input {
+    sources.keyboard.event.key_down
+}
+
+frame_count: 0 |> HOLD frame_count {
+    sources.frame.event.tick |> THEN { frame_count + 1 }
+}

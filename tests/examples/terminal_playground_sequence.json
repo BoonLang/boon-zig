@@ -1,0 +1,11 @@
+[
+  ["press_key", "Shift+Right"],
+  ["wait", 2500],
+  ["press_key", "Shift+Right"],
+  ["press_key", "Enter"],
+  ["press_key", "Backspace"],
+  ["press_key", "7"],
+  ["press_key", "Enter"],
+  ["mouse_click", 43, 0],
+  ["press_key", "Shift+Left"]
+]

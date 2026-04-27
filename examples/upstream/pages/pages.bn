@@ -2,7 +2,7 @@
 -- Exercises: Router/route, Router/go_to, WHEN/WHILE patterns
 
 store: [
-    nav: [home: LINK, about: LINK, contact: LINK]
+    nav: [home: SOURCE, about: SOURCE, contact: SOURCE]
 
     -- Navigate when buttons are pressed (must be inside store to keep actor alive)
     nav_action:
@@ -39,13 +39,13 @@ document: Document/new(root: Element/stripe(
 
             items: LIST {
                 nav_button(label: TEXT { Home }, route: TEXT { / })
-                |> LINK { store.nav.home }
+                |> SOURCE { store.nav.home }
 
                 nav_button(label: TEXT { About }, route: TEXT { /about })
-                |> LINK { store.nav.about }
+                |> SOURCE { store.nav.about }
 
                 nav_button(label: TEXT { Contact }, route: TEXT { /contact })
-                |> LINK { store.nav.contact }
+                |> SOURCE { store.nav.contact }
             }
         )
 
@@ -93,7 +93,7 @@ FUNCTION nav_button(label, route) {
         is_active: current_route == route
 
         Element/button(
-            element: [event: [press: LINK]]
+            element: [event: [press: SOURCE]]
 
             style: [
                 padding: [row: 16, column: 8]

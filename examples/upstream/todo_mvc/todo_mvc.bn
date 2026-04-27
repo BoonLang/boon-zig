@@ -1,9 +1,9 @@
 store: [
     elements: [
-        filter_buttons: [all: LINK, active: LINK, completed: LINK]
-        remove_completed_button: LINK
-        toggle_all_checkbox: LINK
-        new_todo_title_text_input: LINK
+        filter_buttons: [all: SOURCE, active: SOURCE, completed: SOURCE]
+        remove_completed_button: SOURCE
+        toggle_all_checkbox: SOURCE
+        new_todo_title_text_input: SOURCE
     ]
 
     navigation_result:
@@ -70,10 +70,10 @@ store: [
 FUNCTION new_todo(title) {
     [
         todo_elements: [
-            remove_todo_button: LINK
-            editing_todo_title_element: LINK
-            todo_title_element: LINK
-            todo_checkbox: LINK
+            remove_todo_button: SOURCE
+            editing_todo_title_element: SOURCE
+            todo_title_element: SOURCE
+            todo_checkbox: SOURCE
         ]
 
         title: LATEST {
@@ -236,10 +236,10 @@ FUNCTION main_panel() {
                     toggle_all_checkbox(
                         is_visible: PASSED.store.todos |> List/is_empty() |> Bool/not()
                     )
-                    |> LINK { PASSED.store.elements.toggle_all_checkbox }
+                    |> SOURCE { PASSED.store.elements.toggle_all_checkbox }
 
                     new_todo_title_text_input()
-                    |> LINK { PASSED.store.elements.new_todo_title_text_input }
+                    |> SOURCE { PASSED.store.elements.new_todo_title_text_input }
                 }
             )
 
@@ -266,7 +266,7 @@ FUNCTION main_panel() {
 
 FUNCTION new_todo_title_text_input() {
     Element/text_input(
-        element: [event: [change: LINK, key_down: LINK, blur: LINK, focus: LINK]]
+        element: [event: [change: SOURCE, key_down: SOURCE, blur: SOURCE, focus: SOURCE]]
 
         style: [
             width: Fill
@@ -298,7 +298,7 @@ FUNCTION new_todo_title_text_input() {
 
 FUNCTION todo_item(todo) {
     Element/stripe(
-        element: [hovered: LINK]
+        element: [hovered: SOURCE]
         direction: Row
         gap: 10
 
@@ -315,7 +315,7 @@ FUNCTION todo_item(todo) {
             todo.editing |> WHILE {
                 True =>
                     Element/text_input(
-                        element: [event: [change: LINK, key_down: LINK, blur: LINK]]
+                        element: [event: [change: SOURCE, key_down: SOURCE, blur: SOURCE]]
 
                         style: [
                             width: Fill
@@ -347,11 +347,11 @@ FUNCTION todo_item(todo) {
                         placeholder: []
                         focus: True
                     )
-                    |> LINK { todo.todo_elements.editing_todo_title_element }
+                    |> SOURCE { todo.todo_elements.editing_todo_title_element }
 
                 False =>
                     Element/label(
-                        element: [event: [double_click: LINK]]
+                        element: [event: [double_click: SOURCE]]
 
                         style: [
                             width: Fill
@@ -370,13 +370,13 @@ FUNCTION todo_item(todo) {
 
                         label: todo.title
                     )
-                    |> LINK { todo.todo_elements.todo_title_element }
+                    |> SOURCE { todo.todo_elements.todo_title_element }
             }
 
             element.hovered |> WHILE {
                 True =>
                     remove_todo_button()
-                    |> LINK { todo.todo_elements.remove_todo_button }
+                    |> SOURCE { todo.todo_elements.remove_todo_button }
 
                 False => NoElement
             }
@@ -407,7 +407,7 @@ FUNCTION toggle_all_checkbox(is_visible) {
         all_completed: PASSED.store.all_completed
 
         Element/checkbox(
-            element: [event: [click: LINK]]
+            element: [event: [click: SOURCE]]
 
             style: [
                 width: 45
@@ -458,7 +458,7 @@ FUNCTION todo_checkbox(todo) {
         }
 
         Element/checkbox(
-            element: [event: [click: LINK]]
+            element: [event: [click: SOURCE]]
             style: []
             label: Reference[element: todo.todo_elements.todo_title_element]
             checked: todo.completed
@@ -480,13 +480,13 @@ FUNCTION todo_checkbox(todo) {
                 child: NoElement
             )
         )
-        |> LINK { todo.todo_elements.todo_checkbox }
+        |> SOURCE { todo.todo_elements.todo_checkbox }
     }
 }
 
 FUNCTION remove_todo_button() {
     Element/button(
-        element: [event: [press: LINK], hovered: LINK]
+        element: [event: [press: SOURCE], hovered: SOURCE]
 
         style: [
             align: Right
@@ -536,7 +536,7 @@ FUNCTION panel_footer() {
             |> WHILE {
                 True =>
                     remove_completed_button()
-                    |> LINK { PASSED.store.elements.remove_completed_button }
+                    |> SOURCE { PASSED.store.elements.remove_completed_button }
 
                 False => NoElement
             })
@@ -579,20 +579,20 @@ FUNCTION filters_element() {
 
         items: LIST {
             filter_button(filter: All)
-            |> LINK { PASSED.store.elements.filter_buttons.all }
+            |> SOURCE { PASSED.store.elements.filter_buttons.all }
 
             filter_button(filter: Active)
-            |> LINK { PASSED.store.elements.filter_buttons.active }
+            |> SOURCE { PASSED.store.elements.filter_buttons.active }
 
             filter_button(filter: Completed)
-            |> LINK { PASSED.store.elements.filter_buttons.completed }
+            |> SOURCE { PASSED.store.elements.filter_buttons.completed }
         }
     )
 }
 
 FUNCTION filter_button(filter) {
     Element/button(
-        element: [event: [press: LINK], hovered: LINK]
+        element: [event: [press: SOURCE], hovered: SOURCE]
 
         style: [
             padding: [row: 8, column: 4]
@@ -629,7 +629,7 @@ FUNCTION filter_button(filter) {
 
 FUNCTION remove_completed_button() {
     Element/button(
-        element: [event: [press: LINK], hovered: LINK]
+        element: [event: [press: SOURCE], hovered: SOURCE]
         style: [font: [line: [underline: element.hovered]]]
         label: TEXT { Clear completed }
     )
@@ -668,7 +668,7 @@ FUNCTION footer() {
 
 FUNCTION footer_link(label, to) {
     Element/link(
-        element: [hovered: LINK]
+        element: [hovered: SOURCE]
         style: [font: [line: [underline: element.hovered]]]
         label: label
         to: to

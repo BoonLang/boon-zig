@@ -2,7 +2,7 @@
 -- BUG: TEXT { Value: {store.value} } doesn't update when store.value changes
 
 store: [
-    toggle: LINK
+    toggle: SOURCE
 
     value: False |> HOLD state {
         toggle.event.press |> THEN { state |> Bool/not() }
@@ -18,11 +18,11 @@ document: Document/new(root: Element/stripe(
     items: LIST {
         -- Test 1: Direct TEXT interpolation in button label
         Element/button(
-            element: [event: [press: LINK]]
+            element: [event: [press: SOURCE]]
             style: [padding: 10]
             label: TEXT { Toggle (value: {store.value}) }
         )
-        |> LINK { store.toggle }
+        |> SOURCE { store.toggle }
 
         -- Test 2: Separate label element with TEXT interpolation
         Element/label(

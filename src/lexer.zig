@@ -188,6 +188,7 @@ fn isKeyword(lexeme: []const u8) bool {
         "LIST",
         "MAP",
         "LINK",
+        "SOURCE",
         "LATEST",
         "HOLD",
         "THEN",

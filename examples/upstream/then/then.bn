@@ -9,7 +9,7 @@ FUNCTION sum_of_steps(step, seconds) {
 }
 
 addition_button: Element/button(
-    element: [event: [press: LINK]]
+    element: [event: [press: SOURCE]]
     style: []
     label: TEXT { A + B }
 )

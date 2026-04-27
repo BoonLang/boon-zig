@@ -7,15 +7,18 @@ pub const Command = union(enum) {
     help,
     version,
     format: []const u8,
-    parse: []const u8,
-    hir: []const u8,
-    flow: []const u8,
+    parse: SourcePathArgs,
+    hir: SourcePathArgs,
+    flow: SourcePathArgs,
+    physical_run: PhysicalRunArgs,
+    codegen_zig: CodegenZigArgs,
     sync_corpus,
     verify_corpus: VerifyCorpusArgs,
     verify_upstream_pin,
     verify_examples: VerifyExamplesArgs,
     build_browser: BuildBrowserArgs,
     verify_visual: VerifyVisualArgs,
+    run_playground: PlaygroundArgs,
     example: TerminalArgs,
     run: TerminalArgs,
     run_headless: HeadlessArgs,
@@ -47,6 +50,38 @@ pub const BrowserServeArgs = struct {
     port: u16,
 };
 
+pub const SourcePathArgs = struct {
+    path: []const u8,
+};
+
+pub const CodegenZigArgs = struct {
+    path: []const u8,
+    out_path: ?[]const u8 = null,
+    demo_event: ?boon.codegen_zig.DemoEvent = null,
+};
+
+pub const PhysicalRunArgs = struct {
+    path: []const u8,
+    event: ?PhysicalRunEventArg = null,
+    interval: ?PhysicalRunIntervalArg = null,
+    virtual_time_ms: u64 = 0,
+    expect_state: ?[]const u8 = null,
+    state_dir: ?[]const u8 = null,
+    clear_state: bool = false,
+};
+
+pub const PhysicalRunEventArg = struct {
+    source_slot_id: boon.physical_ir.SourceSlotId,
+    binding_id: boon.physical_runtime.BindingId,
+    payload: boon.physical_runtime.RuntimeValue = .pulse,
+};
+
+pub const PhysicalRunIntervalArg = struct {
+    source_slot_id: boon.physical_ir.SourceSlotId,
+    binding_id: boon.physical_runtime.BindingId,
+    period_ms: u64,
+};
+
 pub const VerifyCorpusArgs = struct {
     parse_only: bool,
 };
@@ -76,6 +111,12 @@ pub const TerminalArgs = struct {
     script_path: ?[]const u8,
 };
 
+pub const PlaygroundArgs = struct {
+    trace: bool,
+    virtual_time_ms: u64,
+    script_path: ?[]const u8,
+};
+
 pub fn run(
     allocator: std.mem.Allocator,
     io: std.Io,
@@ -94,15 +135,18 @@ pub fn run(
             return 0;
         },
         .format => |path| return try runFormat(allocator, io, path, stdout, stderr),
-        .parse => |path| return try runParse(allocator, io, path, stdout, stderr),
-        .hir => |path| return try runHir(allocator, io, path, stdout, stderr),
-        .flow => |path| return try runFlow(allocator, io, path, stdout, stderr),
+        .parse => |parse_args| return try runParse(allocator, io, parse_args, stdout, stderr),
+        .hir => |hir_args| return try runHir(allocator, io, hir_args, stdout, stderr),
+        .flow => |flow_args| return try runFlow(allocator, io, flow_args, stdout, stderr),
+        .physical_run => |physical_args| return try runPhysicalRun(allocator, io, physical_args, stdout, stderr),
+        .codegen_zig => |codegen_args| return try runCodegenZig(allocator, io, codegen_args, stdout, stderr),
         .sync_corpus => return try runSyncCorpus(allocator, io, stdout, stderr),
         .verify_corpus => |verify_corpus_args| return try runVerifyCorpus(allocator, io, verify_corpus_args, stdout, stderr),
         .verify_upstream_pin => return try runVerifyUpstreamPin(allocator, io, stdout, stderr),
         .verify_examples => |verify_args| return try runVerifyExamples(allocator, io, verify_args, stdout, stderr),
         .build_browser => |build_browser_args| return try runBuildBrowser(allocator, io, build_browser_args, stdout, stderr),
         .verify_visual => |verify_visual_args| return try runVerifyVisual(allocator, io, verify_visual_args, stdout, stderr),
+        .run_playground => |playground_args| return try runTerminalPlayground(allocator, io, playground_args, stdout, stderr),
         .example => |terminal_args| return try runTerminal(allocator, io, terminal_args, stdout, stderr),
         .run => |terminal_args| return try runTerminal(allocator, io, terminal_args, stdout, stderr),
         .run_headless => |headless_args| return try runHeadless(allocator, io, headless_args, stdout, stderr),
@@ -125,7 +169,7 @@ fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) !Command {
     }
     if (std.mem.eql(u8, arg, "parse")) {
         if (args.len <= 2) return error.MissingPath;
-        return .{ .parse = args[2] };
+        return .{ .parse = try parseSourcePathArgs(args[2], args, 3) };
     }
     if (std.mem.eql(u8, arg, "format")) {
         if (args.len <= 2) return error.MissingPath;
@@ -133,11 +177,19 @@ fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) !Command {
     }
     if (std.mem.eql(u8, arg, "hir")) {
         if (args.len <= 2) return error.MissingPath;
-        return .{ .hir = args[2] };
+        return .{ .hir = try parseSourcePathArgs(args[2], args, 3) };
     }
     if (std.mem.eql(u8, arg, "flow")) {
         if (args.len <= 2) return error.MissingPath;
-        return .{ .flow = args[2] };
+        return .{ .flow = try parseSourcePathArgs(args[2], args, 3) };
+    }
+    if (std.mem.eql(u8, arg, "physical-run")) {
+        if (args.len <= 2) return error.MissingPath;
+        return .{ .physical_run = try parsePhysicalRunArgs(args[2], args, 3) };
+    }
+    if (std.mem.eql(u8, arg, "codegen-zig")) {
+        if (args.len <= 2) return error.MissingPath;
+        return .{ .codegen_zig = try parseCodegenZigArgs(args[2], args, 3) };
     }
     if (std.mem.eql(u8, arg, "sync-corpus")) {
         return .sync_corpus;
@@ -169,6 +221,8 @@ fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) !Command {
                 mode = .headless;
             } else if (std.mem.eql(u8, flag, "--terminal-grid")) {
                 mode = .terminal_grid;
+            } else if (std.mem.eql(u8, flag, "--all")) {
+                filter = "all";
             } else if (std.mem.eql(u8, flag, "--filter")) {
                 index += 1;
                 if (index >= args.len) return error.MissingFilter;
@@ -221,6 +275,9 @@ fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) !Command {
     if (std.mem.eql(u8, arg, "example")) {
         if (args.len <= 2) return error.MissingPath;
         return .{ .example = try parseTerminalArgs(try resolveExamplePath(args[2]), args, 3) };
+    }
+    if (std.mem.eql(u8, arg, "run-playground") or std.mem.eql(u8, arg, "run_play")) {
+        return .{ .run_playground = try parsePlaygroundArgs(args, 2) };
     }
     if (std.mem.eql(u8, arg, "run") or std.mem.eql(u8, arg, "run-terminal")) {
         if (args.len <= 2) return error.MissingPath;
@@ -396,6 +453,113 @@ fn parseTerminalArgs(path: []const u8, args: []const []const u8, start_index: us
     };
 }
 
+fn parseSourcePathArgs(path: []const u8, args: []const []const u8, start_index: usize) !SourcePathArgs {
+    if (args.len > start_index) return error.UnknownCommand;
+    return .{ .path = path };
+}
+
+fn parseCodegenZigArgs(path: []const u8, args: []const []const u8, start_index: usize) !CodegenZigArgs {
+    var out_path: ?[]const u8 = null;
+    var demo_source_slot_id: ?boon.physical_ir.SourceSlotId = null;
+    var demo_payload: boon.codegen_zig.DemoPayload = .pulse;
+    var index: usize = start_index;
+    while (index < args.len) : (index += 1) {
+        const flag = args[index];
+        if (std.mem.eql(u8, flag, "--out")) {
+            index += 1;
+            if (index >= args.len) return error.MissingOutPath;
+            out_path = args[index];
+        } else if (std.mem.eql(u8, flag, "--demo-event")) {
+            index += 1;
+            if (index >= args.len) return error.MissingDemoEvent;
+            demo_source_slot_id = try std.fmt.parseInt(boon.physical_ir.SourceSlotId, args[index], 10);
+        } else if (std.mem.eql(u8, flag, "--demo-text")) {
+            index += 1;
+            if (index >= args.len) return error.MissingDemoText;
+            demo_payload = .{ .text = args[index] };
+        } else {
+            return error.UnknownCommand;
+        }
+    }
+    const demo_event: ?boon.codegen_zig.DemoEvent = if (demo_source_slot_id) |source_slot_id|
+        .{ .source_slot_id = source_slot_id, .payload = demo_payload }
+    else
+        null;
+    return .{ .path = path, .out_path = out_path, .demo_event = demo_event };
+}
+
+fn parsePhysicalRunArgs(path: []const u8, args: []const []const u8, start_index: usize) !PhysicalRunArgs {
+    var event: ?PhysicalRunEventArg = null;
+    var interval: ?PhysicalRunIntervalArg = null;
+    var virtual_time_ms: u64 = 0;
+    var expect_state: ?[]const u8 = null;
+    var state_dir: ?[]const u8 = null;
+    var clear_state = false;
+    var index: usize = start_index;
+    while (index < args.len) : (index += 1) {
+        const flag = args[index];
+        if (std.mem.eql(u8, flag, "--event")) {
+            index += 1;
+            if (index >= args.len) return error.MissingPhysicalRunEvent;
+            event = try parsePhysicalRunEventArg(args[index]);
+        } else if (std.mem.eql(u8, flag, "--interval")) {
+            index += 1;
+            if (index >= args.len) return error.MissingPhysicalRunInterval;
+            interval = try parsePhysicalRunIntervalArg(args[index]);
+        } else if (std.mem.eql(u8, flag, "--virtual-time")) {
+            index += 1;
+            if (index >= args.len) return error.MissingVirtualTime;
+            virtual_time_ms = try parseDurationArg(args[index]);
+        } else if (std.mem.eql(u8, flag, "--expect-state")) {
+            index += 1;
+            if (index >= args.len) return error.MissingExpectedState;
+            expect_state = args[index];
+        } else if (std.mem.eql(u8, flag, "--state-dir")) {
+            index += 1;
+            if (index >= args.len) return error.MissingStateDir;
+            state_dir = args[index];
+        } else if (std.mem.eql(u8, flag, "--clear-state")) {
+            clear_state = true;
+        } else {
+            return error.UnknownCommand;
+        }
+    }
+    return .{
+        .path = path,
+        .event = event,
+        .interval = interval,
+        .virtual_time_ms = virtual_time_ms,
+        .expect_state = expect_state,
+        .state_dir = state_dir,
+        .clear_state = clear_state,
+    };
+}
+
+fn parsePhysicalRunEventArg(text: []const u8) !PhysicalRunEventArg {
+    const colon = std.mem.indexOfScalar(u8, text, ':') orelse return error.InvalidPhysicalRunEvent;
+    const binding_start = colon + 1;
+    const second_colon = std.mem.indexOfScalarPos(u8, text, binding_start, ':');
+    const binding_end = second_colon orelse text.len;
+    return .{
+        .source_slot_id = try std.fmt.parseInt(boon.physical_ir.SourceSlotId, text[0..colon], 10),
+        .binding_id = try std.fmt.parseInt(boon.physical_runtime.BindingId, text[binding_start..binding_end], 10),
+        .payload = if (second_colon) |payload_start|
+            try boon.physical_runtime.parseRuntimeValue(text[payload_start + 1 ..])
+        else
+            .pulse,
+    };
+}
+
+fn parsePhysicalRunIntervalArg(text: []const u8) !PhysicalRunIntervalArg {
+    const first_colon = std.mem.indexOfScalar(u8, text, ':') orelse return error.InvalidPhysicalRunInterval;
+    const second_colon = std.mem.indexOfScalarPos(u8, text, first_colon + 1, ':') orelse return error.InvalidPhysicalRunInterval;
+    return .{
+        .source_slot_id = try std.fmt.parseInt(boon.physical_ir.SourceSlotId, text[0..first_colon], 10),
+        .binding_id = try std.fmt.parseInt(boon.physical_runtime.BindingId, text[first_colon + 1 .. second_colon], 10),
+        .period_ms = try parseDurationArg(text[second_colon + 1 ..]),
+    };
+}
+
 fn resolveExamplePath(name: []const u8) ![]const u8 {
     if (std.mem.eql(u8, name, "counter")) return "examples/terminal/counter/counter.bn";
     if (std.mem.eql(u8, name, "interval")) return "examples/terminal/interval/interval.bn";
@@ -407,6 +571,34 @@ fn resolveExamplePath(name: []const u8) ![]const u8 {
     if (std.mem.eql(u8, name, "todo_mvc_physical")) return "examples/upstream/todo_mvc_physical/RUN.bn";
     if (std.mem.indexOfScalar(u8, name, '/') != null or std.mem.endsWith(u8, name, ".bn")) return name;
     return error.UnknownExample;
+}
+
+fn parsePlaygroundArgs(args: []const []const u8, start_index: usize) !PlaygroundArgs {
+    var trace = false;
+    var virtual_time_ms: u64 = 0;
+    var script_path: ?[]const u8 = null;
+    var index = start_index;
+    while (index < args.len) : (index += 1) {
+        const flag = args[index];
+        if (std.mem.eql(u8, flag, "--trace")) {
+            trace = true;
+        } else if (std.mem.eql(u8, flag, "--virtual-time")) {
+            index += 1;
+            if (index >= args.len) return error.MissingVirtualTime;
+            virtual_time_ms = try parseDurationArg(args[index]);
+        } else if (std.mem.eql(u8, flag, "--script")) {
+            index += 1;
+            if (index >= args.len) return error.MissingScriptPath;
+            script_path = args[index];
+        } else {
+            return error.UnknownCommand;
+        }
+    }
+    return .{
+        .trace = trace,
+        .virtual_time_ms = virtual_time_ms,
+        .script_path = script_path,
+    };
 }
 
 fn parseDurationArg(text: []const u8) !u64 {
@@ -431,12 +623,15 @@ pub fn writeHelp(writer: *std.Io.Writer) !void {
         \\  boon-zig parse <path>
         \\  boon-zig hir <path>
         \\  boon-zig flow <path>
+        \\  boon-zig physical-run <path> [--event <source-slot-id>:<binding-id>[:payload]] [--interval <source-slot-id>:<binding-id>:<duration>] [--virtual-time <duration>] [--state-dir <path>] [--clear-state] [--expect-state <line>]
+        \\  boon-zig codegen-zig <path> [--out <path>] [--demo-event <source-slot-id>] [--demo-text <text>]
         \\  boon-zig sync-corpus
         \\  boon-zig verify-corpus [--parse-only]
         \\  boon-zig verify-upstream-pin
-        \\  boon-zig verify-examples --headless|--terminal-grid [--filter <name|p0>]
+        \\  boon-zig verify-examples --headless|--terminal-grid [--filter <name|p0>|--all]
         \\  boon-zig build-browser --out-dir <path>
         \\  boon-zig verify-visual --filter <name>|--all-with-reference-assets
+        \\  boon-zig run-playground [--trace] [--virtual-time <duration>] [--script <path>]
         \\  boon-zig example <name> [--trace] [--virtual-time <duration>] [--script <path>]
         \\  boon-zig run <path> [--trace] [--virtual-time <duration>] [--script <path>]
         \\  boon-zig run-headless <path> [--trace] [--virtual-time <duration>] [--state-dir <path>] [--clear-state] [--script <path>] [--expect-text <text>]
@@ -449,12 +644,15 @@ pub fn writeHelp(writer: *std.Io.Writer) !void {
         \\  parse    Lex and parse a Boon source file and print structural stats.
         \\  hir      Lower a Boon source file into HIR and print lowering stats.
         \\  flow     Lower a Boon source file into Flow IR and print graph stats.
+        \\  physical-run  Execute Physical Runtime state for a canonical Boon source.
+        \\  codegen-zig  Emit generated Zig from Physical IR.
         \\  sync-corpus  Sync the pinned upstream playground example tree into examples/upstream.
         \\  verify-corpus  Verify the imported upstream tree and parser coverage.
         \\  verify-upstream-pin  Verify fixtures/upstream_pin.json matches compiled corpus constants.
         \\  verify-examples  Run Zig-native example verification lanes.
         \\  build-browser  Export the browser host bundle and manifest.
         \\  verify-visual  Run the browser visual comparison lane.
+        \\  run-playground  Run the Zig-host terminal playground multiplexer.
         \\  example  Run a built-in example by short name: counter, interval, cells, cells_dynamic, todo_mvc, pong, arkanoid.
         \\  run     Run a Terminal/new Boon source file in the interactive terminal host.
         \\  run-headless  Run a Boon source file in the headless runtime.
@@ -478,6 +676,7 @@ const VerifyAction = union(enum) {
     mouse_click: struct { x: usize, y: usize },
     mouse_double_click: struct { x: usize, y: usize },
     mouse_double_click_first_label,
+    terminal_command: []const u8,
 };
 
 const VerifyHeadlessCase = struct {
@@ -535,6 +734,35 @@ const verify_arkanoid_actions = [_]VerifyAction{
     .{ .press_key = "Space" },
 };
 
+const verify_temperature_converter_actions = [_]VerifyAction{
+    .{ .terminal_command = "text 0 100" },
+    .{ .terminal_command = "text 1 32" },
+};
+
+const verify_flight_booker_actions = [_]VerifyAction{
+    .{ .terminal_command = "select 0 return" },
+    .{ .terminal_command = "text 0 2026-03-03" },
+    .{ .terminal_command = "text 1 2026-03-05" },
+    .{ .terminal_command = "click-label Book" },
+};
+
+const verify_timer_actions = [_]VerifyAction{
+    .{ .terminal_command = "slider 0 2" },
+};
+
+const verify_crud_actions = [_]VerifyAction{
+    .{ .terminal_command = "text 0 Love" },
+    .{ .terminal_command = "text 1 Ada" },
+    .{ .terminal_command = "text 2 Lovelace" },
+    .{ .terminal_command = "click-label Create" },
+};
+
+const verify_circle_drawer_actions = [_]VerifyAction{
+    .{ .terminal_command = "click-label Canvas click" },
+    .{ .terminal_command = "click-label Canvas click" },
+    .{ .terminal_command = "click-label Undo" },
+};
+
 const headless_p0_cases = [_]VerifyHeadlessCase{
     .{
         .name = "counter",
@@ -556,7 +784,7 @@ const headless_p0_cases = [_]VerifyHeadlessCase{
     .{
         .name = "todo_mvc",
         .path = "examples/terminal/todo_mvc/todo_mvc.bn",
-        .expected = .{ .exact = "todos❯NoElementBuy groceriesNoElementClean room 2itemsleftAllActiveCompletedNoElementDouble-click to edit a todoCreated by Martin KavíkPart of TodoMVC" },
+        .expected = .{ .exact = "todos❯AddNoElementBuy groceriesNoElementClean room 2itemsleftAllActiveCompletedNoElementDouble-click to edit a todoCreated by Martin KavíkPart of TodoMVC" },
     },
     .{
         .name = "pong",
@@ -591,6 +819,11 @@ const terminal_grid_p0_cases = [_]VerifySnapshotCase{
         .expected_text = @embedFile("verify_terminal_grid/cells.expected"),
     },
     .{
+        .name = "cells_dynamic",
+        .path = "examples/terminal/cells_dynamic/cells_dynamic.bn",
+        .expected_text = @embedFile("verify_terminal_grid/cells_dynamic.expected"),
+    },
+    .{
         .name = "todo_mvc",
         .path = "examples/terminal/todo_mvc/todo_mvc.bn",
         .expected_text = @embedFile("verify_terminal_grid/todo_mvc.expected"),
@@ -607,18 +840,48 @@ const terminal_grid_p0_cases = [_]VerifySnapshotCase{
         .expected_text = @embedFile("verify_terminal_grid/arkanoid.expected"),
         .actions = &verify_arkanoid_actions,
     },
+    .{
+        .name = "temperature_converter",
+        .path = "examples/terminal/temperature_converter/temperature_converter.bn",
+        .expected_text = @embedFile("verify_terminal_grid/temperature_converter.expected"),
+        .actions = &verify_temperature_converter_actions,
+    },
+    .{
+        .name = "flight_booker",
+        .path = "examples/terminal/flight_booker/flight_booker.bn",
+        .expected_text = @embedFile("verify_terminal_grid/flight_booker.expected"),
+        .actions = &verify_flight_booker_actions,
+    },
+    .{
+        .name = "timer",
+        .path = "examples/terminal/timer/timer.bn",
+        .expected_text = @embedFile("verify_terminal_grid/timer.expected"),
+        .actions = &verify_timer_actions,
+    },
+    .{
+        .name = "crud",
+        .path = "examples/terminal/crud/crud.bn",
+        .expected_text = @embedFile("verify_terminal_grid/crud.expected"),
+        .actions = &verify_crud_actions,
+    },
+    .{
+        .name = "circle_drawer",
+        .path = "examples/terminal/circle_drawer/circle_drawer.bn",
+        .expected_text = @embedFile("verify_terminal_grid/circle_drawer.expected"),
+        .actions = &verify_circle_drawer_actions,
+    },
 };
 
 fn runParse(
     allocator: std.mem.Allocator,
     io: std.Io,
-    path: []const u8,
+    args: SourcePathArgs,
     stdout: *std.Io.Writer,
     stderr: *std.Io.Writer,
 ) !u8 {
     const source = try std.Io.Dir.cwd().readFileAlloc(
         io,
-        path,
+        args.path,
         allocator,
         .limited(std.math.maxInt(usize)),
     );
@@ -631,12 +894,12 @@ fn runParse(
             defer parsed.deinit();
             try stdout.print(
                 "parsed {s}: tokens={d} groups={d} forms={d} bytes={d}\n",
-                .{ path, parsed.token_count, parsed.group_count, parsed.form_count, parsed.source_len },
+                .{ args.path, parsed.token_count, parsed.group_count, parsed.form_count, parsed.source_len },
             );
             return 0;
         },
         .err => |failure| {
-            try stderr.print("failed to parse {s}\n", .{path});
+            try stderr.print("failed to parse {s}\n", .{args.path});
             try failure.render(source, stderr);
             return 1;
         },
@@ -678,13 +941,13 @@ fn runFormat(
 fn runHir(
     allocator: std.mem.Allocator,
     io: std.Io,
-    path: []const u8,
+    args: SourcePathArgs,
     stdout: *std.Io.Writer,
     stderr: *std.Io.Writer,
 ) !u8 {
     const source = try std.Io.Dir.cwd().readFileAlloc(
         io,
-        path,
+        args.path,
         allocator,
         .limited(std.math.maxInt(usize)),
     );
@@ -698,7 +961,7 @@ fn runHir(
             try stdout.print(
                 "lowered {s}: items={d} definitions={d} exprs={d} calls={d} forms={d} bytes={d}\n",
                 .{
-                    path,
+                    args.path,
                     lowered.items.len,
                     lowered.definition_count,
                     lowered.expr_count,
@@ -710,7 +973,7 @@ fn runHir(
             return 0;
         },
         .err => |failure| {
-            try stderr.print("failed to lower {s}\n", .{path});
+            try stderr.print("failed to lower {s}\n", .{args.path});
             try failure.render(source, stderr);
             return 1;
         },
@@ -720,13 +983,13 @@ fn runHir(
 fn runFlow(
     allocator: std.mem.Allocator,
     io: std.Io,
-    path: []const u8,
+    args: SourcePathArgs,
     stdout: *std.Io.Writer,
     stderr: *std.Io.Writer,
 ) !u8 {
     const source = try std.Io.Dir.cwd().readFileAlloc(
         io,
-        path,
+        args.path,
         allocator,
         .limited(std.math.maxInt(usize)),
     );
@@ -740,7 +1003,7 @@ fn runFlow(
             try stdout.print(
                 "flowed {s}: bindings={d} nodes={d} link_ports={d} stateful={d} bytes={d}\n",
                 .{
-                    path,
+                    args.path,
                     flowed.bindings.len,
                     flowed.nodes.len,
                     flowed.link_port_count,
@@ -751,11 +1014,183 @@ fn runFlow(
             return 0;
         },
         .err => |failure| {
-            try stderr.print("failed to lower flow {s}\n", .{path});
+            try stderr.print("failed to lower flow {s}\n", .{args.path});
             try failure.render(source, stderr);
             return 1;
         },
     }
+}
+
+fn runPhysicalRun(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    args: PhysicalRunArgs,
+    stdout: *std.Io.Writer,
+    stderr: *std.Io.Writer,
+) !u8 {
+    const source = try std.Io.Dir.cwd().readFileAlloc(
+        io,
+        args.path,
+        allocator,
+        .limited(std.math.maxInt(usize)),
+    );
+    defer allocator.free(source);
+
+    const outcome = try boon.physical_ir.lowerAlloc(allocator, source);
+    var program = switch (outcome) {
+        .ok => |program| program,
+        .err => |failure| {
+            try stderr.print("failed to lower physical runtime {s}\n", .{args.path});
+            try failure.render(source, stderr);
+            return 1;
+        },
+    };
+    defer program.deinit();
+
+    var runtime = try boon.physical_runtime.Runtime.initAlloc(allocator, &program);
+    defer runtime.deinit();
+    try runtime.executeInitializers(&program);
+    const state_path = if (args.state_dir) |state_dir|
+        try physicalRuntimeStatePathAlloc(allocator, state_dir, args.path)
+    else
+        null;
+    defer if (state_path) |path| allocator.free(path);
+    if (state_path) |path| {
+        const cwd = std.Io.Dir.cwd();
+        if (std.fs.path.dirname(path)) |dir_name| try cwd.createDirPath(io, dir_name);
+        if (args.clear_state) {
+            cwd.deleteFile(io, path) catch |err| switch (err) {
+                error.FileNotFound => {},
+                else => |e| return e,
+            };
+        } else {
+            const persisted = cwd.readFileAlloc(io, path, allocator, .limited(1024 * 1024)) catch |err| switch (err) {
+                error.FileNotFound => null,
+                else => |e| return e,
+            };
+            if (persisted) |snapshot| {
+                defer allocator.free(snapshot);
+                try runtime.restoreStateSnapshot(snapshot);
+            }
+        }
+    }
+    if (args.event) |event| {
+        try runtime.plugSource(event.source_slot_id, event.binding_id);
+        const result = try runtime.dispatchEvent(.{
+            .source_slot_id = event.source_slot_id,
+            .binding_id_or_generation = event.binding_id,
+            .scope_or_instance_id = 0,
+            .payload = event.payload,
+        });
+        if (result != .queued) {
+            try stderr.print("physical-run event was not queued: {s}\n", .{@tagName(result)});
+            return 1;
+        }
+        try runtime.processQueuedEvents(&program);
+    }
+    if (args.interval) |interval| {
+        if (args.virtual_time_ms == 0) {
+            try stderr.print("physical-run --interval requires --virtual-time\n", .{});
+            return 1;
+        }
+        try runtime.plugSource(interval.source_slot_id, interval.binding_id);
+        var clock = boon.physical_runtime.VirtualClock.init(allocator);
+        defer clock.deinit();
+        _ = try clock.addInterval(interval.source_slot_id, interval.binding_id, 0, interval.period_ms);
+        _ = try clock.advance(&runtime, args.virtual_time_ms);
+        try runtime.processQueuedEvents(&program);
+    } else if (args.virtual_time_ms != 0) {
+        try stderr.print("physical-run --virtual-time requires --interval\n", .{});
+        return 1;
+    }
+
+    const snapshot = try runtime.stateSnapshotAlloc(allocator);
+    defer allocator.free(snapshot);
+    if (state_path) |path| {
+        try std.Io.Dir.cwd().writeFile(io, .{
+            .sub_path = path,
+            .data = snapshot,
+        });
+    }
+    if (args.expect_state) |expected| {
+        if (!snapshotHasLine(snapshot, expected)) {
+            try stderr.print("expected state line `{s}` not found in snapshot:\n{s}", .{ expected, snapshot });
+            return 1;
+        }
+    }
+    try stdout.print(
+        "physical-runtime {s}: sources={d} values={d} states={d}\n",
+        .{
+            args.path,
+            program.source_slots.len,
+            program.value_slots.len,
+            program.state_slots.len,
+        },
+    );
+    try stdout.writeAll(snapshot);
+    return 0;
+}
+
+fn runCodegenZig(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    args: CodegenZigArgs,
+    stdout: *std.Io.Writer,
+    stderr: *std.Io.Writer,
+) !u8 {
+    const source = try std.Io.Dir.cwd().readFileAlloc(
+        io,
+        args.path,
+        allocator,
+        .limited(std.math.maxInt(usize)),
+    );
+    defer allocator.free(source);
+
+    const outcome = try boon.physical_ir.lowerAlloc(allocator, source);
+    var program = switch (outcome) {
+        .ok => |program| program,
+        .err => |failure| {
+            try stderr.print("failed to lower physical IR for Zig codegen {s}\n", .{args.path});
+            try failure.render(source, stderr);
+            return 1;
+        },
+    };
+    defer program.deinit();
+
+    const generated = try boon.codegen_zig.generateAlloc(allocator, &program, .{
+        .source_path = args.path,
+        .demo_event = args.demo_event,
+    });
+    defer allocator.free(generated);
+    if (args.out_path) |out_path| {
+        var cwd = std.Io.Dir.cwd();
+        if (std.fs.path.dirname(out_path)) |dir_name| try cwd.createDirPath(io, dir_name);
+        try cwd.writeFile(io, .{ .sub_path = out_path, .data = generated });
+    } else {
+        try stdout.writeAll(generated);
+    }
+    return 0;
+}
+
+fn snapshotHasLine(snapshot: []const u8, expected: []const u8) bool {
+    var lines = std.mem.splitScalar(u8, snapshot, '\n');
+    while (lines.next()) |line| {
+        if (std.mem.eql(u8, line, expected)) return true;
+    }
+    return false;
+}
+
+fn physicalRuntimeStatePathAlloc(
+    allocator: std.mem.Allocator,
+    state_dir: []const u8,
+    source_path: []const u8,
+) ![]u8 {
+    var hasher = std.crypto.hash.Blake3.init(.{});
+    hasher.update("physical-runtime-state-v2-source");
+    hasher.update(source_path);
+    var digest: [32]u8 = undefined;
+    hasher.final(&digest);
+    return try std.fmt.allocPrint(allocator, "{s}/{x}.state", .{ state_dir, digest });
 }
 
 fn runSyncCorpus(
@@ -918,6 +1353,9 @@ fn runBuildBrowser(
     const module_path = try std.fs.path.join(allocator, &.{ args.out_dir, "boon-browser.mjs" });
     defer allocator.free(module_path);
     try cwd.writeFile(io, .{ .sub_path = module_path, .data = browser_assets.boon_browser_mjs });
+    const playground_module_path = try std.fs.path.join(allocator, &.{ args.out_dir, "playground-browser.mjs" });
+    defer allocator.free(playground_module_path);
+    try cwd.writeFile(io, .{ .sub_path = playground_module_path, .data = browser_assets.playground_browser_mjs });
 
     const source = try cwd.readFileAlloc(io, browser_todo_physical_path, allocator, .limited(std.math.maxInt(usize)));
     defer allocator.free(source);
@@ -1314,7 +1752,7 @@ fn parseImagemagickRmseSimilarity(text: []const u8) !f64 {
 }
 
 const compiled_cache_dir = ".zig-cache/boon-runtime";
-const compiled_cache_schema = "compiled-v2";
+const compiled_cache_schema = "compiled-v4-source-keyword";
 
 fn compiledProgramForSource(
     allocator: std.mem.Allocator,
@@ -1632,6 +2070,17 @@ fn verifyTerminalGridCases(
         try stdout.print("PASS {s}\n", .{case.name});
     }
 
+    if (verifyCaseMatches(filter, "playground")) {
+        matched += 1;
+        const snapshot = runVerifiedPlaygroundCase(allocator, io, stderr) catch |err| {
+            try stderr.print("verify-examples failed\n- playground: {t}\n", .{err});
+            return 1;
+        };
+        defer allocator.free(snapshot);
+        passed += 1;
+        try stdout.print("PASS playground\n", .{});
+    }
+
     if (matched == 0) {
         try stderr.print("verify-examples failed\n- {s}: no terminal-grid case matched this filter\n", .{filter});
         return 1;
@@ -1639,6 +2088,53 @@ fn verifyTerminalGridCases(
 
     try stdout.print("verify-examples ok ({d} passed, 0 exact blockers recorded)\n", .{passed});
     return 0;
+}
+
+fn requireSnapshotContains(snapshot: []const u8, needle: []const u8) !void {
+    if (std.mem.indexOf(u8, snapshot, needle) == null) return error.PlaygroundSnapshotMismatch;
+}
+
+fn runVerifiedPlaygroundCase(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    stderr: *std.Io.Writer,
+) ![]u8 {
+    var playground = try loadTerminalPlayground(allocator, io, .{
+        .trace = false,
+        .virtual_time_ms = 0,
+        .script_path = null,
+    }, stderr);
+    defer playground.deinit(allocator);
+
+    _ = try dispatchPlaygroundNamedKey(allocator, &playground, "Shift+Right");
+    try advanceActivePlaygroundTime(&playground, 2500);
+    var snapshot = try playgroundSnapshotAlloc(allocator, &playground, 120);
+    try requireSnapshotContains(snapshot, "[>Interval<]");
+    try requireSnapshotContains(snapshot, "\n2");
+
+    _ = try dispatchPlaygroundNamedKey(allocator, &playground, "Shift+Right");
+    _ = try dispatchPlaygroundNamedKey(allocator, &playground, "Enter");
+    _ = try dispatchPlaygroundNamedKey(allocator, &playground, "Backspace");
+    _ = try dispatchPlaygroundNamedKey(allocator, &playground, "7");
+    _ = try dispatchPlaygroundNamedKey(allocator, &playground, "Enter");
+    allocator.free(snapshot);
+    snapshot = try playgroundSnapshotAlloc(allocator, &playground, 120);
+    try requireSnapshotContains(snapshot, "[>Cells<]");
+    try requireSnapshotContains(snapshot, "Formula  A0 : 7");
+    try requireSnapshotContains(snapshot, "[7   ]");
+
+    try dispatchPlaygroundMouse(allocator, &playground, 43, 0, .click);
+    allocator.free(snapshot);
+    snapshot = try playgroundSnapshotAlloc(allocator, &playground, 120);
+    try requireSnapshotContains(snapshot, "[>TodoMVC<]");
+    try requireSnapshotContains(snapshot, "todos");
+
+    _ = try dispatchPlaygroundNamedKey(allocator, &playground, "Shift+Left");
+    allocator.free(snapshot);
+    snapshot = try playgroundSnapshotAlloc(allocator, &playground, 120);
+    try requireSnapshotContains(snapshot, "[>CellsDyn<]");
+    try requireSnapshotContains(snapshot, "Cells Dynamic");
+    return snapshot;
 }
 
 fn runVerifiedHeadlessCase(
@@ -1649,7 +2145,9 @@ fn runVerifiedHeadlessCase(
     const source = try std.Io.Dir.cwd().readFileAlloc(io, case.path, allocator, .limited(std.math.maxInt(usize)));
     defer allocator.free(source);
 
-    const outcome = try runCompiledSource(allocator, io, case.path, source, .{ .virtual_time_ms = case.virtual_time_ms });
+    const outcome = try runCompiledSource(allocator, io, case.path, source, .{
+        .virtual_time_ms = case.virtual_time_ms,
+    });
     const session = switch (outcome) {
         .ok => |session| session,
         .err => |failure| {
@@ -1677,7 +2175,9 @@ fn runVerifiedSnapshotCase(
     const source = try std.Io.Dir.cwd().readFileAlloc(io, case.path, allocator, .limited(std.math.maxInt(usize)));
     defer allocator.free(source);
 
-    const outcome = try runCompiledSource(allocator, io, case.path, source, .{ .virtual_time_ms = case.virtual_time_ms });
+    const outcome = try runCompiledSource(allocator, io, case.path, source, .{
+        .virtual_time_ms = case.virtual_time_ms,
+    });
     const session = switch (outcome) {
         .ok => |session| session,
         .err => |failure| {
@@ -1723,11 +2223,12 @@ fn executeVerifyAction(
             }
             return error.MissingTerminalHitRegions;
         },
+        .terminal_command => |command| try executeTerminalCommand(allocator, runtime, input_state, command),
     }
 }
 
 fn verifyCaseMatches(filter: []const u8, case_name: []const u8) bool {
-    return std.mem.eql(u8, filter, "p0") or std.mem.eql(u8, filter, case_name);
+    return std.mem.eql(u8, filter, "p0") or std.mem.eql(u8, filter, "all") or std.mem.eql(u8, filter, case_name);
 }
 
 fn runServeBrowser(
@@ -1759,6 +2260,723 @@ fn runServeBrowser(
             try stderr.flush();
         };
     }
+}
+
+const PlaygroundExampleSpec = struct {
+    name: []const u8,
+    label: []const u8,
+    path: []const u8,
+};
+
+const playground_examples = [_]PlaygroundExampleSpec{
+    .{ .name = "counter", .label = "Counter", .path = "examples/terminal/counter/counter.bn" },
+    .{ .name = "interval", .label = "Interval", .path = "examples/terminal/interval/interval.bn" },
+    .{ .name = "cells", .label = "Cells", .path = "examples/terminal/cells/cells.bn" },
+    .{ .name = "cells_dynamic", .label = "CellsDyn", .path = "examples/terminal/cells_dynamic/cells_dynamic.bn" },
+    .{ .name = "todo_mvc", .label = "TodoMVC", .path = "examples/terminal/todo_mvc/todo_mvc.bn" },
+    .{ .name = "pong", .label = "Pong", .path = "examples/terminal/pong/pong.bn" },
+    .{ .name = "arkanoid", .label = "Arkanoid", .path = "examples/terminal/arkanoid/arkanoid.bn" },
+    .{ .name = "temperature_converter", .label = "Temp", .path = "examples/terminal/temperature_converter/temperature_converter.bn" },
+    .{ .name = "flight_booker", .label = "Flight", .path = "examples/terminal/flight_booker/flight_booker.bn" },
+    .{ .name = "timer", .label = "Timer", .path = "examples/terminal/timer/timer.bn" },
+    .{ .name = "crud", .label = "CRUD", .path = "examples/terminal/crud/crud.bn" },
+    .{ .name = "circle_drawer", .label = "Circle", .path = "examples/terminal/circle_drawer/circle_drawer.bn" },
+};
+
+const PlaygroundTabRegion = struct {
+    x: usize,
+    y: usize,
+    width: usize,
+    index: usize,
+
+    fn contains(self: PlaygroundTabRegion, x: usize, y: usize) bool {
+        return y == self.y and x >= self.x and x < self.x + self.width;
+    }
+};
+
+const PlaygroundChild = struct {
+    spec: PlaygroundExampleSpec,
+    runtime: boon.headless.Session,
+    input_state: TerminalInputState = .{},
+
+    fn deinit(self: *PlaygroundChild, allocator: std.mem.Allocator) void {
+        self.input_state.deinit(allocator);
+        self.runtime.deinit();
+    }
+};
+
+const TerminalPlaygroundState = struct {
+    children: []PlaygroundChild,
+    selected: usize = 0,
+    tab_regions: std.ArrayList(PlaygroundTabRegion) = .empty,
+    header_height: usize = 1,
+
+    fn deinit(self: *TerminalPlaygroundState, allocator: std.mem.Allocator) void {
+        for (self.children) |*child| child.deinit(allocator);
+        allocator.free(self.children);
+        self.tab_regions.deinit(allocator);
+    }
+
+    fn active(self: *TerminalPlaygroundState) *PlaygroundChild {
+        return &self.children[self.selected];
+    }
+
+    fn activeConst(self: *const TerminalPlaygroundState) *const PlaygroundChild {
+        return &self.children[self.selected];
+    }
+
+    fn select(self: *TerminalPlaygroundState, index: usize) void {
+        if (index < self.children.len) self.selected = index;
+    }
+
+    fn next(self: *TerminalPlaygroundState) void {
+        self.selected = if (self.selected + 1 >= self.children.len) 0 else self.selected + 1;
+    }
+
+    fn previous(self: *TerminalPlaygroundState) void {
+        self.selected = if (self.selected == 0) self.children.len - 1 else self.selected - 1;
+    }
+};
+
+fn runTerminalPlayground(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    args: PlaygroundArgs,
+    stdout: *std.Io.Writer,
+    stderr: *std.Io.Writer,
+) !u8 {
+    var playground = try loadTerminalPlayground(allocator, io, args, stderr);
+    defer playground.deinit(allocator);
+
+    if (args.script_path) |script_path| {
+        try executePlaygroundScript(allocator, io, script_path, &playground);
+        const snapshot = try playgroundSnapshotAlloc(allocator, &playground, 120);
+        defer allocator.free(snapshot);
+        try stdout.print("playground\n{s}\n", .{snapshot});
+        return 0;
+    }
+
+    var raw_terminal = enableRawTerminal(io) catch |err| switch (err) {
+        error.NotATerminal => null,
+        else => return err,
+    };
+    if (raw_terminal) |*mode| {
+        defer mode.restore(io) catch {};
+        while (true) {
+            try renderPlaygroundScreen(allocator, &playground, stdout);
+            try normalizeActivePlaygroundInput(allocator, &playground);
+            try promoteActivePlaygroundFocus(allocator, &playground);
+            const should_continue = handlePlaygroundInput(allocator, args, &playground, stdout, stderr) catch |err| blk: {
+                try stderr.print("error: {s}\n", .{@errorName(err)});
+                try stderr.flush();
+                break :blk true;
+            };
+            if (!should_continue) break;
+        }
+        return 0;
+    }
+
+    return try runPlaygroundFallback(allocator, io, args, &playground, stdout, stderr);
+}
+
+fn loadTerminalPlayground(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    args: PlaygroundArgs,
+    stderr: *std.Io.Writer,
+) !TerminalPlaygroundState {
+    var children: std.ArrayList(PlaygroundChild) = .empty;
+    errdefer {
+        for (children.items) |*child| child.deinit(allocator);
+        children.deinit(allocator);
+    }
+
+    for (playground_examples) |spec| {
+        const source = try std.Io.Dir.cwd().readFileAlloc(io, spec.path, allocator, .limited(std.math.maxInt(usize)));
+        defer allocator.free(source);
+        const outcome = try runCompiledSource(allocator, io, spec.path, source, .{
+            .trace = args.trace,
+            .virtual_time_ms = args.virtual_time_ms,
+            .terminal_columns = 120,
+            .terminal_rows = 40,
+        });
+        const session = switch (outcome) {
+            .ok => |session| session,
+            .err => |failure| {
+                try stderr.print("failed to load playground example {s} ({s})\n", .{ spec.name, spec.path });
+                try failure.render(source, stderr);
+                return error.PlaygroundExampleBootFailed;
+            },
+        };
+        var runtime = session;
+        if (runtime.rootKind() != .terminal) {
+            runtime.deinit();
+            return error.ExpectedTerminalRoot;
+        }
+        children.append(allocator, .{
+            .spec = spec,
+            .runtime = runtime,
+        }) catch |err| {
+            runtime.deinit();
+            return err;
+        };
+    }
+
+    return .{ .children = try children.toOwnedSlice(allocator) };
+}
+
+fn runPlaygroundFallback(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    args: PlaygroundArgs,
+    playground: *TerminalPlaygroundState,
+    stdout: *std.Io.Writer,
+    stderr: *std.Io.Writer,
+) !u8 {
+    _ = args;
+    try stdout.writeAll(
+        \\run playground fallback
+        \\Type `help` for commands, `quit` to exit.
+        \\
+    );
+    try stdout.flush();
+
+    var stdin_buffer: [2048]u8 = undefined;
+    var stdin_reader = std.Io.File.stdin().reader(io, &stdin_buffer);
+    while (true) {
+        const snapshot = try playgroundSnapshotAlloc(allocator, playground, 120);
+        defer allocator.free(snapshot);
+        try stdout.print("{s}\n> ", .{snapshot});
+        try stdout.flush();
+
+        const maybe_line = stdin_reader.interface.takeDelimiter('\n') catch |err| switch (err) {
+            error.ReadFailed => return err,
+            error.StreamTooLong => {
+                try stderr.writeAll("error: playground input line too long\n");
+                try stderr.flush();
+                continue;
+            },
+        };
+        const raw_line = maybe_line orelse break;
+        const line = std.mem.trim(u8, raw_line, " \r\t");
+        if (line.len == 0) continue;
+        if (std.mem.eql(u8, line, "quit") or std.mem.eql(u8, line, "exit")) break;
+        if (std.mem.eql(u8, line, "help")) {
+            try writePlaygroundHelp(stdout);
+            try stdout.flush();
+            continue;
+        }
+        executePlaygroundCommand(allocator, playground, line) catch |err| {
+            try stderr.print("error: {s}\n", .{@errorName(err)});
+            try stderr.flush();
+        };
+    }
+    return 0;
+}
+
+fn renderPlaygroundScreen(
+    allocator: std.mem.Allocator,
+    playground: *TerminalPlaygroundState,
+    stdout: *std.Io.Writer,
+) !void {
+    try stdout.writeAll("\x1b[2J\x1b[H");
+    const viewport = terminalViewport();
+    const header_height = try writePlaygroundHeader(allocator, playground, stdout, viewport.width, true);
+    const child_height = @max(if (viewport.height > header_height) viewport.height - header_height else 1, 1);
+    const child = playground.active();
+    const snapshot = try child.runtime.snapshotAlloc(allocator);
+    defer allocator.free(snapshot);
+    child.input_state.viewport_width = viewport.width;
+    child.input_state.viewport_height = child_height;
+    try clampTerminalViewport(&child.input_state, snapshot);
+    try writeTerminalViewport(stdout, snapshot, &child.input_state);
+    try positionTerminalCursorForFocusedInput(allocator, &child.runtime, stdout, &child.input_state, header_height);
+    try stdout.flush();
+}
+
+fn playgroundSnapshotAlloc(
+    allocator: std.mem.Allocator,
+    playground: *TerminalPlaygroundState,
+    width: usize,
+) ![]u8 {
+    var output: std.ArrayList(u8) = .empty;
+    defer output.deinit(allocator);
+    _ = try appendPlaygroundHeader(allocator, playground, &output, width, false);
+    const child = playground.active();
+    const snapshot = try child.runtime.snapshotAlloc(allocator);
+    defer allocator.free(snapshot);
+    try output.appendSlice(allocator, snapshot);
+    return try output.toOwnedSlice(allocator);
+}
+
+fn tabDisplayWidth(label: []const u8, selected: bool) usize {
+    return label.len + if (selected) @as(usize, 4) else @as(usize, 2);
+}
+
+fn appendPlaygroundHeader(
+    allocator: std.mem.Allocator,
+    playground: *TerminalPlaygroundState,
+    output: *std.ArrayList(u8),
+    width: usize,
+    ansi: bool,
+) !usize {
+    try playground.tab_regions.resize(allocator, 0);
+    const usable_width = @max(width, 1);
+    var cursor_x: usize = 0;
+    var cursor_y: usize = 0;
+    for (playground.children, 0..) |child, index| {
+        const selected = index == playground.selected;
+        const tab_width = tabDisplayWidth(child.spec.label, selected);
+        if (cursor_x != 0 and cursor_x + 1 + tab_width > usable_width) {
+            try output.append(allocator, '\n');
+            cursor_x = 0;
+            cursor_y += 1;
+        } else if (cursor_x != 0) {
+            try output.append(allocator, ' ');
+            cursor_x += 1;
+        }
+        try playground.tab_regions.append(allocator, .{
+            .x = cursor_x,
+            .y = cursor_y,
+            .width = tab_width,
+            .index = index,
+        });
+        if (ansi and selected) try output.appendSlice(allocator, "\x1b[1;38;5;51m");
+        try output.append(allocator, '[');
+        if (selected) try output.append(allocator, '>');
+        try output.appendSlice(allocator, child.spec.label);
+        if (selected) try output.append(allocator, '<');
+        try output.append(allocator, ']');
+        if (ansi and selected) try output.appendSlice(allocator, "\x1b[0m");
+        cursor_x += tab_width;
+    }
+    try output.append(allocator, '\n');
+    playground.header_height = cursor_y + 1;
+    return playground.header_height;
+}
+
+fn writePlaygroundHeader(
+    allocator: std.mem.Allocator,
+    playground: *TerminalPlaygroundState,
+    stdout: *std.Io.Writer,
+    width: usize,
+    ansi: bool,
+) !usize {
+    var output: std.ArrayList(u8) = .empty;
+    defer output.deinit(allocator);
+    const height = try appendPlaygroundHeader(allocator, playground, &output, width, ansi);
+    var start: usize = 0;
+    for (output.items, 0..) |byte, index| {
+        if (byte != '\n') continue;
+        try stdout.writeAll(output.items[start..index]);
+        try stdout.writeAll("\r\n");
+        start = index + 1;
+    }
+    if (start < output.items.len) try stdout.writeAll(output.items[start..]);
+    return height;
+}
+
+fn normalizeActivePlaygroundInput(allocator: std.mem.Allocator, playground: *TerminalPlaygroundState) !void {
+    const child = playground.active();
+    try normalizeTerminalInputState(allocator, &child.runtime, &child.input_state);
+}
+
+fn promoteActivePlaygroundFocus(allocator: std.mem.Allocator, playground: *TerminalPlaygroundState) !void {
+    const child = playground.active();
+    try promotePendingTerminalFocus(allocator, &child.runtime, &child.input_state);
+}
+
+fn handlePlaygroundInput(
+    allocator: std.mem.Allocator,
+    args: PlaygroundArgs,
+    playground: *TerminalPlaygroundState,
+    stdout: *std.Io.Writer,
+    stderr: *std.Io.Writer,
+) !bool {
+    _ = args;
+    const child = playground.active();
+    const contract = (try child.runtime.terminalContractView()) orelse return error.ExpectedTerminalRoot;
+    try normalizeTerminalInputState(allocator, &child.runtime, &child.input_state);
+
+    if (contract.loop) |loop| {
+        var fds = [_]std.posix.pollfd{.{
+            .fd = std.posix.STDIN_FILENO,
+            .events = std.posix.POLL.IN,
+            .revents = 0,
+        }};
+        const timeout_ms: i32 = if (loop.while_active) @intCast(@min(loop.every_ms, @as(u64, std.math.maxInt(i32)))) else -1;
+        const ready = try std.posix.poll(&fds, timeout_ms);
+        if (ready == 0) {
+            if (loop.while_active) try child.runtime.triggerLinkWithScope(loop.pulse_link, loop.scope);
+            return true;
+        }
+    }
+
+    var byte: [1]u8 = undefined;
+    const amount = try std.posix.read(std.posix.STDIN_FILENO, &byte);
+    if (amount == 0) return false;
+
+    switch (byte[0]) {
+        0x03 => return false,
+        0x07 => {
+            try writePlaygroundHelp(stdout);
+            try writeDeclaredTerminalHelp(stdout, contract);
+            try stdout.flush();
+            return true;
+        },
+        0x14 => {
+            const maybe_command = try readTerminalCommandLine(allocator, stdout);
+            const command = maybe_command orelse return true;
+            defer allocator.free(command);
+            if (command.len == 0) return true;
+            if (std.mem.eql(u8, command, "quit") or std.mem.eql(u8, command, "exit")) return false;
+            if (std.mem.eql(u8, command, "help")) {
+                try writePlaygroundHelp(stdout);
+                try writeTerminalHelp(stdout);
+                try stdout.flush();
+                return true;
+            }
+            if (std.mem.eql(u8, command, "render") or std.mem.eql(u8, command, "controls")) return true;
+            executePlaygroundCommand(allocator, playground, command) catch |err| {
+                try stderr.print("error: {s}\n", .{@errorName(err)});
+                try stderr.flush();
+            };
+            return true;
+        },
+        '\r', '\n' => return try dispatchPlaygroundNamedKey(allocator, playground, "Enter"),
+        ' ' => return try dispatchPlaygroundNamedKey(allocator, playground, "Space"),
+        '\t' => return try dispatchPlaygroundNamedKey(allocator, playground, "Tab"),
+        0x7f, 0x08 => return try dispatchPlaygroundNamedKey(allocator, playground, "Backspace"),
+        0x1b => return try handlePlaygroundEscapeSequence(allocator, playground),
+        '[', 'h' => {
+            playground.previous();
+            return true;
+        },
+        ']', 'l' => {
+            playground.next();
+            return true;
+        },
+        else => {
+            if (byte[0] >= 0x20 and byte[0] < 0x7f) {
+                const key = [_]u8{byte[0]};
+                return try dispatchPlaygroundNamedKey(allocator, playground, &key);
+            }
+            return true;
+        },
+    }
+}
+
+fn handlePlaygroundEscapeSequence(
+    allocator: std.mem.Allocator,
+    playground: *TerminalPlaygroundState,
+) !bool {
+    const first = try readRequiredTerminalByte();
+    if (first != '[') return try dispatchPlaygroundNamedKey(allocator, playground, "Escape");
+
+    const second = try readRequiredTerminalByte();
+    if (second == '<') {
+        const maybe_event = try parseSgrMouseEvent();
+        if (maybe_event) |event| try handlePlaygroundMouseEvent(allocator, playground, event);
+        return true;
+    }
+    if (second >= '0' and second <= '9') return try handlePlaygroundCsiNumber(allocator, playground, second);
+
+    switch (second) {
+        'A' => _ = try dispatchPlaygroundNamedKey(allocator, playground, "Up"),
+        'B' => _ = try dispatchPlaygroundNamedKey(allocator, playground, "Down"),
+        'C' => _ = try dispatchPlaygroundNamedKey(allocator, playground, "Right"),
+        'D' => _ = try dispatchPlaygroundNamedKey(allocator, playground, "Left"),
+        'Z' => _ = try dispatchPlaygroundNamedKey(allocator, playground, "Shift+Tab"),
+        else => _ = try dispatchPlaygroundNamedKey(allocator, playground, "Escape"),
+    }
+    return true;
+}
+
+fn handlePlaygroundCsiNumber(
+    allocator: std.mem.Allocator,
+    playground: *TerminalPlaygroundState,
+    first_digit: u8,
+) !bool {
+    var buffer: [16]u8 = undefined;
+    buffer[0] = first_digit;
+    var len: usize = 1;
+    var final: u8 = 0;
+    while (len < buffer.len) {
+        const byte = try readRequiredTerminalByte();
+        if ((byte >= 'A' and byte <= 'Z') or byte == '~') {
+            final = byte;
+            break;
+        }
+        if ((byte < '0' or byte > '9') and byte != ';') return true;
+        buffer[len] = byte;
+        len += 1;
+    }
+    const payload = buffer[0..len];
+    if (std.mem.eql(u8, payload, "1;2")) {
+        switch (final) {
+            'C' => playground.next(),
+            'D' => playground.previous(),
+            else => {},
+        }
+        return true;
+    }
+    if (final != '~') return true;
+    const code = std.fmt.parseInt(u8, payload, 10) catch return true;
+    const child = playground.active();
+    switch (code) {
+        5 => scrollTerminalViewport(&child.input_state, -10),
+        6 => scrollTerminalViewport(&child.input_state, 10),
+        else => {},
+    }
+    _ = allocator;
+    return true;
+}
+
+fn dispatchPlaygroundNamedKey(
+    allocator: std.mem.Allocator,
+    playground: *TerminalPlaygroundState,
+    key: []const u8,
+) !bool {
+    if (std.mem.eql(u8, key, "Shift+Right")) {
+        playground.next();
+        return true;
+    }
+    if (std.mem.eql(u8, key, "Shift+Left")) {
+        playground.previous();
+        return true;
+    }
+    const child = playground.active();
+    return try dispatchHeadlessTerminalNamedKey(allocator, &child.runtime, &child.input_state, key);
+}
+
+fn handlePlaygroundMouseEvent(
+    allocator: std.mem.Allocator,
+    playground: *TerminalPlaygroundState,
+    event: ParsedMouseEvent,
+) !void {
+    if (playground.tab_regions.items.len == 0) {
+        var header: std.ArrayList(u8) = .empty;
+        defer header.deinit(allocator);
+        _ = try appendPlaygroundHeader(allocator, playground, &header, 120, false);
+    }
+    if (!event.is_motion and (event.button == .left or event.button == .release)) {
+        for (playground.tab_regions.items) |region| {
+            if (region.contains(event.x, event.y)) {
+                playground.select(region.index);
+                return;
+            }
+        }
+    }
+    if (event.y < playground.header_height) return;
+    const child = playground.active();
+    try handleTerminalMouseEvent(allocator, &child.runtime, &child.input_state, .{
+        .x = event.x,
+        .y = event.y - playground.header_height,
+        .button = event.button,
+        .is_motion = event.is_motion,
+    });
+}
+
+fn executePlaygroundCommand(
+    allocator: std.mem.Allocator,
+    playground: *TerminalPlaygroundState,
+    line: []const u8,
+) !void {
+    var parts = std.mem.tokenizeScalar(u8, line, ' ');
+    const command = parts.next() orelse return error.InvalidTerminalCommand;
+    if (std.mem.eql(u8, command, "next")) {
+        playground.next();
+        return;
+    }
+    if (std.mem.eql(u8, command, "prev") or std.mem.eql(u8, command, "previous")) {
+        playground.previous();
+        return;
+    }
+    if (std.mem.eql(u8, command, "tab")) {
+        const value = parts.rest();
+        if (value.len == 0) return error.InvalidTerminalCommand;
+        try selectPlaygroundTab(playground, value);
+        return;
+    }
+    if (std.mem.eql(u8, command, "press")) {
+        const key = std.mem.trim(u8, parts.rest(), " \t");
+        if (key.len == 0) return error.InvalidTerminalCommand;
+        _ = try dispatchPlaygroundNamedKey(allocator, playground, key);
+        return;
+    }
+    if (std.mem.eql(u8, command, "mouse-move") or std.mem.eql(u8, command, "mouse-click") or std.mem.eql(u8, command, "mouse-double-click")) {
+        const x = try parseTerminalIndex(parts.next() orelse return error.InvalidTerminalCommand);
+        const y = try parseTerminalIndex(parts.next() orelse return error.InvalidTerminalCommand);
+        if (parts.next() != null) return error.InvalidTerminalCommand;
+        const action: HeadlessMouseAction = if (std.mem.eql(u8, command, "mouse-move"))
+            .move
+        else if (std.mem.eql(u8, command, "mouse-double-click"))
+            .double_click
+        else
+            .click;
+        try dispatchPlaygroundMouse(allocator, playground, x, y, action);
+        return;
+    }
+    if (std.mem.eql(u8, command, "wait")) {
+        const ms = try std.fmt.parseInt(u64, parts.next() orelse return error.InvalidTerminalCommand, 10);
+        try advanceActivePlaygroundTime(playground, ms);
+        return;
+    }
+    const child = playground.active();
+    return executeTerminalCommand(allocator, &child.runtime, &child.input_state, line);
+}
+
+fn selectPlaygroundTab(playground: *TerminalPlaygroundState, value: []const u8) !void {
+    const maybe_index = std.fmt.parseInt(usize, value, 10) catch null;
+    if (maybe_index) |index| {
+        if (index >= playground.children.len) return error.InvalidTerminalCommand;
+        playground.select(index);
+        return;
+    }
+    for (playground.children, 0..) |child, index| {
+        if (std.mem.eql(u8, value, child.spec.name) or std.mem.eql(u8, value, child.spec.label)) {
+            playground.select(index);
+            return;
+        }
+    }
+    return error.InvalidTerminalCommand;
+}
+
+fn dispatchPlaygroundMouse(
+    allocator: std.mem.Allocator,
+    playground: *TerminalPlaygroundState,
+    x: usize,
+    y: usize,
+    action: HeadlessMouseAction,
+) !void {
+    switch (action) {
+        .move => try handlePlaygroundMouseEvent(allocator, playground, .{
+            .x = x,
+            .y = y,
+            .button = .left,
+            .is_motion = true,
+        }),
+        .click => try handlePlaygroundMouseEvent(allocator, playground, .{
+            .x = x,
+            .y = y,
+            .button = .release,
+            .is_motion = false,
+        }),
+        .double_click => {
+            try handlePlaygroundMouseEvent(allocator, playground, .{
+                .x = x,
+                .y = y,
+                .button = .release,
+                .is_motion = false,
+            });
+            try handlePlaygroundMouseEvent(allocator, playground, .{
+                .x = x,
+                .y = y,
+                .button = .release,
+                .is_motion = false,
+            });
+        },
+    }
+}
+
+fn advanceActivePlaygroundTime(playground: *TerminalPlaygroundState, milliseconds: u64) !void {
+    const child = playground.active();
+    const contract = (try child.runtime.terminalContractView()) orelse return;
+    const loop = contract.loop orelse return;
+    if (!loop.while_active or loop.every_ms == 0) return;
+    var elapsed: u64 = 0;
+    while (elapsed + loop.every_ms <= milliseconds) : (elapsed += loop.every_ms) {
+        try child.runtime.triggerLinkWithScope(loop.pulse_link, loop.scope);
+    }
+}
+
+fn executePlaygroundScript(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    script_path: []const u8,
+    playground: *TerminalPlaygroundState,
+) !void {
+    const data = try std.Io.Dir.cwd().readFileAlloc(io, script_path, allocator, .limited(std.math.maxInt(usize)));
+    defer allocator.free(data);
+
+    var parsed = try std.json.parseFromSlice(std.json.Value, allocator, data, .{});
+    defer parsed.deinit();
+
+    const actions_value = switch (parsed.value) {
+        .object => |object| object.get("actions") orelse return error.InvalidHeadlessScript,
+        .array => |*array| std.json.Value{ .array = array.* },
+        else => return error.InvalidHeadlessScript,
+    };
+    const actions = switch (actions_value) {
+        .array => |array| array.items,
+        else => return error.InvalidHeadlessScript,
+    };
+
+    for (actions) |action| try executePlaygroundScriptAction(allocator, playground, action);
+}
+
+fn executePlaygroundScriptAction(
+    allocator: std.mem.Allocator,
+    playground: *TerminalPlaygroundState,
+    action: std.json.Value,
+) !void {
+    const parts = switch (action) {
+        .array => |array| array.items,
+        else => return error.InvalidHeadlessScript,
+    };
+    if (parts.len == 0) return error.InvalidHeadlessScript;
+    const name = try jsonString(parts[0]);
+    if (std.mem.eql(u8, name, "select_tab")) {
+        if (parts.len != 2) return error.InvalidHeadlessScript;
+        switch (parts[1]) {
+            .string => |value| try selectPlaygroundTab(playground, value),
+            else => playground.select(try jsonIndex(parts[1])),
+        }
+        return;
+    }
+    if (std.mem.eql(u8, name, "press_key")) {
+        if (parts.len != 2) return error.InvalidHeadlessScript;
+        _ = try dispatchPlaygroundNamedKey(allocator, playground, try jsonString(parts[1]));
+        return;
+    }
+    if (std.mem.eql(u8, name, "mouse_move")) {
+        if (parts.len != 3) return error.InvalidHeadlessScript;
+        try dispatchPlaygroundMouse(allocator, playground, try jsonIndex(parts[1]), try jsonIndex(parts[2]), .move);
+        return;
+    }
+    if (std.mem.eql(u8, name, "mouse_click")) {
+        if (parts.len != 3) return error.InvalidHeadlessScript;
+        try dispatchPlaygroundMouse(allocator, playground, try jsonIndex(parts[1]), try jsonIndex(parts[2]), .click);
+        return;
+    }
+    if (std.mem.eql(u8, name, "mouse_double_click")) {
+        if (parts.len != 3) return error.InvalidHeadlessScript;
+        try dispatchPlaygroundMouse(allocator, playground, try jsonIndex(parts[1]), try jsonIndex(parts[2]), .double_click);
+        return;
+    }
+    if (std.mem.eql(u8, name, "terminal_command")) {
+        if (parts.len != 2) return error.InvalidHeadlessScript;
+        try executePlaygroundCommand(allocator, playground, try jsonString(parts[1]));
+        return;
+    }
+    if (std.mem.eql(u8, name, "wait")) {
+        if (parts.len != 2) return error.InvalidHeadlessScript;
+        try advanceActivePlaygroundTime(playground, try jsonU64(parts[1]));
+        return;
+    }
+    const child = playground.active();
+    return executeHeadlessScriptAction(allocator, &child.runtime, &child.input_state, action);
+}
+
+fn writePlaygroundHelp(stdout: *std.Io.Writer) !void {
+    try stdout.writeAll(
+        \\playground shortcuts:
+        \\  Shift+Left / Shift+Right  switch tabs
+        \\  [ / ] or h / l             switch tabs
+        \\  tab <name|index>           select a tab in command mode
+        \\  next / prev                switch tabs in command mode
+        \\
+    );
 }
 
 fn runTerminal(
@@ -1908,7 +3126,7 @@ fn renderTerminalDeclaredScreen(
     input_state.viewport_height = viewport.height;
     try clampTerminalViewport(input_state, snapshot);
     try writeTerminalViewport(stdout, snapshot, input_state);
-    try positionTerminalCursorForFocusedInput(allocator, runtime, stdout, input_state);
+    try positionTerminalCursorForFocusedInput(allocator, runtime, stdout, input_state, 0);
     try stdout.flush();
 }
 
@@ -2115,18 +3333,32 @@ fn handleDeclaredTerminalCsiNumber(
     input_state: *TerminalInputState,
     first_digit: u8,
 ) !bool {
-    _ = allocator;
-    var digits_buf: [8]u8 = undefined;
-    digits_buf[0] = first_digit;
+    var buffer: [16]u8 = undefined;
+    buffer[0] = first_digit;
     var len: usize = 1;
-    while (len < digits_buf.len) {
+    var final: u8 = 0;
+    while (len < buffer.len) {
         const byte = try readRequiredTerminalByte();
-        if (byte == '~') break;
-        if (byte < '0' or byte > '9') return true;
-        digits_buf[len] = byte;
+        if ((byte >= 'A' and byte <= 'Z') or byte == '~') {
+            final = byte;
+            break;
+        }
+        if ((byte < '0' or byte > '9') and byte != ';') return true;
+        buffer[len] = byte;
         len += 1;
     }
-    const code = std.fmt.parseInt(u8, digits_buf[0..len], 10) catch return true;
+    const payload = buffer[0..len];
+    if (std.mem.eql(u8, payload, "1;2")) {
+        switch (final) {
+            'C' => _ = try dispatchTerminalNamedKey(allocator, runtime, contract, input_state, "Shift+Right"),
+            'D' => _ = try dispatchTerminalNamedKey(allocator, runtime, contract, input_state, "Shift+Left"),
+            else => {},
+        }
+        return true;
+    }
+    if (final != '~') return true;
+
+    const code = std.fmt.parseInt(u8, payload, 10) catch return true;
     switch (code) {
         5 => scrollTerminalViewport(input_state, -10),
         6 => scrollTerminalViewport(input_state, 10),
@@ -2229,6 +3461,7 @@ fn handleTerminalMouseEvent(
     defer hovered_now.deinit(allocator);
 
     var clicked_button: ?usize = null;
+    var clicked_button_at: ?struct { x: usize, y: usize } = null;
     var clicked_label_double_click: ?usize = null;
     var clicked_text_input: ?usize = null;
 
@@ -2237,7 +3470,12 @@ fn handleTerminalMouseEvent(
         if (region.hover_index) |hover_index| {
             if (!containsIndex(hovered_now.items, hover_index)) try hovered_now.append(allocator, hover_index);
         }
-        if (clicked_button == null and region.button_index != null) clicked_button = region.button_index;
+        if (clicked_button == null and region.button_index != null) {
+            clicked_button = region.button_index;
+            if (region.button_coordinate_payload) {
+                clicked_button_at = .{ .x = absolute_x - region.x, .y = absolute_y - region.y };
+            }
+        }
         if (clicked_label_double_click == null and region.label_double_click_index != null) clicked_label_double_click = region.label_double_click_index;
         if (clicked_text_input == null and region.text_input_index != null) clicked_text_input = region.text_input_index;
     }
@@ -2255,7 +3493,13 @@ fn handleTerminalMouseEvent(
             }
 
             if (event.button == .release) {
-                if (clicked_button) |button_index| try runtime.clickButton(button_index);
+                if (clicked_button) |button_index| {
+                    if (clicked_button_at) |point| {
+                        try runtime.clickButtonAt(button_index, point.x, point.y);
+                    } else {
+                        try runtime.clickButton(button_index);
+                    }
+                }
                 if (clicked_label_double_click) |label_index| {
                     const now_ms = currentMonotonicMs();
                     if (input_state.last_mouse_click) |last| {
@@ -2365,12 +3609,53 @@ fn writeTerminalViewport(stdout: *std.Io.Writer, snapshot: []const u8, input_sta
         if (colorize_cells) {
             try writeColoredCellsViewportLine(stdout, visible_line, row_index);
         } else {
-            try stdout.writeAll(visible_line);
+            try writeColoredTerminalViewportLine(stdout, visible_line, row_index);
         }
         printed_rows += 1;
         row_index += 1;
         if (printed_rows < input_state.viewport_height) try stdout.writeAll("\r\n");
     }
+}
+
+fn writeColoredTerminalViewportLine(stdout: *std.Io.Writer, line: []const u8, row_index: usize) !void {
+    if (row_index == 0 and line.len > 0) {
+        try stdout.writeAll("\x1b[1;38;5;45m");
+        try stdout.writeAll(line);
+        try stdout.writeAll("\x1b[0m");
+        return;
+    }
+
+    const game_board_line = terminalLineLooksLikeGameBoard(line);
+    for (line) |char| {
+        switch (char) {
+            '[' => try stdout.writeAll("\x1b[1;38;5;220m[\x1b[0m"),
+            ']' => try stdout.writeAll("\x1b[1;38;5;220m]\x1b[0m"),
+            '<' => try stdout.writeAll("\x1b[1;38;5;51m<\x1b[0m"),
+            '>' => try stdout.writeAll("\x1b[1;38;5;51m>\x1b[0m"),
+            '#' => try stdout.writeAll("\x1b[38;5;27m#\x1b[0m"),
+            'o' => if (game_board_line) try stdout.writeAll("\x1b[1;38;5;202mo\x1b[0m") else try stdout.writeByte(char),
+            'p' => if (game_board_line) try stdout.writeAll("\x1b[1;38;5;46mp\x1b[0m") else try stdout.writeByte(char),
+            '+', '=', ':' => {
+                try stdout.writeAll("\x1b[1;38;5;214m");
+                try stdout.writeByte(char);
+                try stdout.writeAll("\x1b[0m");
+            },
+            else => try stdout.writeByte(char),
+        }
+    }
+}
+
+fn terminalLineLooksLikeGameBoard(line: []const u8) bool {
+    if (std.mem.indexOfScalar(u8, line, '#') != null) return true;
+    if (std.mem.indexOfScalar(u8, line, '.') == null) return false;
+
+    for (line) |char| {
+        switch (char) {
+            '.', '#', '[', ']', 'o', 'p', ' ' => {},
+            else => return false,
+        }
+    }
+    return true;
 }
 
 fn writeColoredCellsViewportLine(stdout: *std.Io.Writer, line: []const u8, row_index: usize) !void {
@@ -2420,6 +3705,7 @@ fn positionTerminalCursorForFocusedInput(
     runtime: *boon.headless.Session,
     stdout: *std.Io.Writer,
     input_state: *const TerminalInputState,
+    y_offset: usize,
 ) !void {
     _ = allocator;
     if (input_state.focused_text_input) |index| {
@@ -2456,7 +3742,7 @@ fn positionTerminalCursorForFocusedInput(
         }
 
         const screen_x = logical_x - input_state.view_x + 1;
-        const screen_y = logical_y - input_state.view_y + 1;
+        const screen_y = logical_y - input_state.view_y + 1 + y_offset;
         try stdout.writeAll("\x1b[?25h");
         try stdout.print("\x1b[{d};{d}H", .{ screen_y, screen_x });
         return;
@@ -2605,7 +3891,26 @@ fn dispatchTerminalNamedKey(
             if (input_state.focused_text_input_cursor < current.len) input_state.focused_text_input_cursor += 1;
             return true;
         }
-        if (std.mem.eql(u8, key, "Enter") or std.mem.eql(u8, key, "Escape") or std.mem.eql(u8, key, "Up") or std.mem.eql(u8, key, "Down")) {
+        if (std.mem.eql(u8, key, "Enter")) {
+            if (clickTerminalDefaultSubmitButton(allocator, runtime)) {
+                try normalizeTerminalInputState(allocator, runtime, input_state);
+                return true;
+            }
+            if (try dispatchTerminalKey(runtime, contract, "Enter")) {
+                try normalizeTerminalInputState(allocator, runtime, input_state);
+                try promotePendingTerminalFocus(allocator, runtime, input_state);
+                return true;
+            }
+            try runtime.pressTextInputKey(index, key);
+            runtime.blurTextInput(index) catch |err| switch (err) {
+                error.InvalidTextInputIndex => {},
+                else => return err,
+            };
+            try normalizeTerminalInputState(allocator, runtime, input_state);
+            try promotePendingTerminalFocus(allocator, runtime, input_state);
+            return true;
+        }
+        if (std.mem.eql(u8, key, "Escape") or std.mem.eql(u8, key, "Up") or std.mem.eql(u8, key, "Down")) {
             try runtime.pressTextInputKey(index, key);
             try normalizeTerminalInputState(allocator, runtime, input_state);
             try promotePendingTerminalFocus(allocator, runtime, input_state);
@@ -2634,6 +3939,15 @@ fn dispatchTerminalNamedKey(
     }
 
     return dispatched;
+}
+
+fn clickTerminalDefaultSubmitButton(allocator: std.mem.Allocator, runtime: *boon.headless.Session) bool {
+    const labels = [_][]const u8{ "Add", "Create", "Book" };
+    for (labels) |label| {
+        runtime.clickButtonByLabel(allocator, label) catch continue;
+        return true;
+    }
+    return false;
 }
 
 fn dispatchHeadlessTerminalKey(
@@ -3059,6 +4373,7 @@ fn writeTerminalHelp(stdout: *std.Io.Writer) !void {
         \\  key <index> <key>
         \\  key-active <key>
         \\  select <index> <value>
+        \\  slider <index> <value>
         \\  hover <index> on|off
         \\  hover-label <text> on|off
         \\  mouse-move <x> <y>
@@ -3159,6 +4474,12 @@ fn executeTerminalCommand(
         const value = parts.rest();
         if (value.len == 0) return error.InvalidTerminalCommand;
         return runtime.setSelectValue(index, value);
+    }
+    if (std.mem.eql(u8, command, "slider")) {
+        const index = try parseTerminalIndex(parts.next() orelse return error.InvalidTerminalCommand);
+        const value = try std.fmt.parseFloat(f64, parts.next() orelse return error.InvalidTerminalCommand);
+        if (parts.next() != null) return error.InvalidTerminalCommand;
+        return runtime.setSliderValue(index, value);
     }
     if (std.mem.eql(u8, command, "hover")) {
         const index = try parseTerminalIndex(parts.next() orelse return error.InvalidTerminalCommand);
@@ -3308,6 +4629,35 @@ fn serveBrowserConnection(
     };
 
     const target = splitRequestTarget(request.head.target);
+    if (std.mem.eql(u8, target.path, "/__boon/playground/compile")) {
+        if (request.head.method != .POST) {
+            try request.respond("method not allowed\n", .{
+                .status = .method_not_allowed,
+                .keep_alive = false,
+                .extra_headers = &.{.{ .name = "Content-Type", .value = "text/plain; charset=utf-8" }},
+            });
+            return;
+        }
+        const payload = browserPlaygroundCompileJsonAlloc(allocator, io, &request) catch |err| {
+            try stderr.print("serve-browser playground compile failed: {t}\n", .{err});
+            try stderr.flush();
+            try request.respond("{\"ok\":false,\"mode\":\"local-zig\",\"diagnostics\":[{\"sourcePath\":\"<request>\",\"step\":\"server\",\"message\":\"playground compile failed\"}]}\n", .{
+                .status = .internal_server_error,
+                .keep_alive = false,
+                .extra_headers = &.{.{ .name = "Content-Type", .value = "application/json" }},
+            });
+            return;
+        };
+        defer allocator.free(payload);
+        try request.respond(payload, .{
+            .keep_alive = false,
+            .extra_headers = &.{
+                .{ .name = "Content-Type", .value = "application/json" },
+                .{ .name = "Cache-Control", .value = "no-store" },
+            },
+        });
+        return;
+    }
     if (request.head.method != .GET) {
         try request.respond("method not allowed\n", .{
             .status = .method_not_allowed,
@@ -3394,20 +4744,167 @@ fn serveBrowserConnection(
 fn browserAssetRelativePath(path: []const u8) ?[]const u8 {
     if (std.mem.eql(u8, path, "/") or std.mem.eql(u8, path, "/index.html")) return "index.html";
     if (std.mem.eql(u8, path, "/boon-browser.mjs")) return "boon-browser.mjs";
+    if (std.mem.eql(u8, path, "/playground-browser.mjs")) return "playground-browser.mjs";
     return null;
 }
 
 fn browserAssetBody(relative_path: []const u8) ?[]const u8 {
     if (std.mem.eql(u8, relative_path, "index.html")) return browser_assets.index_html;
     if (std.mem.eql(u8, relative_path, "boon-browser.mjs")) return browser_assets.boon_browser_mjs;
+    if (std.mem.eql(u8, relative_path, "playground-browser.mjs")) return browser_assets.playground_browser_mjs;
     return null;
 }
 
 fn browserAssetContentType(relative_path: []const u8) []const u8 {
     if (std.mem.eql(u8, relative_path, "index.html")) return "text/html; charset=utf-8";
     if (std.mem.eql(u8, relative_path, "boon-browser.mjs")) return "text/javascript; charset=utf-8";
+    if (std.mem.eql(u8, relative_path, "playground-browser.mjs")) return "text/javascript; charset=utf-8";
     if (std.mem.eql(u8, relative_path, "manifest.json")) return "application/json";
     return "application/octet-stream";
+}
+
+fn browserPlaygroundCompileJsonAlloc(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    request: *std.http.Server.Request,
+) ![]u8 {
+    var body_buffer: [4096]u8 = undefined;
+    const body_reader = request.readerExpectNone(&body_buffer);
+    const body = try body_reader.allocRemaining(allocator, .limited(256 * 1024));
+    defer allocator.free(body);
+
+    var parsed = try std.json.parseFromSlice(std.json.Value, allocator, body, .{});
+    defer parsed.deinit();
+    const object = switch (parsed.value) {
+        .object => |object| object,
+        else => return error.InvalidPlaygroundCompileRequest,
+    };
+    const source_path = try jsonObjectString(object, "sourcePath");
+    const source = try jsonObjectString(object, "source");
+    const example_name = jsonObjectString(object, "exampleName") catch "playground";
+
+    const outcome = try boon.physical_ir.lowerAlloc(allocator, source);
+    var program = switch (outcome) {
+        .ok => |program| program,
+        .err => |failure| return try playgroundDiagnosticJsonAlloc(allocator, source_path, "codegen-zig", source, failure),
+    };
+    defer program.deinit();
+
+    const generated = try boon.codegen_zig.generateAlloc(allocator, &program, .{ .source_path = source_path });
+    defer allocator.free(generated);
+
+    var digest: [32]u8 = undefined;
+    std.crypto.hash.sha2.Sha256.hash(source, &digest, .{});
+    const cache_key = try std.fmt.allocPrint(allocator, "{x}", .{digest});
+    defer allocator.free(cache_key);
+    const short_key = cache_key[0..16];
+
+    var cwd = std.Io.Dir.cwd();
+    const out_dir = ".zig-cache/playground-server";
+    try cwd.createDirPath(io, out_dir);
+    const generated_path = try std.fmt.allocPrint(allocator, "{s}/{s}-{s}.zig", .{ out_dir, example_name, short_key });
+    defer allocator.free(generated_path);
+    const native_path = try std.fmt.allocPrint(allocator, "{s}/{s}-{s}", .{ out_dir, example_name, short_key });
+    defer allocator.free(native_path);
+    try cwd.writeFile(io, .{ .sub_path = generated_path, .data = generated });
+
+    const emit_arg = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{native_path});
+    defer allocator.free(emit_arg);
+    const root_module_arg = try std.fmt.allocPrint(allocator, "-Mroot={s}", .{generated_path});
+    defer allocator.free(root_module_arg);
+    const build = try std.process.run(allocator, io, .{
+        .argv = &.{ "timeout", "15s", "zig", "build-exe", "--dep", "boon", root_module_arg, "-Mboon=src/root.zig", emit_arg },
+        .stderr_limit = .limited(64 * 1024),
+        .stdout_limit = .limited(64 * 1024),
+    });
+    defer allocator.free(build.stdout);
+    defer allocator.free(build.stderr);
+    const build_ok = switch (build.term) {
+        .exited => |code| code == 0,
+        else => false,
+    };
+    if (!build_ok) {
+        return try playgroundCommandDiagnosticJsonAlloc(allocator, source_path, "zig-build-exe", build.stderr);
+    }
+
+    const preview = try std.process.run(allocator, io, .{
+        .argv = &.{ "timeout", "5s", native_path },
+        .stderr_limit = .limited(64 * 1024),
+        .stdout_limit = .limited(64 * 1024),
+    });
+    defer allocator.free(preview.stdout);
+    defer allocator.free(preview.stderr);
+    const preview_ok = switch (preview.term) {
+        .exited => |code| code == 0,
+        else => false,
+    };
+    if (!preview_ok) {
+        return try playgroundCommandDiagnosticJsonAlloc(allocator, source_path, "native-preview", preview.stderr);
+    }
+
+    const generated_stat = try cwd.statFile(io, generated_path, .{});
+    const native_stat = try cwd.statFile(io, native_path, .{});
+
+    var out: std.Io.Writer.Allocating = .init(allocator);
+    errdefer out.deinit();
+    try out.writer.writeAll("{\"ok\":true,\"mode\":\"local-zig\"");
+    try out.writer.writeAll(",\"cacheKey\":");
+    try writeJsonEscapedString(&out.writer, short_key);
+    try out.writer.writeAll(",\"sourcePath\":");
+    try writeJsonEscapedString(&out.writer, source_path);
+    try out.writer.writeAll(",\"generatedZigPath\":");
+    try writeJsonEscapedString(&out.writer, generated_path);
+    try out.writer.writeAll(",\"nativePreviewPath\":");
+    try writeJsonEscapedString(&out.writer, native_path);
+    try out.writer.writeAll(",\"generatedZig\":");
+    try writeJsonEscapedString(&out.writer, generated);
+    try out.writer.writeAll(",\"previewStdout\":");
+    try writeJsonEscapedString(&out.writer, preview.stdout);
+    try out.writer.print(
+        ",\"budgets\":{{\"codegenMs\":0,\"buildMs\":0,\"previewMs\":0,\"generatedZigBytes\":{d},\"nativePreviewBytes\":{d}}}",
+        .{ generated_stat.size, native_stat.size },
+    );
+    try out.writer.writeAll(",\"diagnostics\":[]}\n");
+    return try out.toOwnedSlice();
+}
+
+fn jsonObjectString(object: std.json.ObjectMap, field: []const u8) ![]const u8 {
+    const value = object.get(field) orelse return error.InvalidPlaygroundCompileRequest;
+    return switch (value) {
+        .string => |text| text,
+        else => error.InvalidPlaygroundCompileRequest,
+    };
+}
+
+fn playgroundDiagnosticJsonAlloc(
+    allocator: std.mem.Allocator,
+    source_path: []const u8,
+    step: []const u8,
+    source: []const u8,
+    diagnostic: boon.diag.Diagnostic,
+) ![]u8 {
+    var rendered: std.Io.Writer.Allocating = .init(allocator);
+    defer rendered.deinit();
+    try diagnostic.render(source, &rendered.writer);
+    return try playgroundCommandDiagnosticJsonAlloc(allocator, source_path, step, rendered.written());
+}
+
+fn playgroundCommandDiagnosticJsonAlloc(
+    allocator: std.mem.Allocator,
+    source_path: []const u8,
+    step: []const u8,
+    message: []const u8,
+) ![]u8 {
+    var out: std.Io.Writer.Allocating = .init(allocator);
+    errdefer out.deinit();
+    try out.writer.writeAll("{\"ok\":false,\"mode\":\"local-zig\",\"diagnostics\":[{\"sourcePath\":");
+    try writeJsonEscapedString(&out.writer, source_path);
+    try out.writer.writeAll(",\"step\":");
+    try writeJsonEscapedString(&out.writer, step);
+    try out.writer.writeAll(",\"message\":");
+    try writeJsonEscapedString(&out.writer, message);
+    try out.writer.writeAll("}]}\n");
+    return try out.toOwnedSlice();
 }
 
 test "headless press_key dispatches element-owned terminal bindings" {
@@ -4334,8 +5831,9 @@ test "terminal cells partial formula typing does not crash on empty cell" {
 
     const keys = [_][]const u8{
         "Down",  "Down",  "Down",  "Down",  "Down",  "Down",
-        "Right", "Right", "Right", "Right", "Right", "Right", "Right", "Right",
-        "Enter", "=",     "a",     "d",     "d",     "(",     "i",
+        "Right", "Right", "Right", "Right", "Right", "Right",
+        "Right", "Right", "Enter", "=",     "a",     "d",
+        "d",     "(",     "i",
     };
     for (keys) |key| {
         _ = try dispatchHeadlessTerminalNamedKey(std.testing.allocator, &runtime, &input_state, key);
@@ -4365,8 +5863,9 @@ test "terminal cells full lowercase formula typing does not crash on H5" {
 
     const keys = [_][]const u8{
         "Down",  "Down",  "Down",  "Down",  "Down",
-        "Right", "Right", "Right", "Right", "Right", "Right", "Right",
-        "Enter", "=",     "m",     "u",     "l",     "(",     "f",     "5",
+        "Right", "Right", "Right", "Right", "Right",
+        "Right", "Right", "Enter", "=",     "m",
+        "u",     "l",     "(",     "f",     "5",
         ",",     " ",     "g",     "5",     ")",
     };
     for (keys) |key| {
@@ -4397,9 +5896,11 @@ test "terminal cells uppercase references compute correctly after commit" {
 
     const keys = [_][]const u8{
         "Down",  "Down",  "Down",  "Down",  "Down",
-        "Right", "Right", "Right", "Right", "Right", "Right", "Right",
-        "Enter", "=",     "m",     "u",     "l",     "(",     "F",     "5",
-        ",",     " ",     "G",     "5",     ")",     "Enter",
+        "Right", "Right", "Right", "Right", "Right",
+        "Right", "Right", "Enter", "=",     "m",
+        "u",     "l",     "(",     "F",     "5",
+        ",",     " ",     "G",     "5",     ")",
+        "Enter",
     };
     for (keys) |key| {
         _ = try dispatchHeadlessTerminalNamedKey(std.testing.allocator, &runtime, &input_state, key);
@@ -4429,7 +5930,7 @@ test "terminal cells typing into empty cell then snapshot then Right keeps editi
     defer input_state.deinit(std.testing.allocator);
 
     const keys = [_][]const u8{
-        "Down", "Down", "Down", "Down", "Down",
+        "Down",  "Down",  "Down",  "Down",  "Down",
         "Right", "Right", "Right", "Right", "Right",
         "Enter", "3",
     };
@@ -4566,6 +6067,13 @@ fn browserManifestJsonAlloc(
     try out.writer.writeAll("{\"bundle\":\"boon-zig-browser-host\"");
     try out.writer.writeAll(",\"supported_examples\":[\"counter\",\"interval\",\"cells\",\"cells_dynamic\",\"todo_mvc\",\"todo_mvc_physical\"]");
     try out.writer.writeAll(",\"storage\":\"IndexedDB primary with in-memory fallback for smoke environments\"");
+    try out.writer.writeAll(",\"playground\":{");
+    try out.writer.writeAll("\"active_compiler_path\":\"local-zig\"");
+    try out.writer.writeAll(",\"fallback\":\"edge/server-compatible local Zig compile provider\"");
+    try out.writer.writeAll(",\"modes\":[\"interpreter-preview\",\"compile-to-zig\",\"generated-zig-viewer\",\"diagnostics\"]");
+    try out.writer.writeAll(",\"compile_endpoint\":\"/__boon/playground/compile\"");
+    try out.writer.writeAll(",\"browser_zig_status\":\"not-integrated\"}");
+    try out.writer.writeAll(",\"wasm_host_boundary\":\"integrated-js-adapter\"");
     try out.writer.writeAll(",\"physical_render_targets\":{");
     var rendered_any = false;
     for (themes, 0..) |theme, index| {
@@ -4632,6 +6140,21 @@ fn executeHeadlessScriptAction(
         try runtime.clickButton(try jsonIndex(parts[1]));
         return;
     }
+    if (std.mem.eql(u8, name, "click_checkbox")) {
+        if (parts.len != 2) return error.InvalidHeadlessScript;
+        try runtime.clickCheckbox(try jsonIndex(parts[1]));
+        return;
+    }
+    if (std.mem.eql(u8, name, "click_label")) {
+        if (parts.len != 2) return error.InvalidHeadlessScript;
+        try runtime.clickButtonByLabel(allocator, try jsonString(parts[1]));
+        return;
+    }
+    if (std.mem.eql(u8, name, "terminal_command")) {
+        if (parts.len != 2) return error.InvalidHeadlessScript;
+        try executeTerminalCommand(allocator, runtime, input_state, try jsonString(parts[1]));
+        return;
+    }
     if (std.mem.eql(u8, name, "press_key")) {
         if (parts.len != 2) return error.InvalidHeadlessScript;
         _ = try dispatchHeadlessTerminalNamedKey(allocator, runtime, input_state, try jsonString(parts[1]));
@@ -4667,9 +6190,19 @@ fn executeHeadlessScriptAction(
         try runtime.pressTextInputKey(try jsonIndex(parts[1]), try jsonString(parts[2]));
         return;
     }
+    if (std.mem.eql(u8, name, "press_text_input_key_with_text")) {
+        if (parts.len != 4) return error.InvalidHeadlessScript;
+        try runtime.pressTextInputKeyWithText(try jsonIndex(parts[1]), try jsonString(parts[2]), try jsonString(parts[3]));
+        return;
+    }
     if (std.mem.eql(u8, name, "set_select") or std.mem.eql(u8, name, "set_select_value")) {
         if (parts.len != 3) return error.InvalidHeadlessScript;
         try runtime.setSelectValue(try jsonIndex(parts[1]), try jsonString(parts[2]));
+        return;
+    }
+    if (std.mem.eql(u8, name, "set_slider") or std.mem.eql(u8, name, "set_slider_value")) {
+        if (parts.len != 3) return error.InvalidHeadlessScript;
+        try runtime.setSliderValue(try jsonIndex(parts[1]), try jsonFloat(parts[2]));
         return;
     }
     if (std.mem.eql(u8, name, "set_hover")) {
@@ -4714,6 +6247,15 @@ fn jsonU64(value: std.json.Value) !u64 {
         .integer => |number| if (number >= 0) @intCast(number) else error.InvalidHeadlessScript,
         .float => |number| if (number >= 0 and @floor(number) == number) @intFromFloat(number) else error.InvalidHeadlessScript,
         .number_string => |text| try std.fmt.parseInt(u64, text, 10),
+        else => error.InvalidHeadlessScript,
+    };
+}
+
+fn jsonFloat(value: std.json.Value) !f64 {
+    return switch (value) {
+        .integer => |number| @floatFromInt(number),
+        .float => |number| number,
+        .number_string => |text| try std.fmt.parseFloat(f64, text),
         else => error.InvalidHeadlessScript,
     };
 }
@@ -4817,7 +6359,9 @@ test "parseArgs accepts parse path" {
     const args = [_][]const u8{ "boon-zig", "parse", "examples/upstream/counter/counter.bn" };
     const command = try parseArgs(std.testing.allocator, &args);
     switch (command) {
-        .parse => |path| try std.testing.expectEqualStrings("examples/upstream/counter/counter.bn", path),
+        .parse => |parse_args| {
+            try std.testing.expectEqualStrings("examples/upstream/counter/counter.bn", parse_args.path);
+        },
         else => return error.ExpectedParseCommand,
     }
 }
@@ -4826,7 +6370,7 @@ test "parseArgs accepts hir path" {
     const args = [_][]const u8{ "boon-zig", "hir", "examples/upstream/counter/counter.bn" };
     const command = try parseArgs(std.testing.allocator, &args);
     switch (command) {
-        .hir => |path| try std.testing.expectEqualStrings("examples/upstream/counter/counter.bn", path),
+        .hir => |hir_args| try std.testing.expectEqualStrings("examples/upstream/counter/counter.bn", hir_args.path),
         else => return error.ExpectedHirCommand,
     }
 }
@@ -4862,8 +6406,84 @@ test "parseArgs accepts flow path" {
     const args = [_][]const u8{ "boon-zig", "flow", "examples/upstream/counter/counter.bn" };
     const command = try parseArgs(std.testing.allocator, &args);
     switch (command) {
-        .flow => |path| try std.testing.expectEqualStrings("examples/upstream/counter/counter.bn", path),
+        .flow => |flow_args| try std.testing.expectEqualStrings("examples/upstream/counter/counter.bn", flow_args.path),
         else => return error.ExpectedFlowCommand,
+    }
+}
+
+test "parseArgs accepts physical-run path" {
+    const args = [_][]const u8{ "boon-zig", "physical-run", "examples/upstream/counter/counter.bn" };
+    const command = try parseArgs(std.testing.allocator, &args);
+    switch (command) {
+        .physical_run => |physical_args| {
+            try std.testing.expectEqualStrings("examples/upstream/counter/counter.bn", physical_args.path);
+            try std.testing.expectEqual(@as(?PhysicalRunEventArg, null), physical_args.event);
+            try std.testing.expectEqual(@as(?PhysicalRunIntervalArg, null), physical_args.interval);
+            try std.testing.expectEqual(@as(u64, 0), physical_args.virtual_time_ms);
+            try std.testing.expectEqual(@as(?[]const u8, null), physical_args.expect_state);
+            try std.testing.expectEqual(@as(?[]const u8, null), physical_args.state_dir);
+            try std.testing.expect(!physical_args.clear_state);
+        },
+        else => return error.ExpectedPhysicalRunCommand,
+    }
+}
+
+test "parseArgs accepts physical-run event payload, interval, virtual time, and expected state" {
+    const args = [_][]const u8{
+        "boon-zig",
+        "physical-run",
+        "examples/upstream/counter/counter.bn",
+        "--event",
+        "0:42:number:7",
+        "--interval",
+        "1:99:100ms",
+        "--virtual-time",
+        "250ms",
+        "--expect-state",
+        "state[0]=number:2",
+        "--state-dir",
+        ".zig-cache/physical-runtime-test",
+        "--clear-state",
+    };
+    const command = try parseArgs(std.testing.allocator, &args);
+    switch (command) {
+        .physical_run => |physical_args| {
+            try std.testing.expectEqual(@as(boon.physical_ir.SourceSlotId, 0), physical_args.event.?.source_slot_id);
+            try std.testing.expectEqual(@as(boon.physical_runtime.BindingId, 42), physical_args.event.?.binding_id);
+            try std.testing.expectEqual(boon.physical_runtime.RuntimeValue{ .number = 7 }, physical_args.event.?.payload);
+            try std.testing.expectEqual(@as(boon.physical_ir.SourceSlotId, 1), physical_args.interval.?.source_slot_id);
+            try std.testing.expectEqual(@as(boon.physical_runtime.BindingId, 99), physical_args.interval.?.binding_id);
+            try std.testing.expectEqual(@as(u64, 100), physical_args.interval.?.period_ms);
+            try std.testing.expectEqual(@as(u64, 250), physical_args.virtual_time_ms);
+            try std.testing.expectEqualStrings("state[0]=number:2", physical_args.expect_state.?);
+            try std.testing.expectEqualStrings(".zig-cache/physical-runtime-test", physical_args.state_dir.?);
+            try std.testing.expect(physical_args.clear_state);
+        },
+        else => return error.ExpectedPhysicalRunCommand,
+    }
+}
+
+test "parseArgs accepts codegen-zig path with output path" {
+    const args = [_][]const u8{
+        "boon-zig",
+        "codegen-zig",
+        "examples/source_physical/counter/counter.bn",
+        "--out",
+        ".zig-cache/generated-counter.zig",
+        "--demo-event",
+        "0",
+        "--demo-text",
+        "Write tests",
+    };
+    const command = try parseArgs(std.testing.allocator, &args);
+    switch (command) {
+        .codegen_zig => |codegen_args| {
+            try std.testing.expectEqualStrings("examples/source_physical/counter/counter.bn", codegen_args.path);
+            try std.testing.expectEqualStrings(".zig-cache/generated-counter.zig", codegen_args.out_path.?);
+            try std.testing.expectEqual(@as(boon.physical_ir.SourceSlotId, 0), codegen_args.demo_event.?.source_slot_id);
+            try std.testing.expectEqualStrings("Write tests", codegen_args.demo_event.?.payload.text);
+        },
+        else => return error.ExpectedCodegenZigCommand,
     }
 }
 
@@ -4881,6 +6501,19 @@ test "parseArgs accepts example shorthand" {
             try std.testing.expect(terminal_args.trace);
         },
         else => return error.ExpectedExampleCommand,
+    }
+}
+
+test "parseArgs accepts terminal playground aliases" {
+    const args = [_][]const u8{ "boon-zig", "run_play", "--trace", "--virtual-time", "2s", "--script", "tests/examples/terminal_playground_sequence.json" };
+    const command = try parseArgs(std.testing.allocator, &args);
+    switch (command) {
+        .run_playground => |playground_args| {
+            try std.testing.expect(playground_args.trace);
+            try std.testing.expectEqual(@as(u64, 2000), playground_args.virtual_time_ms);
+            try std.testing.expectEqualStrings("tests/examples/terminal_playground_sequence.json", playground_args.script_path.?);
+        },
+        else => return error.ExpectedPlaygroundCommand,
     }
 }
 

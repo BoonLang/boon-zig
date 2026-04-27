@@ -49,5 +49,5 @@ FUNCTION input_row(input, name) {
 }
 
 FUNCTION operation_button(label) {
-    Element/button(element: [event: [press: LINK]], style: [], label: label)
+    Element/button(element: [event: [press: SOURCE]], style: [], label: label)
 }

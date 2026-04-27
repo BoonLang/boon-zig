@@ -3,8 +3,8 @@
 
 store: [
     elements: [
-        canvas: LINK
-        undo_button: LINK
+        canvas: SOURCE
+        undo_button: SOURCE
     ]
 
     circles: LIST {}
@@ -41,10 +41,10 @@ FUNCTION root_element() {
                     style: []
                     items: LIST {
                         Element/button(
-                            element: [event: [press: LINK]]
+                            element: [event: [press: SOURCE]]
                             style: []
                             label: TEXT { Undo }
-                        ) |> LINK { store.elements.undo_button }
+                        ) |> SOURCE { store.elements.undo_button }
                         Element/label(
                             element: []
                             style: []
@@ -53,7 +53,7 @@ FUNCTION root_element() {
                     }
                 )
                 Element/svg(
-                    element: [event: [click: LINK]]
+                    element: [event: [click: SOURCE]]
                     style: [width: 460, height: 300, background: TEXT { rgba(255,255,255,0.1) }]
                     children: store.circles |> List/map(item, new:
                         Element/svg_circle(
@@ -68,7 +68,7 @@ FUNCTION root_element() {
                             ]
                         )
                     )
-                ) |> LINK { store.elements.canvas }
+                ) |> SOURCE { store.elements.canvas }
             }
         )
     }

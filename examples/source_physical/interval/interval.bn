@@ -1,0 +1,5 @@
+timer: [event: [tick: SOURCE]]
+
+counter: 0 |> HOLD counter {
+    timer.event.tick |> THEN { counter + 1 }
+}

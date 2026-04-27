@@ -1,0 +1,48 @@
+store: [
+    sources: [
+        filter_buttons: [
+            all: [event: [press: SOURCE] hovered: SOURCE]
+            active: [event: [press: SOURCE] hovered: SOURCE]
+            completed: [event: [press: SOURCE] hovered: SOURCE]
+        ]
+        remove_completed_button: [event: [press: SOURCE] hovered: SOURCE]
+        toggle_all_checkbox: [event: [click: SOURCE]]
+        new_todo_title_text_input: [
+            event: [
+                change: SOURCE
+                key_down: SOURCE
+            ]
+        ]
+    ]
+]
+
+todo: [
+    sources: [
+        remove_todo_button: [event: [press: SOURCE]]
+        editing_todo_title_element: [
+            event: [
+                change: SOURCE
+                key_down: SOURCE
+                blur: SOURCE
+            ]
+        ]
+        todo_title_element: [event: [double_click: SOURCE]]
+        todo_checkbox: [event: [click: SOURCE]]
+    ]
+]
+
+draft_title: 0 |> HOLD draft_title {
+    store.sources.new_todo_title_text_input.event.change
+}
+
+filter_press_count: 0 |> HOLD filter_press_count {
+    store.sources.filter_buttons.active.event.press |> THEN { filter_press_count + 1 }
+}
+
+removed_count: 0 |> HOLD removed_count {
+    todo.sources.remove_todo_button.event.press |> THEN { removed_count + 1 }
+}
+
+edit_title: 0 |> HOLD edit_title {
+    todo.sources.editing_todo_title_element.event.change
+}

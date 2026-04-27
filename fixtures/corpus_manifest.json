@@ -16,11 +16,19 @@
       "persistence_status": "NOT_STARTED",
       "terminal_status": "DONE",
       "browser_status": "PARTIAL",
+      "source_physical_ir_status": "DONE",
+      "source_physical_ir_canonical_path": "examples/source_physical/pong/pong.bn",
+      "source_physical_ir_evidence": [
+        "zig build test-physical-example-pong",
+        "zig build test-runtime",
+        "zig build run -- physical-run examples/source_physical/pong/pong.bn --event 0:1:text:Enter --expect-state 'state[0]=text:Enter'"
+      ],
       "notes": [
         "Repo-authored terminal example tracked outside the upstream corpus.",
         "Phase 7 headless verification replays the repo-authored Pong lane via tests/examples/pong_sequence.json and expects a scored rally.",
         "Phase 8 terminal-grid verification replays the repo-authored Pong lane and compares the snapshot in tests/terminal_grid/pong.expected.",
-        "Repo-authored terminal example tracked as browser PARTIAL-by-design; no browser host lane is implemented for it."
+        "Repo-authored terminal example tracked as browser PARTIAL-by-design; no browser host lane is implemented for it.",
+        "Source Physical IR Phase 3 adds a canonical SOURCE Pong input/frame source-bag lane and verifies keyboard payload updates through Physical Runtime; full game-loop/render parity remains pending."
       ],
       "path": "examples/terminal/pong/pong.bn",
       "parser_status": "DONE"
@@ -34,11 +42,19 @@
       "persistence_status": "NOT_STARTED",
       "terminal_status": "DONE",
       "browser_status": "PARTIAL",
+      "source_physical_ir_status": "DONE",
+      "source_physical_ir_canonical_path": "examples/source_physical/arkanoid/arkanoid.bn",
+      "source_physical_ir_evidence": [
+        "zig build test-physical-example-arkanoid",
+        "zig build test-runtime",
+        "zig build run -- physical-run examples/source_physical/arkanoid/arkanoid.bn --event 0:1:text:Left --expect-state 'state[0]=text:Left'"
+      ],
       "notes": [
         "Repo-authored terminal example tracked outside the upstream corpus.",
         "Phase 7 headless verification replays the repo-authored Arkanoid lane via tests/examples/arkanoid_sequence.json and expects one brick break.",
         "Phase 8 terminal-grid verification replays the repo-authored Arkanoid lane and compares the snapshot in tests/terminal_grid/arkanoid.expected.",
-        "Repo-authored terminal example tracked as browser PARTIAL-by-design; no browser host lane is implemented for it."
+        "Repo-authored terminal example tracked as browser PARTIAL-by-design; no browser host lane is implemented for it.",
+        "Source Physical IR Phase 3 adds a canonical SOURCE Arkanoid input/frame source-bag lane and verifies keyboard payload updates through Physical Runtime; full game-loop/render parity remains pending."
       ],
       "path": "examples/terminal/arkanoid/arkanoid.bn",
       "parser_status": "DONE"
@@ -139,6 +155,13 @@
       "persistence_script": null,
       "terminal_status": "DONE",
       "browser_status": "PARTIAL",
+      "source_physical_ir_status": "DONE",
+      "source_physical_ir_canonical_path": "examples/source_physical/cells/cells.bn",
+      "source_physical_ir_evidence": [
+        "zig build test-physical-example-cells",
+        "zig build test-runtime",
+        "zig build run -- physical-run examples/source_physical/cells/cells.bn --event 0:1:text:=add(A0,A1) --expect-state 'state[0]=text:=add(A0,A1)'"
+      ],
       "bn_files": [
         "cells.bn"
       ],
@@ -159,7 +182,8 @@
       "notes": [
         "Phase 7 headless verification asserts the deterministic initial spreadsheet render; deeper edit semantics stay covered by focused headless tests.",
         "Phase 8 terminal-grid verification compares the deterministic spreadsheet snapshot in tests/terminal_grid/cells.expected.",
-        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet.",
+        "Source Physical IR Phase 3 adds a canonical SOURCE cells source-bag/state-lane example and verifies text formula edits through Physical Runtime; full spreadsheet UI parity remains pending."
       ]
     },
     {
@@ -177,6 +201,13 @@
       "persistence_script": null,
       "terminal_status": "PARTIAL",
       "browser_status": "PARTIAL",
+      "source_physical_ir_status": "DONE_EQUIVALENT_REGRESSION",
+      "source_physical_ir_canonical_path": "examples/source_physical/list_latest_regression/list_latest_regression.bn",
+      "source_physical_ir_evidence": [
+        "zig build test-physical-example-list-latest",
+        "zig build test-runtime",
+        "Runtime unit tests named list_latest_removed_child_stale_event_ignored and list_latest_cells_dynamic_fan_in_regression cover removed-item stale-event rejection."
+      ],
       "bn_files": [
         "cells_dynamic.bn"
       ],
@@ -194,7 +225,8 @@
       "notes": [
         "Phase 10 headless smoke boots the dynamic spreadsheet variant via plain `run-headless`.",
         "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
-        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet.",
+        "Source Physical IR Phase 3 uses examples/source_physical/list_latest_regression/list_latest_regression.bn as the branch-specific non-UI List/latest fan-in regression while the full cells_dynamic canonical migration remains pending."
       ]
     },
     {
@@ -280,7 +312,7 @@
       "persistence_status": "NOT_STARTED",
       "persistence_cases": 0,
       "persistence_script": null,
-      "terminal_status": "PARTIAL",
+      "terminal_status": "DONE",
       "browser_status": "PARTIAL",
       "bn_files": [
         "circle_drawer.bn"
@@ -301,8 +333,8 @@
       "blockers": [],
       "notes": [
         "Phase 10 headless smoke now boots the circle drawer example and renders the initial count, with narrow headless support for `List/remove_last` and SVG host nodes.",
-        "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
-        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet.",
+        "Terminal projection added under examples/terminal and covered by zig build verify-examples-terminal plus live terminal fallback smoke commands."
       ]
     },
     {
@@ -360,6 +392,13 @@
       "persistence_script": "tests/examples/counter_sequence.json",
       "terminal_status": "DONE",
       "browser_status": "DONE",
+      "source_physical_ir_status": "DONE",
+      "source_physical_ir_canonical_path": "examples/source_physical/counter/counter.bn",
+      "source_physical_ir_evidence": [
+        "zig build test-physical-example-counter",
+        "zig build test-runtime",
+        "zig build run -- physical-run examples/source_physical/counter/counter.bn --event 0:1 --expect-state 'state[0]=number:1'"
+      ],
       "bn_files": [
         "counter.bn"
       ],
@@ -387,7 +426,8 @@
         "Phase 7 headless verification replays deterministic counter clicks via tests/examples/counter_sequence.json and expects final render `5+`.",
         "Phase 8 terminal-grid verification replays the counter script and compares the snapshot in tests/terminal_grid/counter.expected.",
         "Scripted Phase 6 CLI persistence verification is implemented with --script and --expect-text.",
-        "Phase 11 browser smoke runs the generated bundle through tools/browser_smoke.mjs and proves click persistence plus clear-state semantics with IndexedDB-style storage."
+        "Phase 11 browser smoke runs the generated bundle through tools/browser_smoke.mjs and proves click persistence plus clear-state semantics with IndexedDB-style storage.",
+        "Source Physical IR Phase 3 adds a canonical SOURCE counter example at examples/source_physical/counter/counter.bn and verifies it through Physical Runtime."
       ]
     },
     {
@@ -439,7 +479,7 @@
       "persistence_status": "NOT_STARTED",
       "persistence_cases": 0,
       "persistence_script": null,
-      "terminal_status": "PARTIAL",
+      "terminal_status": "DONE",
       "browser_status": "PARTIAL",
       "bn_files": [
         "crud.bn"
@@ -460,8 +500,8 @@
       "blockers": [],
       "notes": [
         "Phase 10 headless smoke now boots the CRUD example and renders the initial people list after adding inline `WHILE` arm commas, deterministic `Ulid/generate()`, and narrower scoped-subscriber filtering.",
-        "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
-        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet.",
+        "Terminal projection added under examples/terminal and covered by zig build verify-examples-terminal plus live terminal fallback smoke commands."
       ]
     },
     {
@@ -548,7 +588,7 @@
       "persistence_status": "NOT_STARTED",
       "persistence_cases": 0,
       "persistence_script": null,
-      "terminal_status": "PARTIAL",
+      "terminal_status": "DONE",
       "browser_status": "PARTIAL",
       "bn_files": [
         "flight_booker.bn"
@@ -569,8 +609,8 @@
       "blockers": [],
       "notes": [
         "Phase 10 headless smoke boots the booking form example via plain `run-headless`.",
-        "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
-        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet.",
+        "Terminal projection added under examples/terminal and covered by zig build verify-examples-terminal plus live terminal fallback smoke commands."
       ]
     },
     {
@@ -735,6 +775,13 @@
       "persistence_script": null,
       "terminal_status": "DONE",
       "browser_status": "DONE",
+      "source_physical_ir_status": "DONE",
+      "source_physical_ir_canonical_path": "examples/source_physical/interval/interval.bn",
+      "source_physical_ir_evidence": [
+        "zig build test-physical-example-interval",
+        "zig build test-runtime",
+        "zig build run -- physical-run examples/source_physical/interval/interval.bn --interval 0:1:100ms --virtual-time 350ms --expect-state 'state[0]=number:3'"
+      ],
       "bn_files": [
         "interval.bn"
       ],
@@ -758,7 +805,8 @@
         "Phase 7 headless verification advances virtual time by 2s and expects exact render `2`.",
         "Phase 8 terminal-grid verification advances virtual time by 2s and compares the snapshot in tests/terminal_grid/interval.expected.",
         "Headless timer behavior and clear-state infrastructure are green, but there is no example-specific scripted persistence replay yet.",
-        "Phase 11 browser smoke runs the generated bundle through tools/browser_smoke.mjs and proves deterministic 2s virtual-time rendering."
+        "Phase 11 browser smoke runs the generated bundle through tools/browser_smoke.mjs and proves deterministic 2s virtual-time rendering.",
+        "Source Physical IR Phase 3 adds a canonical SOURCE timer example at examples/source_physical/interval/interval.bn and verifies it through Physical Runtime virtual time."
       ]
     },
     {
@@ -1233,7 +1281,7 @@
       "persistence_status": "NOT_STARTED",
       "persistence_cases": 0,
       "persistence_script": null,
-      "terminal_status": "PARTIAL",
+      "terminal_status": "DONE",
       "browser_status": "PARTIAL",
       "bn_files": [
         "temperature_converter.bn"
@@ -1254,8 +1302,8 @@
       "blockers": [],
       "notes": [
         "Phase 10 headless smoke boots the temperature converter example via plain `run-headless`.",
-        "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
-        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet.",
+        "Terminal projection added under examples/terminal and covered by zig build verify-examples-terminal plus live terminal fallback smoke commands."
       ]
     },
     {
@@ -1341,7 +1389,7 @@
       "persistence_status": "NOT_STARTED",
       "persistence_cases": 0,
       "persistence_script": null,
-      "terminal_status": "PARTIAL",
+      "terminal_status": "DONE",
       "browser_status": "PARTIAL",
       "bn_files": [
         "timer.bn"
@@ -1362,8 +1410,8 @@
       "blockers": [],
       "notes": [
         "Phase 10 headless smoke boots the timer example via plain `run-headless`.",
-        "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
-        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet.",
+        "Terminal projection added under examples/terminal and covered by zig build verify-examples-terminal plus live terminal fallback smoke commands."
       ]
     },
     {
@@ -1381,6 +1429,13 @@
       "persistence_script": null,
       "terminal_status": "DONE",
       "browser_status": "DONE",
+      "source_physical_ir_status": "DONE",
+      "source_physical_ir_canonical_path": "examples/source_physical/todo_mvc/todo_mvc.bn",
+      "source_physical_ir_evidence": [
+        "zig build test-physical-example-todo-mvc",
+        "zig build test-runtime",
+        "zig build run -- physical-run examples/source_physical/todo_mvc/todo_mvc.bn --event 0:1:text:Write tests --expect-state 'state[0]=text:Write tests'"
+      ],
       "bn_files": [
         "todo_mvc.bn"
       ],
@@ -1408,7 +1463,8 @@
         "Phase 8 terminal-grid verification compares the deterministic TodoMVC snapshot in tests/terminal_grid/todo_mvc.expected.",
         "Imported .expected file(s) declare persistence behavior, but repo-side scripted/example-specific persistence verification is not recorded yet.",
         "Phase 11 browser smoke boots the browser TodoMVC host and covers add/toggle/filter/clear-completed persistence semantics.",
-        "Phase 12 visual verification compares the rendered browser TodoMVC screenshot against the imported reference image and records a passing similarity score plus diff artifact under tests/browser_visual/."
+        "Phase 12 visual verification compares the rendered browser TodoMVC screenshot against the imported reference image and records a passing similarity score plus diff artifact under tests/browser_visual/.",
+        "Source Physical IR Phase 3 adds a canonical SOURCE TodoMVC source-bag/state-lane example and verifies draft title text updates through Physical Runtime; full CRUD/render parity remains pending."
       ]
     },
     {
@@ -1426,6 +1482,15 @@
       "persistence_script": null,
       "terminal_status": "PARTIAL",
       "browser_status": "PARTIAL",
+      "source_physical_ir_status": "DONE",
+      "source_physical_ir_canonical_path": "examples/source_physical/todo_mvc_physical/todo_mvc_physical.bn",
+      "source_physical_ir_evidence": [
+        "zig build test-physical-ir",
+        "zig build test-physical-example-todo-mvc-physical",
+        "zig build run -- physical-run examples/source_physical/todo_mvc_physical/todo_mvc_physical.bn --event '9:1:text:Write docs' --expect-state 'state[0]=text:Write docs'",
+        "zig build run -- physical-run examples/source_physical/todo_mvc_physical/todo_mvc_physical.bn --event '12:1:text:Edited title' --expect-state 'state[3]=text:Edited title'",
+        "zig build run -- physical-run examples/source_physical/todo_mvc_physical/todo_mvc_physical.bn --event '11:1' --expect-state 'state[2]=number:1'"
+      ],
       "bn_files": [
         "BUILD.bn",
         "Generated/Assets.bn",
@@ -1497,7 +1562,8 @@
         "Model/cut(from, remove) remains an internal renderer TODO in upstream docs.",
         "Phase 10 headless smoke now boots RUN.bn through the scene-root path with narrow `Scene/Element/*` and physical host shims.",
         "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
-        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+        "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet.",
+        "Source Physical IR branch adds a canonical physical TodoMVC source-bag migration example with `store.sources` and `todo.sources`, static Physical IR golden coverage, and runtime checks for app-level text input plus item edit/remove source lanes."
       ]
     },
     {
@@ -1603,6 +1669,90 @@
         "Phase 10 headless smoke boots the WHILE plus function-call example via plain `run-headless`.",
         "Phase 10 has headless runtime evidence for this example, but no terminal-grid snapshot/projection is recorded yet.",
         "Phase 13 records browser status for this example, but no browser smoke/reference comparison is implemented yet."
+      ]
+    },
+    {
+      "name": "pong",
+      "relative_path": "terminal/pong",
+      "source_path": "examples/terminal/pong",
+      "imported_path": "examples/terminal/pong",
+      "category": "source_physical_required_terminal",
+      "hard_gate": true,
+      "status": "DONE",
+      "parser_status": "DONE",
+      "runtime_status": "DONE",
+      "persistence_status": "NOT_STARTED",
+      "persistence_cases": 0,
+      "persistence_script": null,
+      "terminal_status": "DONE",
+      "browser_status": "NOT_STARTED",
+      "source_physical_ir_status": "DONE",
+      "source_physical_ir_canonical_path": "examples/source_physical/pong/pong.bn",
+      "source_physical_ir_evidence": [
+        "zig build verify-examples-headless",
+        "zig build verify-examples-terminal",
+        "zig build test-runtime",
+        "zig build run -- physical-run examples/source_physical/pong/pong.bn --event 0:1:text:Enter --expect-state 'state[0]=text:Enter'"
+      ],
+      "bn_files": [
+        "pong.bn"
+      ],
+      "expected_files": [
+        "pong.expected"
+      ],
+      "reference_assets": [],
+      "helper_files": [],
+      "docs": [],
+      "all_files": [
+        "pong.bn",
+        "pong.expected"
+      ],
+      "blockers": [],
+      "notes": [
+        "Repo-authored required branch example; not part of the pinned upstream playground import.",
+        "Source Physical IR Phase 3 verifies terminal/headless behavior and Phase 2 runtime verifies the canonical SOURCE state lane."
+      ]
+    },
+    {
+      "name": "arkanoid",
+      "relative_path": "terminal/arkanoid",
+      "source_path": "examples/terminal/arkanoid",
+      "imported_path": "examples/terminal/arkanoid",
+      "category": "source_physical_required_terminal",
+      "hard_gate": true,
+      "status": "DONE",
+      "parser_status": "DONE",
+      "runtime_status": "DONE",
+      "persistence_status": "NOT_STARTED",
+      "persistence_cases": 0,
+      "persistence_script": null,
+      "terminal_status": "DONE",
+      "browser_status": "NOT_STARTED",
+      "source_physical_ir_status": "DONE",
+      "source_physical_ir_canonical_path": "examples/source_physical/arkanoid/arkanoid.bn",
+      "source_physical_ir_evidence": [
+        "zig build verify-examples-headless",
+        "zig build verify-examples-terminal",
+        "zig build test-runtime",
+        "zig build run -- physical-run examples/source_physical/arkanoid/arkanoid.bn --event 0:1:text:Left --expect-state 'state[0]=text:Left'"
+      ],
+      "bn_files": [
+        "arkanoid.bn"
+      ],
+      "expected_files": [
+        "arkanoid.expected"
+      ],
+      "reference_assets": [],
+      "helper_files": [],
+      "docs": [],
+      "all_files": [
+        "arkanoid.bn",
+        "arkanoid.expected"
+      ],
+      "blockers": [],
+      "notes": [
+        "Repo-authored required branch example; not part of the pinned upstream playground import.",
+        "Source Physical IR Phase 3 verifies terminal/headless behavior and Phase 2 runtime verifies the canonical SOURCE state lane."
       ]
     }
   ]

@@ -1,0 +1,5 @@
+button: [event: [press: SOURCE]]
+
+payload: 0 |> HOLD payload {
+    button.event.press
+}

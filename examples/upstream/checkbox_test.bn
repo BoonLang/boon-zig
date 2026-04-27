@@ -10,7 +10,7 @@ store: [
 
 FUNCTION make_item(name) {
     [
-        checkbox_link: LINK
+        checkbox_link: SOURCE
         name: name
 
         checked: False |> HOLD state {
@@ -33,7 +33,7 @@ document: Document/new(root: Element/stripe(
 
         items: LIST {
             Element/checkbox(
-                element: [event: [click: LINK]]
+                element: [event: [click: SOURCE]]
                 style: []
                 label: Hidden [text: item.name]
                 checked: item.checked
@@ -43,7 +43,7 @@ document: Document/new(root: Element/stripe(
                     False => TEXT { [ ] }
                 }
             )
-            |> LINK { item.checkbox_link }
+            |> SOURCE { item.checkbox_link }
 
             Element/label(element: [], style: [], label: item.name)
 

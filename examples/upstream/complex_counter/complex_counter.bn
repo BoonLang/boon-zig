@@ -1,5 +1,5 @@
 store: [
-    elements: [decrement_button: LINK, increment_button: LINK]
+    elements: [decrement_button: SOURCE, increment_button: SOURCE]
 
     counter: 0 |> HOLD counter {
         LATEST {
@@ -19,16 +19,16 @@ FUNCTION root_element() {
         style: [align: Center]
 
         items: LIST {
-            counter_button(label: TEXT { - }) |> LINK { PASSED.elements.decrement_button }
+            counter_button(label: TEXT { - }) |> SOURCE { PASSED.elements.decrement_button }
             PASSED.counter
-            counter_button(label: TEXT { + }) |> LINK { PASSED.elements.increment_button }
+            counter_button(label: TEXT { + }) |> SOURCE { PASSED.elements.increment_button }
         }
     )
 }
 
 FUNCTION counter_button(label) {
     Element/button(
-        element: [event: [press: LINK], hovered: LINK]
+        element: [event: [press: SOURCE], hovered: SOURCE]
 
         style: [
             width: 45

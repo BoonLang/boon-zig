@@ -1,0 +1,9 @@
+button: [event: [press: SOURCE]]
+
+person: [name: TEXT { Ada } score: 7]
+items: LIST { 1 2 }
+mapped: items |> List/map(item, new: [value: item])
+branch: button.event.press |> WHILE {
+    True => person
+    False => [name: TEXT { None } score: 0]
+}

@@ -1,24 +1,24 @@
--- Test: Does HOLD receive events from a LINK after switching via WHILE?
--- This tests HOLD inside an object referencing sibling LINK field (like todo_mvc's completed HOLD)
+-- Test: Does HOLD receive events from a SOURCE after switching via WHILE?
+-- This tests HOLD inside an object referencing sibling SOURCE field (like todo_mvc's completed HOLD)
 
 store: [
-    view_toggle: LINK
+    view_toggle: SOURCE
 
     show_item_a: True |> HOLD state {
         view_toggle.event.press |> THEN { state |> Bool/not() }
     }
 
-    -- Two items with HOLD referencing sibling LINK (like todo_mvc structure)
+    -- Two items with HOLD referencing sibling SOURCE (like todo_mvc structure)
     item_a: create_item(name: TEXT { Item A })
     item_b: create_item(name: TEXT { Item B })
 ]
 
 FUNCTION create_item(name) {
     [
-        item_elements: [button: LINK]
+        item_elements: [button: SOURCE]
         name: name
 
-        -- HOLD subscribes to sibling field's LINK's event (like todo_mvc's completed HOLD)
+        -- HOLD subscribes to sibling field's SOURCE's event (like todo_mvc's completed HOLD)
         click_count: 0 |> HOLD state {
             item_elements.button.event.press |> THEN { state + 1 }
         }
@@ -43,7 +43,7 @@ document: Document/new(root: Element/stripe(
         }
 
         Element/button(
-            element: [event: [press: LINK]]
+            element: [event: [press: SOURCE]]
 
             style: [
                 padding: 10
@@ -53,7 +53,7 @@ document: Document/new(root: Element/stripe(
 
             label: TEXT { Toggle View }
         )
-        |> LINK { store.view_toggle }
+        |> SOURCE { store.view_toggle }
 
         -- Show the item's click count and button based on which view is selected
         store.show_item_a |> WHILE {
@@ -71,7 +71,7 @@ document: Document/new(root: Element/stripe(
                     )
 
                     Element/button(
-                        element: [event: [press: LINK]]
+                        element: [event: [press: SOURCE]]
 
                         style: [
                             padding: [row: 20, column: 15]
@@ -85,7 +85,7 @@ document: Document/new(root: Element/stripe(
 
                         label: TEXT { Click Item A }
                     )
-                    |> LINK { store.item_a.item_elements.button }
+                    |> SOURCE { store.item_a.item_elements.button }
                 }
             )
 
@@ -103,7 +103,7 @@ document: Document/new(root: Element/stripe(
                     )
 
                     Element/button(
-                        element: [event: [press: LINK]]
+                        element: [event: [press: SOURCE]]
 
                         style: [
                             padding: [row: 20, column: 15]
@@ -117,7 +117,7 @@ document: Document/new(root: Element/stripe(
 
                         label: TEXT { Click Item B }
                     )
-                    |> LINK { store.item_b.item_elements.button }
+                    |> SOURCE { store.item_b.item_elements.button }
                 }
             )
         }

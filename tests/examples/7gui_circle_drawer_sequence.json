@@ -1,0 +1,7 @@
+{
+  "actions": [
+    ["click_label", "Canvas click"],
+    ["click_label", "Canvas click"],
+    ["click_label", "Undo"]
+  ]
+}

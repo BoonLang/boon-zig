@@ -2,7 +2,7 @@
 -- Simplified: Remove items by clicking their X button
 
 store: [
-    input: LINK
+    input: SOURCE
 
     text_to_add: input.event.key_down.key |> WHEN {
         Enter => BLOCK {
@@ -42,7 +42,7 @@ document: Document/new(root: Element/stripe(
         )
 
         Element/text_input(
-            element: [event: [key_down: LINK, change: LINK]]
+            element: [event: [key_down: SOURCE, change: SOURCE]]
             style: [width: 300]
             label: Hidden[text: TEXT { Item name }]
 
@@ -55,7 +55,7 @@ document: Document/new(root: Element/stripe(
             placeholder: [text: TEXT { Type and press Enter }]
             focus: True
         )
-        |> LINK { store.input }
+        |> SOURCE { store.input }
 
         Element/label(
             element: []

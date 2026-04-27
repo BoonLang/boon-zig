@@ -425,7 +425,7 @@ const Formatter = struct {
         if (try self.formatBlockKeyword(apply, "WHEN")) return true;
         if (try self.formatBlockKeyword(apply, "WHILE")) return true;
         if (try self.formatKeywordWithState(apply, "HOLD")) return true;
-        if (try self.formatKeywordBraceValue(apply, "LINK")) return true;
+        if (try self.formatKeywordBraceValue(apply, "SOURCE")) return true;
         if (try self.formatKeywordBraceValue(apply, "THEN")) return true;
         if (try self.formatKeywordBraceValue(apply, "FLUSH")) return true;
         if (try self.formatListLike(apply, "LIST")) return true;
@@ -1153,7 +1153,7 @@ fn startsWithSameLineKeyword(apply: *ast.Apply, source: []const u8) bool {
         std.mem.eql(u8, text, "WHEN") or
         std.mem.eql(u8, text, "WHILE") or
         std.mem.eql(u8, text, "HOLD") or
-        std.mem.eql(u8, text, "LINK") or
+        std.mem.eql(u8, text, "SOURCE") or
         std.mem.eql(u8, text, "THEN") or
         std.mem.eql(u8, text, "FLUSH") or
         std.mem.eql(u8, text, "BLOCK") or
@@ -1343,8 +1343,8 @@ test "format preserves standalone comments" {
 
 test "format link stays on same line" {
     try expectFormatsTo(
-        "x: LINK { foo.bar }",
-        "x: LINK { foo.bar }\n",
+        "x: SOURCE { foo.bar }",
+        "x: SOURCE { foo.bar }\n",
     );
 }
 

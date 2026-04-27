@@ -1,0 +1,16 @@
+sources: [
+    editor: [
+        event: [
+            change: SOURCE
+            key_down: SOURCE
+        ]
+    ]
+]
+
+editing_formula: 0 |> HOLD editing_formula {
+    sources.editor.event.change
+}
+
+commit_count: 0 |> HOLD commit_count {
+    sources.editor.event.key_down |> THEN { commit_count + 1 }
+}

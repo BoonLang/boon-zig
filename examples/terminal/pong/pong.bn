@@ -18,11 +18,11 @@ store: [
     ------ links ------
 
     elements: [
-        up_button: LINK
-        down_button: LINK
-        serve_button: LINK
-        restart_button: LINK
-        tick_button: LINK
+        up_button: SOURCE
+        down_button: SOURCE
+        serve_button: SOURCE
+        restart_button: SOURCE
+        tick_button: SOURCE
     ]
 
     ------ states ------

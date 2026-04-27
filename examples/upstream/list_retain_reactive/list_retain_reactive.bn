@@ -1,6 +1,6 @@
 -- Test: Does List/retain work with a reactive condition?
 store: [
-    toggle: LINK
+    toggle: SOURCE
 
     show_even: False |> HOLD state {
         store.toggle.event.press |> THEN { state |> Bool/not() }
@@ -33,11 +33,11 @@ document: Document/new(root: Element/stripe(
 
     items: LIST {
         Element/button(
-            element: [event: [press: LINK]]
+            element: [event: [press: SOURCE]]
             style: [padding: 10]
             label: TEXT { Toggle filter (show_even: {store.show_even}) }
         )
-        |> LINK { store.toggle }
+        |> SOURCE { store.toggle }
 
         Element/label(
             element: []

@@ -304,14 +304,72 @@
         color: inherit;
         text-decoration: none;
       }
+
+      .playground-shell {
+        display: grid;
+        gap: 0.75rem;
+        grid-template-columns: minmax(18rem, 1fr) minmax(18rem, 1fr);
+        margin: 1rem;
+      }
+
+      .playground-toolbar {
+        align-items: center;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        grid-column: 1 / -1;
+      }
+
+      .playground-select,
+      .playground-editor {
+        font: inherit;
+      }
+
+      .playground-path {
+        color: #555;
+        font: 13px ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+
+      .playground-editor {
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        box-sizing: border-box;
+        font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+        min-height: 28rem;
+        padding: 0.75rem;
+        resize: vertical;
+        width: 100%;
+      }
+
+      .playground-preview,
+      .playground-generated,
+      .playground-diagnostics {
+        background: #fff;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        box-sizing: border-box;
+        font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+        margin: 0;
+        min-height: 8rem;
+        overflow: auto;
+        padding: 0.75rem;
+        white-space: pre-wrap;
+      }
+
+      .playground-generated {
+        min-height: 18rem;
+      }
     </style>
   </head>
   <body>
     <div id="app"></div>
     <script type="module">
       import { mountExampleFromLocation } from "./boon-browser.mjs";
+      import { mountPlaygroundFromLocation } from "./playground-browser.mjs";
 
-      mountExampleFromLocation(document.getElementById("app")).catch((error) => {
+      const params = new URLSearchParams(globalThis.location?.search ?? "");
+      const mount = params.get("playground") === "1" ? mountPlaygroundFromLocation : mountExampleFromLocation;
+      mount(document.getElementById("app")).catch((error) => {
         const app = document.getElementById("app");
         app.textContent = `browser host failed: ${error.message}`;
         throw error;
