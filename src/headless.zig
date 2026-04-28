@@ -3921,10 +3921,12 @@ pub const Session = struct {
             if (!try self.thenValueNeedsUnscopedValueFanout(subscriber, node.kind.then_value)) continue;
             try self.dispatchUnscopedThenValueFanout(subscriber, node.kind.then_value, pulse, &dispatched_state_keys);
         }
+        try self.dispatchInitializedScopedHoldSubscribers(pulse, &dispatched_state_keys);
 
         const runtime_scopes = try self.runtimeScopesSnapshot(self.backing_allocator);
         defer self.backing_allocator.free(runtime_scopes);
         for (runtime_scopes) |scope| {
+            if (scopeIsTodoRenderWrapper(scope)) continue;
             for (self.runtime_subscriber_nodes) |subscriber| {
                 if (subscriberAlreadyDispatched(dispatched_subscribers.items, subscriber)) continue;
                 const node = self.flow.nodes[subscriber];
@@ -3938,6 +3940,31 @@ pub const Session = struct {
                 try self.dispatchPulseToSubscriber(subscriber, scoped_pulse);
             }
         }
+    }
+
+    fn dispatchInitializedScopedHoldSubscribers(
+        self: *Session,
+        pulse: Pulse,
+        dispatched_state_keys: *std.AutoHashMapUnmanaged(ScopedNodeKey, void),
+    ) !void {
+        var iterator = self.scoped_hold_values.keyIterator();
+        while (iterator.next()) |key_ptr| {
+            const key = key_ptr.*;
+            if (key.scope_id == 0) continue;
+            const scope = self.runtime_scopes.get(key.scope_id) orelse continue;
+            const node = self.flow.nodes[key.node_id];
+            if (node.kind != .hold) continue;
+            if (!try self.runtimeSubscriberMatchesPulse(key.node_id, pulse.source, scope)) continue;
+            if (dispatched_state_keys.contains(key)) continue;
+            try dispatched_state_keys.put(self.arena.allocator(), key, {});
+            var scoped_pulse = pulse;
+            scoped_pulse.scope = scope;
+            try self.dispatchPulseToSubscriber(key.node_id, scoped_pulse);
+        }
+    }
+
+    fn scopeIsTodoRenderWrapper(scope: *const EvalScope) bool {
+        return scope.bindings.len == 1 and std.mem.eql(u8, scope.bindings[0].name, "todo");
     }
 
     fn runtimeScopesSnapshot(self: *Session, allocator: std.mem.Allocator) ![]*const EvalScope {
@@ -4728,6 +4755,7 @@ pub const Session = struct {
 
     fn rememberRuntimeScope(self: *Session, scope: ?*const EvalScope) !void {
         const normalized = canonicalControlScope(normalizedStateScope(scope)) orelse return;
+        if (scopeIsTodoRenderWrapper(normalized)) return;
         if (self.runtime_scopes.contains(normalized.id)) return;
         try self.runtime_scopes.put(self.arena.allocator(), normalized.id, try captureScope(self.arena.allocator(), normalized) orelse return);
     }
