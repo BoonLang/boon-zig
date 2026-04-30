@@ -86,10 +86,22 @@ pub const RuntimeValue = union(enum) {
     element: ElementNode,
 };
 
+pub const ControlHandle = headless.ControlEventRef;
+
 pub const EventBinding = struct {
     id: LinkId,
     source_value: ValueId,
     event_name: []const u8,
+    handle: ?ControlHandle = null,
+};
+
+pub const SnapshotProfile = struct {
+    calls: u64 = 0,
+    render_ns: u64 = 0,
+    semantic_root_ns: u64 = 0,
+    snapshot_values_ns: u64 = 0,
+    event_bindings_ns: u64 = 0,
+    route_ns: u64 = 0,
 };
 
 pub const TimerBinding = struct {
@@ -155,9 +167,11 @@ pub const PreviewEvent = union(enum) {
     blur: LinkId,
     focus: LinkId,
     checkbox_change: struct { link: LinkId, checked: bool },
+    checkbox_ref_change: struct { handle: ControlHandle, checked: bool },
     select_change: struct { link: LinkId, value: []const u8 },
     slider_change: struct { link: LinkId, value: f64 },
     svg_click: struct { link: LinkId, x: f32, y: f32 },
+    svg_click_ref: struct { handle: ControlHandle, x: f32, y: f32 },
 };
 
 pub const TextInputHandle = headless.TextInputSessionRef;
@@ -190,9 +204,17 @@ pub const BoonRuntimeHost = struct {
     session: ?headless.Session = null,
     snapshot_values: []RuntimeValue = &.{},
     snapshot_events: []EventBinding = &.{},
+    snapshot_timers: []TimerBinding = &.{},
     diagnostics: []Diagnostic = &.{},
     build_generated_files: [][]const u8 = &.{},
     build_logs: []Diagnostic = &.{},
+    include_rendered_text: bool = true,
+    include_control_visuals: bool = true,
+    include_event_bindings: bool = true,
+    persist_runtime_state: bool = true,
+    profile_snapshots: bool = false,
+    trace_runtime: bool = false,
+    last_snapshot_profile: SnapshotProfile = .{},
 
     const ModuleInfo = struct {
         name: []const u8,
@@ -335,7 +357,8 @@ pub const BoonRuntimeHost = struct {
         defer self.allocator.free(state_file_path);
         const outcome = try headless.runCompiledAlloc(self.allocator, compiled, .{
             .virtual_time_ms = self.currentVirtualTime(),
-            .state_file_path = state_file_path,
+            .state_file_path = if (self.persist_runtime_state) state_file_path else null,
+            .trace = self.trace_runtime,
         });
         switch (outcome) {
             .ok => |session| {
@@ -366,6 +389,11 @@ pub const BoonRuntimeHost = struct {
         return try session.renderAlloc(allocator);
     }
 
+    pub fn traceAlloc(self: *BoonRuntimeHost, allocator: std.mem.Allocator) ![]u8 {
+        var session = if (self.session) |*session| session else return error.RuntimeNotStarted;
+        return try session.traceAlloc(allocator);
+    }
+
     pub fn renderCompactGridTextAlloc(
         self: *BoonRuntimeHost,
         allocator: std.mem.Allocator,
@@ -379,6 +407,21 @@ pub const BoonRuntimeHost = struct {
     pub fn textInputHandle(self: *BoonRuntimeHost, index: usize) !TextInputHandle {
         var session = if (self.session) |*session| session else return error.RuntimeNotStarted;
         return try session.textInputSessionRef(index);
+    }
+
+    pub fn checkboxHandle(self: *BoonRuntimeHost, index: usize) !ControlHandle {
+        var session = if (self.session) |*session| session else return error.RuntimeNotStarted;
+        return try session.checkboxSessionRef(index);
+    }
+
+    pub fn checkboxChecked(self: *BoonRuntimeHost, handle: ControlHandle) !bool {
+        var session = if (self.session) |*session| session else return error.RuntimeNotStarted;
+        return try session.controlBoolValue(handle);
+    }
+
+    pub fn checkboxCheckedMany(self: *BoonRuntimeHost, allocator: std.mem.Allocator, handles: []const ControlHandle) ![]bool {
+        var session = if (self.session) |*session| session else return error.RuntimeNotStarted;
+        return try session.controlBoolValues(allocator, handles);
     }
 
     pub fn setTextInputValueWithHandle(self: *BoonRuntimeHost, handle: TextInputHandle, text: []const u8) !void {
@@ -414,9 +457,14 @@ pub const BoonRuntimeHost = struct {
                 _ = payload.checked;
                 try session.clickCheckbox(@intCast(payload.link));
             },
+            .checkbox_ref_change => |payload| {
+                _ = payload.checked;
+                try session.clickCheckboxRef(payload.handle);
+            },
             .select_change => |payload| try session.setSelectValue(@intCast(payload.link), payload.value),
             .slider_change => |payload| try session.setSliderValue(@intCast(payload.link), payload.value),
-            .svg_click => |payload| try session.triggerLink(@intCast(payload.link)),
+            .svg_click => |payload| try session.triggerLinkAt(@intCast(payload.link), payload.x, payload.y),
+            .svg_click_ref => |payload| try session.triggerLinkRefAt(payload.handle, payload.x, payload.y),
         }
     }
 
@@ -436,6 +484,10 @@ pub const BoonRuntimeHost = struct {
         const state_file_path_z = try self.allocator.dupeZ(u8, state_file_path);
         defer self.allocator.free(state_file_path_z);
         _ = c_unlink(state_file_path_z.ptr);
+    }
+
+    pub fn snapshotProfile(self: *const BoonRuntimeHost) SnapshotProfile {
+        return self.last_snapshot_profile;
     }
 
     fn unsupported(self: *BoonRuntimeHost, message: []const u8) ![]const Diagnostic {
@@ -467,16 +519,27 @@ pub const BoonRuntimeHost = struct {
 
     fn snapshotOutput(self: *BoonRuntimeHost) !RuntimeOutput {
         var session = if (self.session) |*session| session else return .{ .diagnostics = try self.unsupported("BoonRuntimeHost.start must be called before snapshot") };
-        const rendered = switch (session.rootKind()) {
+        self.last_snapshot_profile = .{};
+        self.last_snapshot_profile.calls = 1;
+        const previous_include_control_visuals = session.include_control_visuals;
+        defer session.include_control_visuals = previous_include_control_visuals;
+        session.include_control_visuals = self.include_control_visuals;
+        const semantic_start = monotonicNanoseconds();
+        const semantic_value = try session.semanticRootValue();
+        self.last_snapshot_profile.semantic_root_ns = monotonicNanoseconds() - semantic_start;
+        const render_start = monotonicNanoseconds();
+        const rendered = if (self.include_rendered_text) switch (session.rootKind()) {
             .scene => try session.renderAlloc(self.allocator),
             else => try session.snapshotAlloc(self.allocator),
-        };
+        } else try self.allocator.dupe(u8, "");
+        self.last_snapshot_profile.render_ns = monotonicNanoseconds() - render_start;
         defer self.allocator.free(rendered);
         self.clearSnapshotValues();
         self.clearSnapshotEvents();
 
         var builder = SnapshotBuilder.init(self.allocator, session);
-        const semantic_value = try session.semanticRootValue();
+        defer builder.deinit();
+        const values_start = monotonicNanoseconds();
         const semantic_root = try builder.appendValue(semantic_value);
         const rendered_text = try builder.appendValue(.{ .text = rendered });
         const root = try builder.appendElementIds("document", &.{
@@ -484,29 +547,93 @@ pub const BoonRuntimeHost = struct {
             .{ .name = "root", .value = semantic_root },
         });
         self.snapshot_values = try builder.finish();
-        self.snapshot_events = try self.collectEventBindings(session);
+        self.last_snapshot_profile.snapshot_values_ns = monotonicNanoseconds() - values_start;
+        const events_start = monotonicNanoseconds();
+        self.snapshot_events = if (self.include_event_bindings)
+            try self.collectEventBindings(session)
+        else
+            &.{};
+        self.last_snapshot_profile.event_bindings_ns = monotonicNanoseconds() - events_start;
+        self.clearSnapshotTimers();
+        self.snapshot_timers = try self.collectTimerBindings(session);
+        const route_start = monotonicNanoseconds();
+        const route = session.routeTextView() catch self.route.current(self.route.ptr);
+        self.last_snapshot_profile.route_ns = monotonicNanoseconds() - route_start;
+        if (self.profile_snapshots) {
+            std.debug.print(
+                "snapshot profile render={d:.3}ms semantic_root={d:.3}ms values={d:.3}ms events={d:.3}ms route={d:.3}ms\n",
+                .{
+                    nsToMs(self.last_snapshot_profile.render_ns),
+                    nsToMs(self.last_snapshot_profile.semantic_root_ns),
+                    nsToMs(self.last_snapshot_profile.snapshot_values_ns),
+                    nsToMs(self.last_snapshot_profile.event_bindings_ns),
+                    nsToMs(self.last_snapshot_profile.route_ns),
+                },
+            );
+        }
         const document = DocumentSnapshot{
             .revision = self.compiled_revision,
             .root = root,
             .values = self.snapshot_values,
             .events = self.snapshot_events,
-            .route = session.routeTextView() catch self.route.current(self.route.ptr),
+            .timers = self.snapshot_timers,
+            .route = route,
         };
         return .{ .document = document };
     }
 
-    fn collectEventBindings(self: *BoonRuntimeHost, session: *headless.Session) ![]EventBinding {
-        const controls = try session.controlsAlloc(self.allocator);
-        defer self.allocator.free(controls);
+    fn collectTimerBindings(self: *BoonRuntimeHost, session: *headless.Session) ![]TimerBinding {
+        const refs = try session.timerBindingsAlloc(self.allocator);
+        defer self.allocator.free(refs);
+        if (refs.len == 0) return &.{};
+        const timers = try self.allocator.alloc(TimerBinding, refs.len);
+        for (refs, 0..) |timer, index| {
+            timers[index] = .{ .id = @intCast(timer.id), .interval_ms = timer.interval_ms };
+        }
+        return timers;
+    }
 
+    fn collectEventBindings(self: *BoonRuntimeHost, session: *headless.Session) ![]EventBinding {
         var events = std.ArrayList(EventBinding).empty;
         defer events.deinit(self.allocator);
-        try appendSectionEvents(self.allocator, &events, controls, "click", "click");
-        try appendSectionEvents(self.allocator, &events, controls, "dblclick", "double_click");
-        try appendSectionEvents(self.allocator, &events, controls, "text", "change_text");
-        try appendSectionEvents(self.allocator, &events, controls, "select", "select_change");
-        try appendSectionEvents(self.allocator, &events, controls, "hover", "hover");
+        try appendControlEvents(self.allocator, &events, try session.clickControlRefs(), "click");
+        const counts = try session.controlBindingCounts();
+        try appendCountedEvents(self.allocator, &events, counts.double_click, "double_click");
+        try appendCountedEvents(self.allocator, &events, counts.text, "change_text");
+        try appendCountedEvents(self.allocator, &events, counts.select, "select_change");
+        try appendCountedEvents(self.allocator, &events, counts.hover, "hover");
         return try events.toOwnedSlice(self.allocator);
+    }
+
+    fn appendCountedEvents(
+        allocator: std.mem.Allocator,
+        events: *std.ArrayList(EventBinding),
+        count: usize,
+        event_name: []const u8,
+    ) !void {
+        for (0..count) |index| {
+            try events.append(allocator, .{
+                .id = @intCast(index),
+                .source_value = 0,
+                .event_name = event_name,
+            });
+        }
+    }
+
+    fn appendControlEvents(
+        allocator: std.mem.Allocator,
+        events: *std.ArrayList(EventBinding),
+        controls: []const ControlHandle,
+        event_name: []const u8,
+    ) !void {
+        for (controls) |control| {
+            try events.append(allocator, .{
+                .id = @intCast(control.link),
+                .source_value = 0,
+                .event_name = event_name,
+                .handle = control,
+            });
+        }
     }
 
     fn appendSectionEvents(
@@ -1067,6 +1194,7 @@ pub const BoonRuntimeHost = struct {
         self.compiled = null;
         self.clearSnapshotValues();
         self.clearSnapshotEvents();
+        self.clearSnapshotTimers();
     }
 
     fn clearProject(self: *BoonRuntimeHost) void {
@@ -1125,6 +1253,11 @@ pub const BoonRuntimeHost = struct {
         self.allocator.free(self.snapshot_events);
         self.snapshot_events = &.{};
     }
+
+    fn clearSnapshotTimers(self: *BoonRuntimeHost) void {
+        self.allocator.free(self.snapshot_timers);
+        self.snapshot_timers = &.{};
+    }
 };
 
 fn previewKeyName(key: Key) []const u8 {
@@ -1143,9 +1276,15 @@ fn previewKeyName(key: Key) []const u8 {
 }
 
 const SnapshotBuilder = struct {
+    const ScopedKey = struct {
+        node_id: u32,
+        scope_id: u64,
+    };
+
     allocator: std.mem.Allocator,
     session: *headless.Session,
     values: std.ArrayList(RuntimeValue),
+    scoped_values: std.AutoHashMapUnmanaged(ScopedKey, ValueId) = .empty,
 
     fn init(allocator: std.mem.Allocator, session: *headless.Session) SnapshotBuilder {
         return .{
@@ -1159,7 +1298,24 @@ const SnapshotBuilder = struct {
         return try self.values.toOwnedSlice(self.allocator);
     }
 
+    fn deinit(self: *SnapshotBuilder) void {
+        self.scoped_values.deinit(self.allocator);
+    }
+
     fn appendValue(self: *SnapshotBuilder, value: headless.Value) anyerror!ValueId {
+        if (value == .scoped_node) {
+            const deferred = value.scoped_node;
+            const key = ScopedKey{
+                .node_id = deferred.node_id,
+                .scope_id = self.session.semanticScopeIdentity(deferred.scope),
+            };
+            if (self.scoped_values.get(key)) |cached_id| return cached_id;
+            const converted = try self.convertValue(try self.session.evalSemanticNode(deferred.node_id, deferred.scope));
+            const id: ValueId = @intCast(self.values.items.len);
+            try self.values.append(self.allocator, converted);
+            try self.scoped_values.put(self.allocator, key, id);
+            return id;
+        }
         const converted = try self.convertValue(value);
         const id: ValueId = @intCast(self.values.items.len);
         try self.values.append(self.allocator, converted);
@@ -1194,7 +1350,12 @@ const SnapshotBuilder = struct {
                 });
             },
             .label => |label| try self.elementValue("label", &.{.{ .name = "label", .value = label.label }}),
-            .container => |container| try self.elementValue("container", &.{.{ .name = "child", .value = container.child }}),
+            .container => |container| try self.elementValue("container", &.{
+                .{ .name = "child", .value = container.child },
+                .{ .name = "click_link", .value = if (container.click_link) |link| .{ .number = @floatFromInt(link) } else .none },
+                .{ .name = "width", .value = .{ .number = @floatFromInt(container.terminal_width) } },
+                .{ .name = "height", .value = .{ .number = @floatFromInt(container.terminal_height) } },
+            }),
             .checkbox => |checkbox| try self.elementValue("checkbox", &.{
                 .{ .name = "icon", .value = checkbox.icon },
                 .{ .name = "label", .value = checkbox.label },
@@ -1213,7 +1374,7 @@ const SnapshotBuilder = struct {
             }),
             .select => |select| try self.elementValue("select", &.{.{ .name = "selected", .value = select.selected }}),
             .slider => try self.elementValue("slider", &.{}),
-            .scoped_node => |deferred| try self.convertValue(try self.session.evalSemanticNode(deferred.node_id, deferred.scope)),
+            .scoped_node => unreachable,
             .link => |link| .{ .symbol = try std.fmt.allocPrint(self.allocator, "link:{d}", .{link}) },
             .scoped_link => |scoped| .{ .symbol = try std.fmt.allocPrint(
                 self.allocator,
@@ -1269,6 +1430,20 @@ const SnapshotBuilder = struct {
 fn ensureStateDir() !void {
     _ = c_mkdir("zig-out", 0o777);
     _ = c_mkdir("zig-out/boon-runtime-state", 0o777);
+}
+
+fn monotonicNanoseconds() u64 {
+    if (@import("builtin").os.tag == .linux) {
+        const linux = std.os.linux;
+        var ts: linux.timespec = undefined;
+        _ = linux.clock_gettime(.MONOTONIC, &ts);
+        return @as(u64, @intCast(ts.sec)) * std.time.ns_per_s + @as(u64, @intCast(ts.nsec));
+    }
+    return 0;
+}
+
+fn nsToMs(ns: u64) f64 {
+    return @as(f64, @floatFromInt(ns)) / 1_000_000.0;
 }
 
 extern fn mkdir(path: [*:0]const u8, mode: c_uint) c_int;
@@ -1409,6 +1584,102 @@ test "BoonRuntimeHost dispatches visible click bindings after snapshot collectio
     const output = try host.dispatch(.{ .click = 1 });
     const rendered = renderedTextFromOutput(output) orelse return error.MissingRenderedText;
     try testing.expect(std.mem.indexOf(u8, rendered, "Filter:Active") != null);
+}
+
+test "BoonRuntimeHost dispatches SVG click payload by control ref" {
+    const testing = std.testing;
+    const allocator = std.heap.c_allocator;
+
+    const PersistCtx = struct {
+        fn read(ptr: *anyopaque, read_allocator: std.mem.Allocator, key: []const u8) anyerror!?[]u8 {
+            _ = ptr;
+            _ = read_allocator;
+            _ = key;
+            return null;
+        }
+
+        fn write(ptr: *anyopaque, key: []const u8, value: []const u8) anyerror!void {
+            _ = ptr;
+            _ = key;
+            _ = value;
+        }
+
+        fn deletePrefix(ptr: *anyopaque, prefix: []const u8) anyerror!void {
+            _ = ptr;
+            _ = prefix;
+        }
+    };
+
+    const RouteCtx = struct {
+        fn current(ptr: *anyopaque) []const u8 {
+            _ = ptr;
+            return "/";
+        }
+
+        fn goTo(ptr: *anyopaque, route: []const u8) anyerror!void {
+            _ = ptr;
+            _ = route;
+        }
+    };
+
+    var persist_ctx: u8 = 0;
+    var route_ctx: u8 = 0;
+    var persist = PersistStore{ .ptr = &persist_ctx, .read = PersistCtx.read, .write = PersistCtx.write, .deletePrefix = PersistCtx.deletePrefix };
+    var route = RouteStore{ .ptr = &route_ctx, .current = RouteCtx.current, .goTo = RouteCtx.goTo };
+    var clock = VirtualClock{};
+    var time = TimeSource{ .virtual = &clock };
+    var host = try BoonRuntimeHost.init(allocator, &persist, &route, &time);
+    defer host.deinit();
+
+    const source = try std.Io.Dir.cwd().readFileAlloc(testing.io, "../raybox-zig/examples/upstream/circle_drawer/circle_drawer.bn", allocator, .limited(1024 * 1024));
+    defer allocator.free(source);
+    try host.loadProject(.{
+        .name = "circle_drawer",
+        .entry_file = "circle_drawer.bn",
+        .files = &.{.{ .path = "circle_drawer.bn", .contents = source }},
+    });
+    try host.clearState("circle_drawer");
+
+    const initial = try host.start();
+    const handle = try svgClickHandleFromOutput(initial);
+    const updated = try host.dispatch(.{ .svg_click_ref = .{ .handle = handle, .x = 123, .y = 45 } });
+    const rendered = renderedTextFromOutput(updated) orelse return error.MissingRenderedText;
+    try testing.expect(std.mem.indexOf(u8, rendered, "Circles:1") != null);
+}
+
+fn svgClickHandleFromOutput(output: RuntimeOutput) !ControlHandle {
+    const document = switch (output) {
+        .document => |document| document,
+        else => return error.MissingDocumentRoot,
+    };
+    for (document.values) |value| {
+        const element = switch (value) {
+            .element => |element| element,
+            else => continue,
+        };
+        if (!std.mem.eql(u8, element.kind, "container")) continue;
+        const link = elementNumberField(document.values, element, "click_link") orelse continue;
+        const width = elementNumberField(document.values, element, "width") orelse 0;
+        const height = elementNumberField(document.values, element, "height") orelse 0;
+        if (width <= 0 or height <= 0) continue;
+        const link_id: LinkId = @intFromFloat(link);
+        for (document.events) |event| {
+            if (event.id == link_id and event.handle != null) return event.handle.?;
+        }
+    }
+    return error.MissingSvgClickHandle;
+}
+
+fn elementNumberField(values: []const RuntimeValue, element: ElementNode, name: []const u8) ?f64 {
+    for (element.args) |field| {
+        if (!std.mem.eql(u8, field.name, name)) continue;
+        if (field.value >= values.len) return null;
+        return switch (values[field.value]) {
+            .number => |number| number,
+            else => null,
+        };
+    }
+    return null;
 }
 
 test "BoonRuntimeHost dispatches terminal key bindings through terminal contract" {
