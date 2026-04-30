@@ -1149,6 +1149,22 @@ pub const Session = struct {
         return try self.cachedControlRefs(.button);
     }
 
+    pub fn textInputChangeControlRefs(self: *Session) anyerror![]const ControlEventRef {
+        return try self.cachedControlRefs(.text_input);
+    }
+
+    pub fn textInputKeyControlRefs(self: *Session) anyerror![]const ControlEventRef {
+        return try self.cachedControlRefs(.text_input_key);
+    }
+
+    pub fn textInputBlurControlRefs(self: *Session) anyerror![]const ControlEventRef {
+        return try self.cachedControlRefs(.text_input_blur);
+    }
+
+    pub fn textInputFocusControlRefs(self: *Session) anyerror![]const ControlEventRef {
+        return try self.cachedControlRefs(.text_input_focus);
+    }
+
     pub fn traceAlloc(self: *Session, allocator: std.mem.Allocator) ![]u8 {
         var output: std.ArrayList(u8) = .empty;
         defer output.deinit(allocator);
@@ -1354,8 +1370,12 @@ pub const Session = struct {
 
     pub fn clickButton(self: *Session, index: usize) !void {
         const event = try self.buttonLinkAt(index);
+        try self.clickButtonRef(event);
+    }
+
+    pub fn clickButtonRef(self: *Session, event: ControlEventRef) !void {
         const scope = event.scope;
-        try self.logf("external click button[{d}] -> n{d}", .{ index, event.link });
+        try self.logf("external click button_ref -> n{d}", .{event.link});
         try self.enqueueExternalNodePulseWithDispatchScope(event.link, scope, event.dispatch_scope, "press");
     }
 
@@ -5586,6 +5606,10 @@ pub const Session = struct {
         const links = try self.cachedControlRefs(.checkbox);
         if (index >= links.len) return error.InvalidButtonIndex;
         return links[index];
+    }
+
+    pub fn buttonSessionRef(self: *Session, index: usize) anyerror!ControlEventRef {
+        return try self.buttonLinkAt(index);
     }
 
     pub fn checkboxSessionRef(self: *Session, index: usize) anyerror!ControlEventRef {

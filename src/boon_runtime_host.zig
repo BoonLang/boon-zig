@@ -156,6 +156,7 @@ pub const Key = enum {
 pub const PreviewEvent = union(enum) {
     press: LinkId,
     click: LinkId,
+    click_ref: ControlHandle,
     click_text: []const u8,
     terminal_key: []const u8,
     double_click: LinkId,
@@ -414,6 +415,11 @@ pub const BoonRuntimeHost = struct {
         return try session.checkboxSessionRef(index);
     }
 
+    pub fn buttonHandle(self: *BoonRuntimeHost, index: usize) !ControlHandle {
+        var session = if (self.session) |*session| session else return error.RuntimeNotStarted;
+        return try session.buttonSessionRef(index);
+    }
+
     pub fn checkboxChecked(self: *BoonRuntimeHost, handle: ControlHandle) !bool {
         var session = if (self.session) |*session| session else return error.RuntimeNotStarted;
         return try session.controlBoolValue(handle);
@@ -443,6 +449,7 @@ pub const BoonRuntimeHost = struct {
     fn dispatchIntoSession(self: *BoonRuntimeHost, session: *headless.Session, event: PreviewEvent) !void {
         switch (event) {
             .press, .click => |link| try session.clickButton(@intCast(link)),
+            .click_ref => |handle| try session.clickButtonRef(handle),
             .click_text => |label| try session.clickButtonByLabel(self.allocator, label),
             .terminal_key => |key| try dispatchTerminalKey(session, key),
             .double_click => |link| try session.doubleClickLabel(@intCast(link)),
@@ -597,9 +604,12 @@ pub const BoonRuntimeHost = struct {
         var events = std.ArrayList(EventBinding).empty;
         defer events.deinit(self.allocator);
         try appendControlEvents(self.allocator, &events, try session.clickControlRefs(), "click");
+        try appendControlEvents(self.allocator, &events, try session.textInputChangeControlRefs(), "change_text");
+        try appendControlEvents(self.allocator, &events, try session.textInputKeyControlRefs(), "key_down");
+        try appendControlEvents(self.allocator, &events, try session.textInputBlurControlRefs(), "blur");
+        try appendControlEvents(self.allocator, &events, try session.textInputFocusControlRefs(), "focus");
         const counts = try session.controlBindingCounts();
         try appendCountedEvents(self.allocator, &events, counts.double_click, "double_click");
-        try appendCountedEvents(self.allocator, &events, counts.text, "change_text");
         try appendCountedEvents(self.allocator, &events, counts.select, "select_change");
         try appendCountedEvents(self.allocator, &events, counts.hover, "hover");
         return try events.toOwnedSlice(self.allocator);
@@ -1365,12 +1375,17 @@ const SnapshotBuilder = struct {
                 .{ .name = "label", .value = button.label },
                 .{ .name = "disabled", .value = .{ .symbol = if (button.disabled) "True" else "False" } },
                 .{ .name = "outlined", .value = .{ .symbol = if (button.outlined) "True" else "False" } },
+                .{ .name = "press_link", .value = if (button.press_link) |link| .{ .number = @floatFromInt(link) } else .none },
             }),
             .text_input => |input| try self.elementValue("text_input", &.{
                 .{ .name = "text", .value = input.text },
                 .{ .name = "placeholder", .value = input.placeholder },
                 .{ .name = "focused", .value = .{ .symbol = if (input.focused) "True" else "False" } },
                 .{ .name = "disabled", .value = .{ .symbol = if (input.disabled) "True" else "False" } },
+                .{ .name = "change_link", .value = if (input.change_link) |link| .{ .number = @floatFromInt(link) } else .none },
+                .{ .name = "key_link", .value = if (input.key_link) |link| .{ .number = @floatFromInt(link) } else .none },
+                .{ .name = "blur_link", .value = if (input.blur_link) |link| .{ .number = @floatFromInt(link) } else .none },
+                .{ .name = "focus_link", .value = if (input.focus_link) |link| .{ .number = @floatFromInt(link) } else .none },
             }),
             .select => |select| try self.elementValue("select", &.{.{ .name = "selected", .value = select.selected }}),
             .slider => try self.elementValue("slider", &.{}),
