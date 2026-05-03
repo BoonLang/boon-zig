@@ -1,5 +1,66 @@
 # WORKLOG
 
+## 2026-05-03
+
+### Raybox Migration - Integrated
+
+- Migrated the active Raybox renderer/playground subtree into this repository
+  under `raybox/` so Boon runtime/transpiler and renderer work can continue
+  together from `boon-zig`.
+- Added Raybox plans under `plans/`:
+  - `plans/raybox_zig_implementation_plan.md`
+  - `plans/raybox_zig_16ms_runtime_plan.md`
+- Wired Raybox build steps into the root build graph:
+  - `zig build run-raybox`
+  - `zig build bench-raybox-native`
+  - `zig build verify-raybox-native-events`
+  - `zig build verify-raybox-examples-native`
+  - `zig build verify-raybox-physical-native`
+  - `zig build verify-raybox-text-native`
+  - `jq empty prompter.json`
+  - `zig build test`
+  - `zig build run-raybox -- --example=todo_mvc --native-smoke=todo_mvc_sdl_add_one --exit-after-frames=8`
+  - `zig build run -- --help`
+  - `zig build`
+  - `zig build test-raybox`
+  - `zig build screenshot-raybox-native`
+- Added SDL3 and emsdk package dependencies for Raybox native/browser targets.
+- Preserved the renderer boundary: core Boon code remains under `src/`, while
+  Raybox imports the local `boon_runtime_host` through `src/root.zig`.
+- Commands run:
+  - `zig fmt build.zig raybox/build_steps.zig`
+  - `rm -rf zig-out/boon-runtime-state`
+  - `zig build bench-raybox-native`
+  - `rm -rf zig-out/boon-runtime-state`
+  - `zig build verify-raybox-native-events`
+  - `zig build test-raybox`
+  - `zig build verify-raybox-examples-native`
+  - `zig build verify-raybox-physical-native`
+  - `zig build verify-raybox-text-native`
+- Current evidence:
+  - `zig build bench-raybox-native` passed with
+    `single=0.719ms`, `toggle_all=5.966ms`,
+    `duplicate_checked=1/100`, `all_checked=102/102`, `pass=true`.
+  - `zig-out/reports/bench_playground_native.json` contains the detailed
+    Raybox benchmark timings and correctness booleans.
+  - `zig build verify-raybox-native-events`, `zig build test-raybox`,
+    `zig build verify-raybox-examples-native`,
+    `zig build verify-raybox-physical-native`, and
+    `zig build verify-raybox-text-native` passed from this repository.
+  - `zig build test`, `zig build run -- --help`, and `zig build` passed after
+    the Raybox build graph was added.
+  - `zig build run-raybox -- --example=todo_mvc --native-smoke=todo_mvc_sdl_add_one --exit-after-frames=8`
+    passed and reported `SDL video=wayland renderer=opengl`.
+- Notes:
+  - `verify-raybox-examples-native` must be run from a clean
+    `zig-out/boon-runtime-state` when validating persistence-heavy examples.
+    A contaminated prior run produced a stale TodoMVC persistence failure; a
+    clean selected TodoMVC run and then the full native examples run passed.
+- Next step:
+  - Continue regular Boon runtime/transpiler and Raybox renderer work from this
+    `boon-zig` checkout. Treat the old sibling `raybox-zig` checkout as an
+    archive unless explicitly requested.
+
 ## 2026-04-18
 
 ### Phase 0 - Complete

@@ -3,7 +3,16 @@
     .version = "0.0.0",
     .fingerprint = 0xc32bd07b47714019,
     .minimum_zig_version = "0.17.0-dev.9+046002d1a",
-    .dependencies = .{},
+    .dependencies = .{
+        .sdl = .{
+            .url = "git+https://github.com/castholm/SDL.git#c5ba24c694b5d520cdc1d029d8def398690d6894",
+            .hash = "sdl-0.4.2+3.4.4-SDL--kB3pQHKG_4zWG-pH04ZcZZj_IRF7dwMpxNVGwd6",
+        },
+        .emsdk = .{
+            .url = "git+https://github.com/emscripten-core/emsdk?ref=5.0.6#948c31acd3f369a5da276e33ab2ed57108c165e5",
+            .hash = "N-V-__8AAMXHCQBSMMTsbLPKGw_6MjsNwQIJWmtoc1fzEuAz",
+        },
+    },
     .paths = .{
         "PLAN.md",
         "WORKLOG.md",
@@ -13,6 +22,8 @@
         "tests",
         "examples",
         "fixtures",
+        "plans",
+        "raybox",
         "third_party",
         "tools",
     },

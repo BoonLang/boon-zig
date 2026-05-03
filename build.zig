@@ -1,9 +1,13 @@
 const std = @import("std");
+const raybox_build = @import("raybox/build_steps.zig");
 
-pub fn build(b: *std.Build) void {
+pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.option(std.builtin.OptimizeMode, "optimize", "Build optimize mode") orelse .Debug;
     const io_backend = b.option([]const u8, "io_backend", "Select std.Io backend: threaded or evented") orelse "threaded";
+    const raybox_selected_example = b.option([]const u8, "example", "Limit a Raybox verifier to one example");
+    const raybox_screenshot_example = b.option([]const u8, "screenshot-example", "Raybox example to capture with screenshot-raybox-native") orelse "todo_mvc";
+    const raybox_build_only = b.option(bool, "build-only", "Run Raybox verifier build-only mode") orelse false;
 
     const build_options = b.addOptions();
     build_options.addOption([]const u8, "io_backend", io_backend);
@@ -19,6 +23,15 @@ pub fn build(b: *std.Build) void {
     const browser_assets_mod = b.addModule("browser_assets", .{
         .root_source_file = b.path("browser/assets.zig"),
         .target = target,
+    });
+
+    try raybox_build.addRayboxSteps(b, .{
+        .target = target,
+        .optimize = optimize,
+        .io_backend = io_backend,
+        .selected_example = raybox_selected_example,
+        .screenshot_example = raybox_screenshot_example,
+        .build_only = raybox_build_only,
     });
 
     const exe = b.addExecutable(.{

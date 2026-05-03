@@ -1,0 +1,7 @@
+{
+  "max_mean_abs_channel_delta": 2.5,
+  "max_percent_pixels_over_delta_16": 0.5,
+  "ignored_margin_px": 1,
+  "ignore_fully_transparent_pixels": true,
+  "compare_region": "preview_viewport_only"
+}

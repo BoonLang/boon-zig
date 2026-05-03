@@ -15,6 +15,8 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    # This is a headless browser launch. Visible/manual browser launches from
+    # repo tools must use: cosmic-background-launch -- <browser> ...
     command = [
         "chromium",
         "--headless",
