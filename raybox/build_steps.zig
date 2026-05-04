@@ -311,7 +311,16 @@ fn addCosmicBackgroundRunArtifact(
     b: *std.Build,
     artifact: *std.Build.Step.Compile,
 ) *std.Build.Step.Run {
-    const run = b.addSystemCommand(&.{ "cosmic-background-launch", "--" });
+    const launcher = b.addExecutable(.{
+        .name = "cosmic-background-launch",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/cosmic_background_launch_compat.zig"),
+            .target = b.graph.host,
+            .optimize = .ReleaseFast,
+        }),
+    });
+    const run = b.addRunArtifact(launcher);
+    run.addArgs(&.{ "--workspace", "boon-zig", "--" });
     run.addArtifactArg(artifact);
     return run;
 }
@@ -638,9 +647,14 @@ fn addExampleVerifiers(
     node.addArg(selected_example orelse "-");
     node.addArg(if (build_only) "true" else "false");
     node.step.dependOn(&emcc.step);
-    const browser = b.addSystemCommand(&.{ "zig", "build", "run-raybox", "-Dtarget=wasm32-emscripten" });
-    browser.step.dependOn(&node.step);
-    b.step("verify-raybox-examples-web", "Verify imported examples through wasm32-emscripten BoonRuntimeHost and browser canvas").dependOn(&browser.step);
+    const step = b.step("verify-raybox-examples-web", "Verify imported examples through wasm32-emscripten BoonRuntimeHost and browser canvas");
+    if (build_only) {
+        step.dependOn(&node.step);
+    } else {
+        const browser = b.addSystemCommand(&.{ "zig", "build", "run-raybox", "-Dtarget=wasm32-emscripten" });
+        browser.step.dependOn(&node.step);
+        step.dependOn(&browser.step);
+    }
 }
 
 fn addPhysicalVerifiers(
@@ -721,9 +735,14 @@ fn addPhysicalVerifiers(
     node.addArg(selected_example orelse "-");
     node.addArg(if (build_only) "true" else "false");
     node.step.dependOn(&emcc.step);
-    const browser = b.addSystemCommand(&.{ "zig", "build", "run-raybox", "-Dtarget=wasm32-emscripten" });
-    browser.step.dependOn(&node.step);
-    b.step("verify-raybox-physical-web", "Verify physical TodoMVC projection through wasm32-emscripten and browser canvas").dependOn(&browser.step);
+    const step = b.step("verify-raybox-physical-web", "Verify physical project projection through wasm32-emscripten and browser canvas");
+    if (build_only) {
+        step.dependOn(&node.step);
+    } else {
+        const browser = b.addSystemCommand(&.{ "zig", "build", "run-raybox", "-Dtarget=wasm32-emscripten" });
+        browser.step.dependOn(&node.step);
+        step.dependOn(&browser.step);
+    }
 }
 
 fn addNativeBenchmark(

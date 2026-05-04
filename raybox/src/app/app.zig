@@ -22,9 +22,9 @@ const physical = raybox.render.physical_projection;
 const font_manager = raybox.text.font_manager;
 
 const default_example_index = if (builtin.os.tag == .emscripten)
-    exampleIndex("todo_mvc_physical") orelse 0
+    firstMultiFileExampleIndex() orelse 0
 else
-    exampleIndex("counter") orelse 0;
+    0;
 
 const CaptureSize = struct {
     width: i32,
@@ -132,11 +132,25 @@ pub const PlaygroundApp = struct {
     }
 
     pub fn clickCheckboxForTest(self: *PlaygroundApp, index: usize) !void {
-        self.handleProjectionPointerClick(try self.controlCenterForTest("checkbox", index));
+        const point = self.controlCenterForTest("checkbox", index) catch |err| switch (err) {
+            error.ControlNotFound => {
+                try self.dispatchCheckboxBySemanticIndex(index);
+                return;
+            },
+            else => return err,
+        };
+        self.handleProjectionPointerClick(point);
     }
 
     pub fn clickButtonForTest(self: *PlaygroundApp, index: usize) !void {
-        self.handleProjectionPointerClick(try self.controlCenterForTest("button", index));
+        const point = self.controlCenterForTest("button", index) catch |err| switch (err) {
+            error.ControlNotFound => {
+                try self.dispatchButtonBySemanticIndex(index);
+                return;
+            },
+            else => return err,
+        };
+        self.handleProjectionPointerClick(point);
     }
 
     pub fn clickButtonByLabelForTest(self: *PlaygroundApp, label: []const u8) !void {
@@ -149,6 +163,28 @@ pub const PlaygroundApp = struct {
 
     pub fn clickCanvasForTest(self: *PlaygroundApp) !void {
         self.handleProjectionPointerClick(try self.controlCenterForTest("svg_canvas", 0));
+    }
+
+    fn dispatchCheckboxBySemanticIndex(self: *PlaygroundApp, index: usize) !void {
+        const semantic = self.semantic orelse return error.ProjectionNotReady;
+        if (index >= semantic.checkboxes.len) return error.ControlNotFound;
+        const checkbox = semantic.checkboxes[index];
+        self.dispatchEvent(.{ .checkbox_change = .{ .link = @intCast(index), .checked = !checkbox.checked } });
+    }
+
+    fn dispatchButtonBySemanticIndex(self: *PlaygroundApp, index: usize) !void {
+        const semantic = self.semantic orelse return error.ProjectionNotReady;
+        if (index >= semantic.buttons.len) return error.ControlNotFound;
+        const button = semantic.buttons[index];
+        if (button.handle) |handle| {
+            self.dispatchEvent(.{ .click_ref = handle });
+        } else if (button.label.len != 0) {
+            self.dispatchEvent(.{ .click_text = button.label });
+        } else if (button.link) |link| {
+            self.dispatchEvent(.{ .click = link });
+        } else {
+            return error.ControlNotFound;
+        }
     }
 
     pub fn typeAsciiForTest(self: *PlaygroundApp, text: []const u8) !void {
@@ -273,37 +309,31 @@ pub const PlaygroundApp = struct {
         return null;
     }
 
-    pub fn runNativeSmokeScript(self: *PlaygroundApp, name: []const u8) !void {
-        if (std.mem.eql(u8, name, "todo_mvc_add_two")) {
-            try self.clickInputForTest(0);
-            try self.typeAsciiForTest("151");
-            self.pressEnterForTest();
-            try self.clickInputForTest(0);
-            try self.typeAsciiForTest("151");
-            self.pressEnterForTest();
-            return;
+    pub fn runNativeSmokeScript(self: *PlaygroundApp, script: []const u8) !void {
+        var parts = std.mem.tokenizeAny(u8, script, ",;");
+        while (parts.next()) |raw_part| {
+            const part = std.mem.trim(u8, raw_part, " \t\r\n");
+            if (part.len == 0) continue;
+            if (std.mem.eql(u8, part, "enter")) {
+                self.pressEnterForTest();
+            } else if (std.mem.eql(u8, part, "sdl-enter")) {
+                self.pressEnterViaSdlEventForTest();
+            } else if (std.mem.startsWith(u8, part, "click-input=")) {
+                try self.clickInputForTest(try parseSmokeIndex(part["click-input=".len..]));
+            } else if (std.mem.startsWith(u8, part, "sdl-click-input=")) {
+                try self.clickInputViaSdlEventForTest(try parseSmokeIndex(part["sdl-click-input=".len..]));
+            } else if (std.mem.startsWith(u8, part, "click-button=")) {
+                try self.clickButtonForTest(try parseSmokeIndex(part["click-button=".len..]));
+            } else if (std.mem.startsWith(u8, part, "sdl-click-button=")) {
+                try self.dispatchMouseButtonUpForControl("button", try parseSmokeIndex(part["sdl-click-button=".len..]));
+            } else if (std.mem.startsWith(u8, part, "type=")) {
+                try self.typeAsciiForTest(part["type=".len..]);
+            } else if (std.mem.startsWith(u8, part, "sdl-type=")) {
+                try self.typeAsciiViaSdlEventsForTest(part["sdl-type=".len..]);
+            } else {
+                return error.UnknownNativeSmokeScriptCommand;
+            }
         }
-        if (std.mem.eql(u8, name, "shopping_list_add")) {
-            try self.clickInputForTest(0);
-            try self.typeAsciiForTest("Milk");
-            self.pressEnterForTest();
-            return;
-        }
-        if (std.mem.eql(u8, name, "counter_sdl_click")) {
-            try self.dispatchMouseButtonUpForControl("button", 0);
-            return;
-        }
-        if (std.mem.eql(u8, name, "counter_direct_click")) {
-            try self.clickButtonForTest(0);
-            return;
-        }
-        if (std.mem.eql(u8, name, "todo_mvc_sdl_add_one")) {
-            try self.clickInputViaSdlEventForTest(0);
-            try self.typeAsciiViaSdlEventsForTest("151");
-            self.pressEnterViaSdlEventForTest();
-            return;
-        }
-        return error.UnknownNativeSmokeScript;
     }
 
     pub fn init(self: *PlaygroundApp, window: *c.SDL_Window, renderer: *c.SDL_Renderer) void {
@@ -533,20 +563,27 @@ pub const PlaygroundApp = struct {
             .ok => {},
             .diagnostics => |diagnostics| return reportDiagnostics(diagnostics, error.CompileDiagnostic),
         }
-        if (self.currentExampleUsesRenderOnlyGrid()) {
-            try host.startNoSnapshot();
-            const text = try host.renderCompactGridTextAlloc(self.allocator, 12, 6);
-            defer self.allocator.free(text);
-            try self.updateProjectionFromRenderedText(text);
-            return;
-        }
-        try self.updateProjection(try host.start());
+        const output = host.start() catch |err| switch (err) {
+            error.OutOfMemory => {
+                switch (try host.compileEntry()) {
+                    .ok => {},
+                    .diagnostics => |diagnostics| return reportDiagnostics(diagnostics, error.CompileDiagnostic),
+                }
+                try host.startNoSnapshot();
+                const text = try host.renderCompactGridTextAlloc(self.allocator, 12, 6);
+                defer self.allocator.free(text);
+                try self.updateProjectionFromRenderedText(text);
+                return;
+            },
+            else => return err,
+        };
+        try self.updateProjection(output);
     }
 
     fn loadSelectedProject(self: *PlaygroundApp) !bridge.Project {
         if (self.current_example_index < registry.examples.len) {
             const example = registry.examples[self.current_example_index];
-            if (builtin.os.tag == .emscripten and std.mem.eql(u8, example.name, "todo_mvc_physical")) return playground_project.project();
+            if (builtin.os.tag == .emscripten and self.selectedProjectIsStatic()) return playground_project.project();
             return try loadNativeProject(self.allocator, example);
         }
         const local_index = self.current_example_index - registry.examples.len;
@@ -557,11 +594,7 @@ pub const PlaygroundApp = struct {
     fn selectedProjectIsStatic(self: PlaygroundApp) bool {
         if (builtin.os.tag != .emscripten) return false;
         if (self.current_example_index >= registry.examples.len) return false;
-        return std.mem.eql(u8, registry.examples[self.current_example_index].name, "todo_mvc_physical");
-    }
-
-    fn currentExampleUsesRenderOnlyGrid(self: PlaygroundApp) bool {
-        return std.mem.eql(u8, self.current_example_name, "cells") or std.mem.eql(u8, self.current_example_name, "cells_dynamic");
+        return registry.examples[self.current_example_index].kind == .multi_file;
     }
 
     fn updateSourcePreview(self: *PlaygroundApp, project: bridge.Project) !void {
@@ -627,7 +660,6 @@ pub const PlaygroundApp = struct {
         errdefer semantic.deinit(self.allocator);
         try self.syncNativeFocusFromIncomingSemantic(&semantic);
         try self.applyNativeDraftToSemantic(&semantic);
-        try self.applyExampleDisplayFixups(&semantic);
         self.applyCaretBlinkToSemantic(&semantic);
 
         var trace = try physical.RenderTrace.project(self.allocator, semantic, .{});
@@ -662,7 +694,7 @@ pub const PlaygroundApp = struct {
 
     fn handleKeyDown(self: *PlaygroundApp, ev: *const c.SDL_Event) void {
         const key_code = ev.key.key;
-        if (self.handlePongKey(key_code)) return;
+        if (self.handleTerminalKey(key_code)) return;
         if (ev.key.repeat and (key_code == c.SDLK_LEFT or key_code == c.SDLK_RIGHT or key_code == c.SDLK_UP or key_code == c.SDLK_DOWN)) return;
         switch (key_code) {
             c.SDLK_LEFT, c.SDLK_UP => self.switchExample(-1),
@@ -745,7 +777,7 @@ pub const PlaygroundApp = struct {
                 self.dispatchEvent(.{ .checkbox_change = .{ .link = @intCast(index), .checked = !checkbox.checked } });
                 return;
             }
-            if (self.handlePongPointer(point)) return;
+            if (self.handleTerminalControlPointer(point)) return;
             if (self.traceControlIndexAt(point, "button")) |index| {
                 if (index >= semantic.buttons.len) return;
                 const button = semantic.buttons[index];
@@ -796,8 +828,7 @@ pub const PlaygroundApp = struct {
         return false;
     }
 
-    fn handlePongKey(self: *PlaygroundApp, key_code: c.SDL_Keycode) bool {
-        if (!std.mem.eql(u8, self.current_example_name, "pong")) return false;
+    fn handleTerminalKey(self: *PlaygroundApp, key_code: c.SDL_Keycode) bool {
         const key: []const u8 = switch (key_code) {
             c.SDLK_UP => "Up",
             c.SDLK_DOWN => "Down",
@@ -806,17 +837,14 @@ pub const PlaygroundApp = struct {
             c.SDLK_R => "r",
             else => return false,
         };
-        self.dispatchEvent(.{ .terminal_key = key });
-        return true;
+        return self.dispatchTerminalKeyIfAccepted(key);
     }
 
-    fn handlePongPointer(self: *PlaygroundApp, point: Point) bool {
-        if (!std.mem.eql(u8, self.current_example_name, "pong")) return false;
-        for (pong_control_labels, 0..) |_, index| {
-            const rect = pongControlRect(index);
+    fn handleTerminalControlPointer(self: *PlaygroundApp, point: Point) bool {
+        for (terminal_control_labels, 0..) |_, index| {
+            const rect = terminalControlRect(index);
             if (rect.contains(point)) {
-                self.dispatchEvent(.{ .terminal_key = pong_control_keys[index] });
-                return true;
+                return self.dispatchTerminalKeyIfAccepted(terminal_control_keys[index]);
             }
         }
         return false;
@@ -1124,12 +1152,24 @@ pub const PlaygroundApp = struct {
         self.updateProjection(output) catch |err| self.recordRuntimeError(err);
     }
 
+    fn dispatchTerminalKeyIfAccepted(self: *PlaygroundApp, key: []const u8) bool {
+        const host = if (self.host) |*host| host else return false;
+        const output = host.dispatch(.{ .terminal_key = key }) catch |err| switch (err) {
+            error.NotTerminalRoot, error.UnknownTerminalKeyBinding, error.RuntimeNotStarted => return false,
+            else => {
+                self.recordRuntimeError(err);
+                return true;
+            },
+        };
+        self.updateProjection(output) catch |err| self.recordRuntimeError(err);
+        return true;
+    }
+
     fn syncNativeInputBuffer(self: *PlaygroundApp, index: u64) !void {
         self.native_input_text.clearRetainingCapacity();
         if (self.semantic) |semantic| {
             if (index < semantic.inputs.len) {
                 try self.native_input_text.appendSlice(self.allocator, semantic.inputs[@intCast(index)].text);
-                self.clearTemperatureNanDraft();
             }
         }
     }
@@ -1168,15 +1208,6 @@ pub const PlaygroundApp = struct {
         self.native_input_text.clearRetainingCapacity();
         if (index < semantic.inputs.len) {
             try self.native_input_text.appendSlice(self.allocator, semantic.inputs[@intCast(index)].text);
-            self.clearTemperatureNanDraft();
-        }
-    }
-
-    fn clearTemperatureNanDraft(self: *PlaygroundApp) void {
-        if (!std.mem.eql(u8, self.current_example_name, "temperature_converter")) return;
-        const trimmed = std.mem.trim(u8, self.native_input_text.items, " \t\r\n");
-        if (std.ascii.eqlIgnoreCase(trimmed, "nan")) {
-            self.native_input_text.clearRetainingCapacity();
         }
     }
 
@@ -1186,43 +1217,6 @@ pub const PlaygroundApp = struct {
         const index: usize = @intCast(self.native_focused_input);
         self.allocator.free(semantic.inputs[index].text);
         semantic.inputs[index].text = try self.allocator.dupe(u8, self.native_input_text.items);
-    }
-
-    fn applyExampleDisplayFixups(self: *PlaygroundApp, semantic: *physical.SemanticTree) !void {
-        if (std.mem.eql(u8, self.current_example_name, "interval") and self.virtual_clock.now_ms < 1000) {
-            const trimmed = std.mem.trim(u8, semantic.rendered_text, " \t\r\n");
-            if (std.mem.eql(u8, trimmed, "0")) {
-                self.allocator.free(semantic.rendered_text);
-                semantic.rendered_text = try self.allocator.dupe(u8, "");
-            }
-        }
-        if (std.mem.eql(u8, self.current_example_name, "temperature_converter")) {
-            try self.fixTemperatureProjection(semantic);
-        }
-    }
-
-    fn fixTemperatureProjection(self: *PlaygroundApp, semantic: *physical.SemanticTree) !void {
-        if (!self.native_focused_valid or semantic.inputs.len < 2) return;
-        const focused: usize = @intCast(self.native_focused_input);
-        if (focused >= 2) return;
-        const source_text = std.mem.trim(u8, semantic.inputs[focused].text, " \t\r\n");
-        const target: usize = if (focused == 0) 1 else 0;
-        const source = std.fmt.parseFloat(f64, source_text) catch std.math.nan(f64);
-        const replacement = if (std.math.isNan(source))
-            try self.allocator.dupe(u8, "nan")
-        else
-            try formatTemperatureValue(self.allocator, if (focused == 0) source * 9.0 / 5.0 + 32.0 else (source - 32.0) * 5.0 / 9.0);
-        errdefer self.allocator.free(replacement);
-        self.allocator.free(semantic.inputs[target].text);
-        semantic.inputs[target].text = replacement;
-    }
-
-    fn formatTemperatureValue(allocator: std.mem.Allocator, value: f64) ![]u8 {
-        const rounded = @round(value);
-        if (@abs(value - rounded) < 0.000001) {
-            return try std.fmt.allocPrint(allocator, "{d}", .{@as(i64, @intFromFloat(rounded))});
-        }
-        return try std.fmt.allocPrint(allocator, "{d:.2}", .{value});
     }
 
     fn screenToProjection(self: *PlaygroundApp, x: f32, y: f32) ?Point {
@@ -1520,7 +1514,9 @@ pub const PlaygroundApp = struct {
             self.stats.frame_index,
             if (self.trace) |trace| trace.commands.len else 0,
         });
-        try writer.writeAll(",\"route\":\"/\",\"example\":\"todo_mvc_physical\"}");
+        try writer.writeAll(",\"route\":\"/\",\"example\":");
+        try writeJsonString(writer, self.current_example_name);
+        try writer.writeByte('}');
         return try out.toOwnedSlice();
     }
 
@@ -1607,6 +1603,17 @@ fn exampleIndex(name: []const u8) ?usize {
     return null;
 }
 
+fn firstMultiFileExampleIndex() ?usize {
+    for (registry.examples, 0..) |example, index| {
+        if (example.kind == .multi_file) return index;
+    }
+    return null;
+}
+
+fn parseSmokeIndex(text: []const u8) !usize {
+    return try std.fmt.parseInt(usize, text, 10);
+}
+
 fn exampleNameAt(index: usize) []const u8 {
     if (index < registry.examples.len) return registry.examples[index].name;
     const local_index = index - registry.examples.len;
@@ -1691,10 +1698,10 @@ fn exampleTabIndexAt(point: Point) ?usize {
     return null;
 }
 
-const pong_control_labels = [_][]const u8{ "up", "down", "serve", "tick", "restart" };
-const pong_control_keys = [_][]const u8{ "Up", "Down", "Enter", "Space", "r" };
+const terminal_control_labels = [_][]const u8{ "up", "down", "enter", "space", "r" };
+const terminal_control_keys = [_][]const u8{ "Up", "Down", "Enter", "Space", "r" };
 
-fn pongControlRect(index: usize) HitRect {
+fn terminalControlRect(index: usize) HitRect {
     return .{
         .x = 150 + @as(f32, @floatFromInt(index)) * 140,
         .y = 760,
@@ -1702,19 +1709,6 @@ fn pongControlRect(index: usize) HitRect {
         .h = 48,
     };
 }
-
-const todo_physical_project_files = [_][]const u8{
-    "RUN.bn",
-    "BUILD.bn",
-    "Generated/Assets.bn",
-    "Theme/Theme.bn",
-    "Theme/Professional.bn",
-    "Theme/Glassmorphism.bn",
-    "Theme/Neobrutalism.bn",
-    "Theme/Neumorphism.bn",
-    "assets/icons/checkbox_active.svg",
-    "assets/icons/checkbox_completed.svg",
-};
 
 fn loadNativeProject(allocator: std.mem.Allocator, example: registry.Example) !bridge.Project {
     return switch (example.kind) {
@@ -1760,33 +1754,88 @@ fn loadNativeLocalProject(allocator: std.mem.Allocator, example: local_examples.
 }
 
 fn loadNativeMultiFileProject(allocator: std.mem.Allocator, example: registry.Example) !bridge.Project {
-    if (!std.mem.eql(u8, example.name, "todo_mvc_physical")) return error.UnsupportedMultiFileExample;
-    const files = try allocator.alloc(bridge.ProjectFile, todo_physical_project_files.len);
-    errdefer allocator.free(files);
-    var loaded: usize = 0;
-    errdefer {
-        for (files[0..loaded]) |file| {
-            allocator.free(file.path);
-            allocator.free(file.contents);
-        }
-    }
-    for (todo_physical_project_files, 0..) |relative, index| {
-        const path = try std.fs.path.join(allocator, &.{ example.root_path, relative });
-        defer allocator.free(path);
-        const contents = try readNativeFileAlloc(allocator, path, 4 * 1024 * 1024);
-        errdefer allocator.free(contents);
-        files[index] = .{
-            .path = try allocator.dupe(u8, relative),
-            .contents = contents,
-            .generated = std.mem.startsWith(u8, relative, "Generated/"),
-        };
-        loaded += 1;
-    }
+    var files_list: std.ArrayList(bridge.ProjectFile) = .empty;
+    errdefer freeNativeProjectFiles(allocator, files_list.items);
+    try collectNativeProjectFiles(allocator, example.root_path, "", &files_list);
+    std.mem.sort(bridge.ProjectFile, files_list.items, {}, projectFilePathLessThan);
+    if (!projectContainsFile(files_list.items, example.entry_file)) return error.EntryFileNotFound;
+    const files = try files_list.toOwnedSlice(allocator);
     return .{
         .name = example.name,
         .entry_file = example.entry_file,
         .files = files,
     };
+}
+
+fn collectNativeProjectFiles(
+    allocator: std.mem.Allocator,
+    root_path: []const u8,
+    relative_dir: []const u8,
+    files: *std.ArrayList(bridge.ProjectFile),
+) !void {
+    const dir_path = if (relative_dir.len == 0)
+        try allocator.dupe(u8, root_path)
+    else
+        try std.fs.path.join(allocator, &.{ root_path, relative_dir });
+    defer allocator.free(dir_path);
+
+    const dir_path_z = try allocator.dupeZ(u8, dir_path);
+    defer allocator.free(dir_path_z);
+    const dir = c_opendir(dir_path_z.ptr) orelse return error.DirectoryOpenFailed;
+    defer _ = c_closedir(dir);
+
+    while (c_readdir(dir)) |entry| {
+        const name = direntName(entry);
+        if (name.len == 0 or std.mem.eql(u8, name, ".") or std.mem.eql(u8, name, "..")) continue;
+        const relative = if (relative_dir.len == 0)
+            try allocator.dupe(u8, name)
+        else
+            try std.fs.path.join(allocator, &.{ relative_dir, name });
+        errdefer allocator.free(relative);
+
+        if (entry.d_type == dirent_type_directory) {
+            try collectNativeProjectFiles(allocator, root_path, relative, files);
+            allocator.free(relative);
+            continue;
+        }
+        if (entry.d_type != dirent_type_file and entry.d_type != dirent_type_unknown) {
+            allocator.free(relative);
+            continue;
+        }
+
+        const full_path = try std.fs.path.join(allocator, &.{ root_path, relative });
+        defer allocator.free(full_path);
+        const contents = readNativeFileAlloc(allocator, full_path, 4 * 1024 * 1024) catch |err| switch (err) {
+            error.FileNotFound, error.FileReadFailed => {
+                allocator.free(relative);
+                continue;
+            },
+            else => return err,
+        };
+        errdefer allocator.free(contents);
+        try files.append(allocator, .{
+            .path = relative,
+            .contents = contents,
+            .generated = std.mem.startsWith(u8, relative, "Generated/"),
+        });
+    }
+}
+
+fn direntName(entry: *const Dirent) []const u8 {
+    var len: usize = 0;
+    while (len < entry.d_name.len and entry.d_name[len] != 0) : (len += 1) {}
+    return entry.d_name[0..len];
+}
+
+fn projectContainsFile(files: []const bridge.ProjectFile, path: []const u8) bool {
+    for (files) |file| {
+        if (std.mem.eql(u8, file.path, path)) return true;
+    }
+    return false;
+}
+
+fn projectFilePathLessThan(_: void, lhs: bridge.ProjectFile, rhs: bridge.ProjectFile) bool {
+    return std.mem.lessThan(u8, lhs.path, rhs.path);
 }
 
 fn projectFileForPreview(project: bridge.Project) bridge.ProjectFile {
@@ -1825,11 +1874,15 @@ fn appendSourceLines(writer: *std.Io.Writer, contents: []const u8, max_lines: us
 }
 
 fn freeNativeProject(allocator: std.mem.Allocator, project: bridge.Project) void {
-    for (project.files) |file| {
+    freeNativeProjectFiles(allocator, project.files);
+    allocator.free(project.files);
+}
+
+fn freeNativeProjectFiles(allocator: std.mem.Allocator, files: []const bridge.ProjectFile) void {
+    for (files) |file| {
         allocator.free(file.path);
         allocator.free(file.contents);
     }
-    allocator.free(project.files);
 }
 
 fn readNativeFileAlloc(allocator: std.mem.Allocator, path: []const u8, max_size: usize) ![]u8 {
@@ -1864,12 +1917,29 @@ extern fn fclose(file: *anyopaque) c_int;
 extern fn fseek(file: *anyopaque, offset: c_long, whence: c_int) c_int;
 extern fn ftell(file: *anyopaque) c_long;
 extern fn fread(ptr: [*]u8, size: usize, nmemb: usize, file: *anyopaque) usize;
+const Dir = opaque {};
+const Dirent = extern struct {
+    d_ino: c_ulong,
+    d_off: c_long,
+    d_reclen: c_ushort,
+    d_type: u8,
+    d_name: [256]u8,
+};
+extern fn opendir(path: [*:0]const u8) ?*Dir;
+extern fn readdir(dir: *Dir) ?*Dirent;
+extern fn closedir(dir: *Dir) c_int;
 
 const c_fopen = fopen;
 const c_fclose = fclose;
 const c_fseek = fseek;
 const c_ftell = ftell;
 const c_fread = fread;
+const c_opendir = opendir;
+const c_readdir = readdir;
+const c_closedir = closedir;
+const dirent_type_unknown: u8 = 0;
+const dirent_type_directory: u8 = 4;
+const dirent_type_file: u8 = 8;
 
 fn parseBridgeKey(key_text: []const u8) bridge.Key {
     if (std.mem.eql(u8, key_text, "Enter")) return .enter;

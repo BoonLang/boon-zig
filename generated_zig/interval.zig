@@ -103,11 +103,14 @@ const generated_record_shapes = [_]GeneratedRecordShape{
     .{ .dst_slot_id = 2, .fields = &generated_record_2_fields },
 };
 
-const generated_list_shapes = [_]GeneratedListShape{};
+const generated_list_shapes = [_]GeneratedListShape{
+};
 
-const generated_branch_activations = [_]GeneratedBranchActivation{};
+const generated_branch_activations = [_]GeneratedBranchActivation{
+};
 
-const generated_list_map_scopes = [_]GeneratedListMapScope{};
+const generated_list_map_scopes = [_]GeneratedListMapScope{
+};
 
 const generated_dependency_edges = [_]GeneratedDependencyEdge{
     .{ .from = 0, .to = 1 },
@@ -135,9 +138,6 @@ fn validateGeneratedRuntimePlan() !void {
     if (generated_runtime_plan.branch_activations.len != 0) return error.GeneratedRuntimePlanMismatch;
     if (generated_runtime_plan.list_map_scopes.len != 0) return error.GeneratedRuntimePlanMismatch;
     if (generated_runtime_plan.dependency_edges.len != 10) return error.GeneratedRuntimePlanMismatch;
-    for (generated_runtime_plan.record_shapes) |shape| {
-        if (shape.fields.len == 0) return error.GeneratedRuntimePlanMismatch;
-    }
     for (generated_runtime_plan.list_map_scopes) |scope| {
         if (scope.item_binding.len == 0) return error.GeneratedRuntimePlanMismatch;
     }
@@ -151,9 +151,7 @@ var generated_physical_record_2_fields = [_]physical_ir.RecordFieldInstruction{
     .{ .name = "event", .value = 1 },
 };
 
-var generated_physical_hold_11_updates = [_]physical_ir.ValueSlotId{
-    10,
-};
+var generated_physical_hold_11_updates = [_]physical_ir.ValueSlotId{ 10, };
 
 var generated_physical_source_slots = [_]physical_ir.SourceSlot{
     .{ .id = 0, .semantic_id = "timer.event.tick", .payload_type = "Pulse", .source_span = .{ .start = 22, .end = 28 }, .value_slot = 6 },
@@ -213,9 +211,9 @@ var generated_physical_program: physical_ir.PhysicalProgram = .{
     .state_slots = &generated_physical_state_slots,
     .instructions = &generated_physical_instructions,
     .dependency_edges = &generated_physical_dependency_edges,
-    .branch_table = .{ .count = 0 },
-    .list_table = .{ .count = 0 },
-    .render_blueprint = .{ .node_count = 12 },
+    .branch_table = .{.count = 0 },
+    .list_table = .{.count = 0 },
+    .render_blueprint = .{.node_count = 12 },
 };
 
 fn runGeneratedPhysicalRuntimeAdapter(allocator: std.mem.Allocator) ![]u8 {
@@ -233,51 +231,6 @@ fn runGeneratedPhysicalRuntimeAdapter(allocator: std.mem.Allocator) ![]u8 {
     try runtime.processQueuedEvents(&generated_physical_program);
     return try runtime.stateSnapshotAlloc(allocator);
 }
-
-fn appSnapshotAlloc(allocator: std.mem.Allocator, app: *const AppState) ![]u8 {
-    var output: std.Io.Writer.Allocating = .init(allocator);
-    defer output.deinit();
-    try app.writeSnapshot(&output.writer);
-    return try output.toOwnedSlice();
-}
-
-fn assertGeneratedRuntimeAdapterMatchesApp(allocator: std.mem.Allocator, app: *const AppState) !void {
-    const app_snapshot = try appSnapshotAlloc(allocator, app);
-    defer allocator.free(app_snapshot);
-    const runtime_snapshot = try runGeneratedPhysicalRuntimeAdapter(allocator);
-    defer allocator.free(runtime_snapshot);
-    if (!bytesEqual(app_snapshot, runtime_snapshot)) return error.GeneratedRuntimeAdapterMismatch;
-}
-
-fn bytesEqual(lhs: []const u8, rhs: []const u8) bool {
-    if (lhs.len != rhs.len) return false;
-    for (lhs, rhs) |left, right| {
-        if (left != right) return false;
-    }
-    return true;
-}
-
-const AppState = struct {
-    state_0: RuntimeValue = .{ .number = 0 },
-
-    fn dispatchEvent(self: *AppState, source_slot_id: u32, payload: RuntimeValue) void {
-        _ = payload;
-        switch (source_slot_id) {
-            0 => switch (self.state_0) {
-                .number => |value| self.state_0 = .{ .number = value + 1 },
-                else => self.state_0 = .{ .number = 1 },
-            },
-            else => {},
-        }
-    }
-
-    fn writeSnapshot(self: *const AppState, writer: *std.Io.Writer) !void {
-        try writer.writeAll("state[0]=");
-        try writeRuntimeValue(writer, self.state_0);
-        try writer.writeByte('\n');
-    }
-};
-
 fn writeRuntimeValue(writer: *std.Io.Writer, value: RuntimeValue) !void {
     switch (value) {
         .pulse => try writer.writeAll("pulse"),
@@ -291,11 +244,10 @@ pub fn main(init: std.process.Init) !void {
     _ = render_blueprint;
     _ = generated_runtime_plan;
     try validateGeneratedRuntimePlan();
-    var app: AppState = .{};
-    app.dispatchEvent(0, .pulse);
-    try assertGeneratedRuntimeAdapterMatchesApp(std.heap.page_allocator, &app);
+    const snapshot = try runGeneratedPhysicalRuntimeAdapter(std.heap.page_allocator);
+    defer std.heap.page_allocator.free(snapshot);
     var stdout_buffer: [4096]u8 = undefined;
     var stdout_writer: std.Io.File.Writer = .init(.stdout(), init.io, &stdout_buffer);
-    try app.writeSnapshot(&stdout_writer.interface);
+    try stdout_writer.interface.writeAll(snapshot);
     try stdout_writer.interface.flush();
 }

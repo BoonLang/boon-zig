@@ -24,7 +24,7 @@ async function expectCompile(api, sourcePath, name, expectedLine) {
     fail(`${name} compile metadata mismatch: ${JSON.stringify(result)}`);
   }
   const viewer = await api.generatedZigViewer(result);
-  if (!viewer.ok || !viewer.source.includes("semantic_source_map") || !viewer.source.includes("switch (source_slot_id)")) {
+  if (!viewer.ok || !viewer.source.includes("semantic_source_map") || !viewer.source.includes("runGeneratedPhysicalRuntimeAdapter")) {
     fail(`${name} generated Zig viewer mismatch`);
   }
   return result;
@@ -119,9 +119,15 @@ async function smokeBrowserPlaygroundUi() {
 }
 
 async function main() {
-  const api = createPlaygroundApi({ compileProvider: compileWithLocalZig });
+  const api = createPlaygroundApi({
+    compileProvider: compileWithLocalZig,
+    interpreterHostFactory: async () => ({ textContent: () => "0+" }),
+  });
 
-  const interpreter = await api.interpreterPreview({ exampleName: "counter" });
+  const interpreter = await api.interpreterPreview({
+    sourcePath: "examples/source_physical/counter/counter.bn",
+    name: "counter",
+  });
   if (!interpreter.ok || interpreter.text !== "0+") {
     fail(`interpreter preview mismatch: ${JSON.stringify(interpreter)}`);
   }

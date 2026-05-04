@@ -60,7 +60,7 @@ export function createBrowserPlaygroundApi({
 
     async interpreterPreview({ exampleName }) {
       const host = await interpreterHostFactory({
-        exampleName,
+        sourceName: EXAMPLES[exampleName]?.sourcePath ?? exampleName,
         storage: new MemoryIndexedDb(),
       });
       return {

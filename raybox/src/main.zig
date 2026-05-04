@@ -14,6 +14,8 @@ var frame_counter: u32 = 0;
 var native_smoke_script: ?[]const u8 = null;
 var running = true;
 
+const playground_title = "Boon Zig Playground";
+
 pub fn main(process_init: std.process.Init) !void {
     const is_web = builtin.os.tag == .emscripten;
     configureRun(process_init);
@@ -22,7 +24,7 @@ pub fn main(process_init: std.process.Init) !void {
     errdefer c.SDL_Quit();
 
     const flags: c.SDL_WindowFlags = c.SDL_WINDOW_HIGH_PIXEL_DENSITY | c.SDL_WINDOW_RESIZABLE;
-    window = c.SDL_CreateWindow("boon-playground-raybox", playground_layout.window_width, playground_layout.window_height, flags) orelse return sdlError("SDL_CreateWindow");
+    window = c.SDL_CreateWindow(playground_title, playground_layout.window_width, playground_layout.window_height, flags) orelse return sdlError("SDL_CreateWindow");
     errdefer if (window) |w| c.SDL_DestroyWindow(w);
 
     renderer = c.SDL_CreateRenderer(window.?, null) orelse return sdlError("SDL_CreateRenderer");
@@ -40,10 +42,10 @@ pub fn main(process_init: std.process.Init) !void {
         emscripten_set_main_loop_arg(emscriptenFrame, null, 60, 1);
         return;
     }
-    defer app.deinit();
-    defer c.SDL_DestroyRenderer(renderer.?);
-    defer c.SDL_DestroyWindow(window.?);
     defer c.SDL_Quit();
+    defer c.SDL_DestroyWindow(window.?);
+    defer c.SDL_DestroyRenderer(renderer.?);
+    defer app.deinit();
 
     while (running) {
         pumpEvents();

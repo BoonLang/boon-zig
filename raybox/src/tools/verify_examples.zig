@@ -213,8 +213,11 @@ fn verifyOne(
         .ok => {},
         .diagnostics => |diagnostics| return diagnosticsResult(allocator, diagnostics),
     }
-    const cells_render_only = isCellsExample(example.name);
-    var snapshot = if (cells_render_only) blk: {
+    const expected_file = try readExpectedFile(allocator, example, examples_root);
+    defer allocator.free(expected_file);
+
+    const compact_render = expectedUsesCompactRender(expected_file);
+    var snapshot = if (compact_render) blk: {
         try host.startNoSnapshot();
         break :blk try renderOnlySnapshot(allocator, &host);
     } else try snapshotTextFromOutput(allocator, try host.start());
@@ -231,10 +234,8 @@ fn verifyOne(
         snapshot.semantic.deinit(allocator);
         return .{ .status = .BLOCKED, .message = "snapshot text does not match expected [output]", .text = text };
     }
-    const expected_file = try readExpectedFile(allocator, example, examples_root);
-    defer allocator.free(expected_file);
     if (hasExpectedSteps(expected_file)) {
-        const runner = try runExpectedSteps(allocator, example.name, expected_file, &host, &clock, snapshot, cells_render_only);
+        const runner = try runExpectedSteps(allocator, example.name, expected_file, &host, &clock, snapshot, compact_render);
         return runner;
     }
     snapshot.semantic.deinit(allocator);
@@ -266,14 +267,14 @@ fn runExpectedSteps(
     host: *bridge.BoonRuntimeHost,
     clock: *bridge.VirtualClock,
     initial_snapshot: SnapshotText,
-    cells_render_only: bool,
+    compact_render: bool,
 ) !VerificationResult {
     var current = initial_snapshot;
     var input_text = std.ArrayListUnmanaged(u8).empty;
     defer input_text.deinit(allocator);
     var input_text_valid = false;
     var focused_input: u64 = 0;
-    var cells_input_handle: ?bridge.TextInputHandle = null;
+    var render_only_input_handle: ?bridge.TextInputHandle = null;
     var button_index_view = try cloneSemanticButtons(allocator, current.semantic.buttons);
     defer freeSemanticButtonsWithSlice(allocator, button_index_view);
 
@@ -300,7 +301,7 @@ fn runExpectedSteps(
         }
         var action_cursor: usize = 0;
         while (nextAction(step.body, &action_cursor)) |action| {
-            const action_result = runAction(allocator, example_name, host, clock, action, &input_text, &input_text_valid, &focused_input, &cells_input_handle, current, previous_buttons, cells_render_only) catch |err| {
+            const action_result = runAction(allocator, example_name, host, clock, action, &input_text, &input_text_valid, &focused_input, &render_only_input_handle, current, previous_buttons, compact_render) catch |err| {
                 const message = if (step.description.len == 0)
                     try std.fmt.allocPrint(allocator, "action {s} failed: {s}", .{ action, @errorName(err) })
                 else
@@ -351,7 +352,7 @@ fn runExpectedSteps(
             freeSemanticButtonsWithSlice(allocator, button_index_view);
             button_index_view = next_buttons;
         }
-        if (cells_render_only and action_cursor != 0 and cells_input_handle == null) {
+        if (compact_render and action_cursor != 0 and render_only_input_handle == null) {
             const rerun = try rerunHostRenderOnly(allocator, host, clock);
             switch (rerun) {
                 .none => {},
@@ -390,23 +391,23 @@ fn runAction(
     input_text: *std.ArrayListUnmanaged(u8),
     input_text_valid: *bool,
     focused_input: *u64,
-    cells_input_handle: *?bridge.TextInputHandle,
+    render_only_input_handle: *?bridge.TextInputHandle,
     current: SnapshotText,
     previous_buttons: []const SemanticButton,
-    cells_render_only: bool,
+    compact_render: bool,
 ) !ActionResult {
     const name = firstActionString(action) orelse return .none;
-    if (cells_render_only) {
+    if (compact_render) {
         if (std.mem.eql(u8, name, "assert_focused")) {
-            return if (cells_input_handle.* != null) .none else .{ .blocked = "assert_focused failed" };
+            return if (render_only_input_handle.* != null) .none else .{ .blocked = "assert_focused failed" };
         }
         if (std.mem.eql(u8, name, "assert_not_focused")) {
-            return if (cells_input_handle.* == null) .none else .{ .blocked = "assert_not_focused failed" };
+            return if (render_only_input_handle.* == null) .none else .{ .blocked = "assert_not_focused failed" };
         }
         if (std.mem.eql(u8, name, "assert_focused_input_value")) {
             const expected = nthActionString(action, 1) orelse return .{ .blocked = "assert_focused_input_value missing text" };
             const trimmed = std.mem.trim(u8, input_text.items, " \t\r\n");
-            return if (cells_input_handle.* != null and std.mem.eql(u8, trimmed, expected))
+            return if (render_only_input_handle.* != null and std.mem.eql(u8, trimmed, expected))
                 .none
             else
                 .{ .blocked = "assert_input_value failed" };
@@ -433,10 +434,10 @@ fn runAction(
     }
     if (std.mem.eql(u8, name, "click_text")) {
         const label = nthActionString(action, 1) orelse return .{ .blocked = "click_text missing label" };
-        if (cells_render_only and textContainsNormalized(allocator, current.text, label) catch false) {
-            if (cells_input_handle.*) |handle| {
+        if (compact_render and textContainsNormalized(allocator, current.text, label) catch false) {
+            if (render_only_input_handle.*) |handle| {
                 try host.blurTextInputWithHandle(handle);
-                cells_input_handle.* = null;
+                render_only_input_handle.* = null;
                 return .none;
             }
         }
@@ -488,15 +489,15 @@ fn runAction(
         }
         return result;
     }
-    if (std.mem.eql(u8, name, "dblclick_cells_cell")) {
+    if (std.mem.eql(u8, name, "dblclick_grid_cell")) {
         const row = firstActionInteger(action, 0);
         const col = firstActionInteger(action, 1);
-        const label = try cellsCellTextAlloc(allocator, current.text, row, col);
-        if (cells_render_only) {
+        const label = try gridCellTextAlloc(allocator, current.text, row, col);
+        if (compact_render) {
             const link_index = (row - 1) * 26 + (col - 1);
             try host.dispatchNoSnapshot(.{ .double_click = link_index });
             focused_input.* = 0;
-            cells_input_handle.* = try host.textInputHandle(0);
+            render_only_input_handle.* = try host.textInputHandle(0);
             input_text.clearRetainingCapacity();
             try input_text.appendSlice(allocator, label);
             input_text_valid.* = true;
@@ -536,8 +537,8 @@ fn runAction(
         input_text.clearRetainingCapacity();
         try input_text.appendSlice(allocator, value);
         input_text_valid.* = true;
-        if (cells_render_only) {
-            if (cells_input_handle.*) |handle| {
+        if (compact_render) {
+            if (render_only_input_handle.*) |handle| {
                 try host.setTextInputValueWithHandle(handle, input_text.items);
                 return .none;
             }
@@ -565,13 +566,13 @@ fn runAction(
             input_text_valid.* = true;
         }
         if (key == .backspace and input_text.items.len != 0) _ = input_text.pop();
-        if (cells_render_only) {
-            if (cells_input_handle.*) |handle| {
+        if (compact_render) {
+            if (render_only_input_handle.*) |handle| {
                 try host.pressTextInputKeyWithHandle(handle, key, input_text.items);
                 if (key == .enter or key == .escape) {
                     input_text.clearRetainingCapacity();
                     input_text_valid.* = false;
-                    cells_input_handle.* = null;
+                    render_only_input_handle.* = null;
                 }
                 return if (key == .enter) try renderOnlyActionResult(allocator, host) else .none;
             }
@@ -672,16 +673,16 @@ fn runAssertAction(
         if (focusedSemanticInputIndex(current.semantic) != null) return .{ .blocked = "assert_not_focused failed" };
         return if (textHasFocusedInput(current.text)) .{ .blocked = "assert_not_focused failed" } else .none;
     }
-    if (std.mem.eql(u8, name, "assert_cells_cell_text")) {
+    if (std.mem.eql(u8, name, "assert_grid_cell_text")) {
         const row = firstActionInteger(action, 0);
         const col = firstActionInteger(action, 1);
-        const expected = nthActionString(action, 1) orelse return .{ .blocked = "assert_cells_cell_text missing text" };
-        const actual = cellsCellTextAlloc(allocator, current.text, row, col) catch return .{ .blocked = "assert_cells_cell_text missing cell" };
-        return if (std.mem.eql(u8, actual, expected)) .none else .{ .blocked = "assert_cells_cell_text failed" };
+        const expected = nthActionString(action, 1) orelse return .{ .blocked = "assert_grid_cell_text missing text" };
+        const actual = gridCellTextAlloc(allocator, current.text, row, col) catch return .{ .blocked = "assert_grid_cell_text missing cell" };
+        return if (std.mem.eql(u8, actual, expected)) .none else .{ .blocked = "assert_grid_cell_text failed" };
     }
-    if (std.mem.eql(u8, name, "assert_cells_row_visible")) {
+    if (std.mem.eql(u8, name, "assert_grid_row_visible")) {
         const row = firstActionInteger(action, 0);
-        return if (cellsRowVisible(current.text, row)) .none else .{ .blocked = "assert_cells_row_visible failed" };
+        return if (gridRowVisible(current.text, row)) .none else .{ .blocked = "assert_grid_row_visible failed" };
     }
     if (std.mem.eql(u8, name, "assert_input_typeable") or std.mem.eql(u8, name, "assert_input_not_typeable")) {
         const index = firstActionInteger(action, 0);
@@ -751,7 +752,7 @@ fn textHasFocusedInput(text: []const u8) bool {
     return false;
 }
 
-fn cellsCellTextAlloc(allocator: std.mem.Allocator, text: []const u8, row: u64, col: u64) ![]u8 {
+fn gridCellTextAlloc(allocator: std.mem.Allocator, text: []const u8, row: u64, col: u64) ![]u8 {
     var lines = std.mem.splitScalar(u8, text, '\n');
     var saw_lines = false;
     while (lines.next()) |line| {
@@ -766,11 +767,11 @@ fn cellsCellTextAlloc(allocator: std.mem.Allocator, text: []const u8, row: u64, 
         }
         return error.MissingCell;
     }
-    if (!saw_lines) return try compactCellsCellTextAlloc(allocator, text, row, col);
+    if (!saw_lines) return try compactGridCellTextAlloc(allocator, text, row, col);
     return error.MissingCell;
 }
 
-fn cellsRowVisible(text: []const u8, row: u64) bool {
+fn gridRowVisible(text: []const u8, row: u64) bool {
     var lines = std.mem.splitScalar(u8, text, '\n');
     var saw_lines = false;
     while (lines.next()) |line| {
@@ -780,11 +781,11 @@ fn cellsRowVisible(text: []const u8, row: u64) bool {
         const parsed_row = std.fmt.parseUnsigned(u64, first, 10) catch continue;
         if (parsed_row == row) return true;
     }
-    if (!saw_lines) return compactCellsRowVisible(text, row);
+    if (!saw_lines) return compactGridRowVisible(text, row);
     return false;
 }
 
-fn compactCellsCellTextAlloc(allocator: std.mem.Allocator, text: []const u8, row: u64, col: u64) ![]u8 {
+fn compactGridCellTextAlloc(allocator: std.mem.Allocator, text: []const u8, row: u64, col: u64) ![]u8 {
     var tokens = std.mem.tokenizeAny(u8, text, " \t\r\n");
     while (tokens.next()) |token| {
         const parsed_row = std.fmt.parseUnsigned(u64, std.mem.trim(u8, token, "<>"), 10) catch continue;
@@ -803,7 +804,7 @@ fn compactCellsCellTextAlloc(allocator: std.mem.Allocator, text: []const u8, row
     return error.MissingCell;
 }
 
-fn compactCellsRowVisible(text: []const u8, row: u64) bool {
+fn compactGridRowVisible(text: []const u8, row: u64) bool {
     var tokens = std.mem.tokenizeAny(u8, text, " \t\r\n");
     while (tokens.next()) |token| {
         const parsed_row = std.fmt.parseUnsigned(u64, std.mem.trim(u8, token, "<>"), 10) catch continue;
@@ -892,8 +893,8 @@ fn labelOccurrenceIndexByText(allocator: std.mem.Allocator, text: []const u8, la
     return error.ControlLabelNotFound;
 }
 
-fn isCellsExample(name: []const u8) bool {
-    return std.mem.eql(u8, name, "cells") or std.mem.eql(u8, name, "cells_dynamic");
+fn expectedUsesCompactRender(contents: []const u8) bool {
+    return std.mem.indexOf(u8, contents, "render = \"compact\"") != null;
 }
 
 fn renderOnlySnapshot(allocator: std.mem.Allocator, host: *bridge.BoonRuntimeHost) !SnapshotText {
@@ -1468,49 +1469,104 @@ fn loadSingleFileProject(allocator: std.mem.Allocator, example: registry.Example
     };
 }
 
-const todo_physical_project_files = [_][]const u8{
-    "RUN.bn",
-    "BUILD.bn",
-    "Generated/Assets.bn",
-    "Theme/Theme.bn",
-    "Theme/Professional.bn",
-    "Theme/Glassmorphism.bn",
-    "Theme/Neobrutalism.bn",
-    "Theme/Neumorphism.bn",
-    "assets/icons/checkbox_active.svg",
-    "assets/icons/checkbox_completed.svg",
-};
-
 fn loadMultiFileProject(allocator: std.mem.Allocator, example: registry.Example, examples_root: []const u8) !bridge.Project {
-    if (!std.mem.eql(u8, example.name, "todo_mvc_physical")) return error.UnsupportedMultiFileExample;
-    const files = try allocator.alloc(bridge.ProjectFile, todo_physical_project_files.len);
-    errdefer allocator.free(files);
-    var loaded: usize = 0;
-    errdefer {
-        for (files[0..loaded]) |file| {
-            allocator.free(file.path);
-            allocator.free(file.contents);
-        }
-    }
-
-    for (todo_physical_project_files, 0..) |relative, index| {
-        const path = try std.fs.path.join(allocator, &.{ examples_root, example.name, relative });
-        defer allocator.free(path);
-        const contents = try readFileAlloc(allocator, path, 4 * 1024 * 1024);
-        errdefer allocator.free(contents);
-        files[index] = .{
-            .path = try allocator.dupe(u8, relative),
-            .contents = contents,
-            .generated = std.mem.startsWith(u8, relative, "Generated/"),
-        };
-        loaded += 1;
-    }
+    const root_path = try std.fs.path.join(allocator, &.{ examples_root, example.name });
+    defer allocator.free(root_path);
+    var files_list: std.ArrayList(bridge.ProjectFile) = .empty;
+    errdefer freeProjectFiles(allocator, files_list.items);
+    try collectProjectFiles(allocator, root_path, "", &files_list);
+    std.mem.sort(bridge.ProjectFile, files_list.items, {}, projectFilePathLessThan);
+    if (!projectContainsFile(files_list.items, example.entry_file)) return error.EntryFileNotFound;
+    const files = try files_list.toOwnedSlice(allocator);
 
     return .{
         .name = example.name,
         .entry_file = example.entry_file,
         .files = files,
     };
+}
+
+fn collectProjectFiles(
+    allocator: std.mem.Allocator,
+    root_path: []const u8,
+    relative_dir: []const u8,
+    files: *std.ArrayList(bridge.ProjectFile),
+) !void {
+    const dir_path = if (relative_dir.len == 0)
+        try allocator.dupe(u8, root_path)
+    else
+        try std.fs.path.join(allocator, &.{ root_path, relative_dir });
+    defer allocator.free(dir_path);
+    const dir_path_z = try allocator.dupeZ(u8, dir_path);
+    defer allocator.free(dir_path_z);
+    const dir = c_opendir(dir_path_z.ptr) orelse return error.DirectoryOpenFailed;
+    defer _ = c_closedir(dir);
+
+    while (c_readdir(dir)) |entry| {
+        const name = direntName(entry);
+        if (name.len == 0 or std.mem.eql(u8, name, ".") or std.mem.eql(u8, name, "..")) continue;
+        const relative = if (relative_dir.len == 0)
+            try allocator.dupe(u8, name)
+        else
+            try std.fs.path.join(allocator, &.{ relative_dir, name });
+        errdefer allocator.free(relative);
+        const path = try std.fs.path.join(allocator, &.{ root_path, relative });
+        defer allocator.free(path);
+        if (entry.d_type == dirent_type_directory or (entry.d_type == dirent_type_unknown and try isDirectoryPath(allocator, path))) {
+            try collectProjectFiles(allocator, root_path, relative, files);
+            allocator.free(relative);
+            continue;
+        }
+        if (entry.d_type != dirent_type_file and entry.d_type != dirent_type_unknown) {
+            allocator.free(relative);
+            continue;
+        }
+        const contents = readFileAlloc(allocator, path, 4 * 1024 * 1024) catch |err| switch (err) {
+            error.FileNotFound, error.FileReadFailed => {
+                allocator.free(relative);
+                continue;
+            },
+            else => return err,
+        };
+        errdefer allocator.free(contents);
+        try files.append(allocator, .{
+            .path = relative,
+            .contents = contents,
+            .generated = std.mem.startsWith(u8, relative, "Generated/"),
+        });
+    }
+}
+
+fn isDirectoryPath(allocator: std.mem.Allocator, path: []const u8) !bool {
+    const path_z = try allocator.dupeZ(u8, path);
+    defer allocator.free(path_z);
+    const dir = c_opendir(path_z.ptr) orelse return false;
+    _ = c_closedir(dir);
+    return true;
+}
+
+fn freeProjectFiles(allocator: std.mem.Allocator, files: []const bridge.ProjectFile) void {
+    for (files) |file| {
+        allocator.free(file.path);
+        allocator.free(file.contents);
+    }
+}
+
+fn direntName(entry: *const Dirent) []const u8 {
+    var len: usize = 0;
+    while (len < entry.d_name.len and entry.d_name[len] != 0) : (len += 1) {}
+    return entry.d_name[0..len];
+}
+
+fn projectContainsFile(files: []const bridge.ProjectFile, path: []const u8) bool {
+    for (files) |file| {
+        if (std.mem.eql(u8, file.path, path)) return true;
+    }
+    return false;
+}
+
+fn projectFilePathLessThan(_: void, lhs: bridge.ProjectFile, rhs: bridge.ProjectFile) bool {
+    return std.mem.lessThan(u8, lhs.path, rhs.path);
 }
 
 fn freeProject(allocator: std.mem.Allocator, project: bridge.Project) void {
@@ -1916,6 +1972,17 @@ extern fn ftell(file: *anyopaque) c_long;
 extern fn fread(ptr: [*]u8, size: usize, nmemb: usize, file: *anyopaque) usize;
 extern fn fwrite(ptr: [*]const u8, size: usize, nmemb: usize, file: *anyopaque) usize;
 extern fn mkdir(path: [*:0]const u8, mode: c_uint) c_int;
+const Dir = opaque {};
+const Dirent = extern struct {
+    d_ino: u64,
+    d_off: i64,
+    d_reclen: c_ushort,
+    d_type: u8,
+    d_name: [256]u8,
+};
+extern fn opendir(path: [*:0]const u8) ?*Dir;
+extern fn readdir(dir: *Dir) ?*Dirent;
+extern fn closedir(dir: *Dir) c_int;
 
 const c_fopen = fopen;
 const c_fclose = fclose;
@@ -1924,3 +1991,9 @@ const c_ftell = ftell;
 const c_fread = fread;
 const c_fwrite = fwrite;
 const c_mkdir = mkdir;
+const c_opendir = opendir;
+const c_readdir = readdir;
+const c_closedir = closedir;
+const dirent_type_unknown: u8 = 0;
+const dirent_type_directory: u8 = 4;
+const dirent_type_file: u8 = 8;

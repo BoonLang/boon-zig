@@ -176,3 +176,48 @@ test "Phase 0 bridge preflight exposes runtime host contract" {
         .diagnostics => return error.ExpectedRuntimeSnapshot,
     }
 }
+
+test "Raybox bridge loads arbitrary multi-module Boon projects" {
+    const bridge = boon_adapter.boon_runtime_host;
+
+    const run_source = @embedFile("../../fixtures/generic_apps/multi_module/RUN.bn");
+    const widgets_source = @embedFile("../../fixtures/generic_apps/multi_module/Widgets.bn");
+    const project = bridge.Project{
+        .name = "raybox_generic_multi_module_fixture",
+        .entry_file = "RUN.bn",
+        .files = @constCast(&[_]bridge.ProjectFile{
+            .{ .path = "RUN.bn", .contents = run_source },
+            .{ .path = "Widgets.bn", .contents = widgets_source },
+        }),
+    };
+
+    var persist_ctx = boon_adapter.host.MemoryPersistStore.init(std.testing.allocator);
+    defer persist_ctx.deinit();
+    var route_ctx = boon_adapter.host.MemoryRouteStore{};
+    var persist = persist_ctx.store();
+    var route = route_ctx.store();
+    var clock = bridge.VirtualClock{};
+    var time = bridge.TimeSource{ .virtual = &clock };
+    var host = try bridge.BoonRuntimeHost.init(std.testing.allocator, &persist, &route, &time);
+    defer host.deinit();
+
+    try host.loadProject(project);
+    switch (try host.runBuildFile()) {
+        .not_present => {},
+        else => return error.ExpectedNoBuildFile,
+    }
+    switch (try host.compileEntry()) {
+        .ok => {},
+        .diagnostics => return error.ExpectedCompileOk,
+    }
+
+    const output = try host.start();
+    switch (output) {
+        .document => |document| {
+            try std.testing.expect(document.values.len > 0);
+            try std.testing.expect(document.events.len == 0);
+        },
+        .scene => return error.ExpectedDocumentSnapshot,
+        .diagnostics => return error.ExpectedRuntimeSnapshot,
+    }
+}

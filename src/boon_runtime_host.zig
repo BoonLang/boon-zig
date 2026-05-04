@@ -1037,7 +1037,6 @@ pub const BoonRuntimeHost = struct {
         errdefer out.deinit();
         const writer = &out.writer;
         for (modules.items) |module| {
-            if (!std.mem.eql(u8, module.name, "Assets")) continue;
             const rewritten = try rewriteModuleSourceAlloc(self.allocator, module.source, modules.items, module);
             defer self.allocator.free(rewritten);
             try writer.writeAll(rewritten);
@@ -1120,20 +1119,15 @@ pub const BoonRuntimeHost = struct {
         modules: []const ModuleInfo,
     ) !bool {
         for (modules) |module| {
-            if (std.mem.eql(u8, module.name, "Theme")) continue;
             if (!startsWithToken(source, index.*, module.name)) continue;
             var cursor = index.* + module.name.len;
             if (cursor >= source.len or source[cursor] != '/') continue;
             cursor += 1;
             for (module.functions) |function| {
-                if (std.mem.eql(u8, module.name, "Theme") and
-                    (std.mem.eql(u8, function, "geometry") or std.mem.eql(u8, function, "lights")))
-                {
-                    continue;
-                }
                 if (!startsWithToken(source, cursor, function)) continue;
                 const end = cursor + function.len;
                 if (end < source.len and isIdent(source[end])) continue;
+                if (isReservedRuntimePath(module.name, function)) return false;
                 try writer.print("{s}__{s}", .{ module.name, function });
                 index.* = end;
                 return true;
@@ -1172,6 +1166,23 @@ pub const BoonRuntimeHost = struct {
             (byte >= 'A' and byte <= 'Z') or
             (byte >= '0' and byte <= '9') or
             byte == '_';
+    }
+
+    fn isReservedRuntimePath(module_name: []const u8, function_name: []const u8) bool {
+        if (std.mem.eql(u8, module_name, "Theme")) {
+            return std.mem.eql(u8, function_name, "geometry") or
+                std.mem.eql(u8, function_name, "lights") or
+                std.mem.eql(u8, function_name, "material") or
+                std.mem.eql(u8, function_name, "font") or
+                std.mem.eql(u8, function_name, "text") or
+                std.mem.eql(u8, function_name, "depth") or
+                std.mem.eql(u8, function_name, "elevation") or
+                std.mem.eql(u8, function_name, "corners") or
+                std.mem.eql(u8, function_name, "sizing") or
+                std.mem.eql(u8, function_name, "spacing") or
+                std.mem.eql(u8, function_name, "spring_range");
+        }
+        return false;
     }
 
     fn importableModuleCount(self: *const BoonRuntimeHost) usize {
@@ -1528,6 +1539,86 @@ test "BoonRuntimeHost bridge exposes explicit unsupported diagnostics" {
         },
         else => return error.ExpectedDiagnostics,
     }
+}
+
+test "BoonRuntimeHost compiles arbitrary multi-module project files" {
+    const testing = std.testing;
+    const allocator = std.heap.c_allocator;
+
+    const PersistCtx = struct {
+        fn read(ptr: *anyopaque, read_allocator: std.mem.Allocator, key: []const u8) anyerror!?[]u8 {
+            _ = ptr;
+            _ = read_allocator;
+            _ = key;
+            return null;
+        }
+
+        fn write(ptr: *anyopaque, key: []const u8, value: []const u8) anyerror!void {
+            _ = ptr;
+            _ = key;
+            _ = value;
+        }
+
+        fn deletePrefix(ptr: *anyopaque, prefix: []const u8) anyerror!void {
+            _ = ptr;
+            _ = prefix;
+        }
+    };
+
+    const RouteCtx = struct {
+        fn current(ptr: *anyopaque) []const u8 {
+            _ = ptr;
+            return "/";
+        }
+
+        fn goTo(ptr: *anyopaque, route: []const u8) anyerror!void {
+            _ = ptr;
+            _ = route;
+        }
+    };
+
+    var persist_ctx: u8 = 0;
+    var route_ctx: u8 = 0;
+    var persist = PersistStore{
+        .ptr = &persist_ctx,
+        .read = PersistCtx.read,
+        .write = PersistCtx.write,
+        .deletePrefix = PersistCtx.deletePrefix,
+    };
+    var route = RouteStore{
+        .ptr = &route_ctx,
+        .current = RouteCtx.current,
+        .goTo = RouteCtx.goTo,
+    };
+    var clock = VirtualClock{};
+    var time = TimeSource{ .virtual = &clock };
+    var host = try BoonRuntimeHost.init(allocator, &persist, &route, &time);
+    defer host.deinit();
+
+    const run_source = @embedFile("../fixtures/generic_apps/multi_module/RUN.bn");
+    const widgets_source = @embedFile("../fixtures/generic_apps/multi_module/Widgets.bn");
+    try host.loadProject(.{
+        .name = "generic_multi_module_fixture",
+        .entry_file = "RUN.bn",
+        .files = &.{
+            .{ .path = "RUN.bn", .contents = run_source },
+            .{ .path = "Widgets.bn", .contents = widgets_source },
+        },
+    });
+    try host.clearState("generic_multi_module_fixture");
+
+    switch (try host.runBuildFile()) {
+        .not_present => {},
+        else => return error.ExpectedNoBuildFile,
+    }
+    switch (try host.compileEntry()) {
+        .ok => {},
+        .diagnostics => return error.UnexpectedDiagnostics,
+    }
+
+    const output = try host.start();
+    const rendered = renderedTextFromOutput(output) orelse return error.MissingRenderedText;
+    try testing.expect(std.mem.indexOf(u8, rendered, "Generic Widgets Fixture") != null);
 }
 
 test "BoonRuntimeHost dispatches visible click bindings after snapshot collection" {

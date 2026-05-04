@@ -25,7 +25,7 @@ test "Zig codegen emits counter source with numeric source dispatch" {
     });
     defer std.testing.allocator.free(generated);
 
-    try std.testing.expect(std.mem.indexOf(u8, generated, "switch (source_slot_id)") != null);
+    try std.testing.expect(std.mem.indexOf(u8, generated, "runtime.dispatchEvent") != null);
     try std.testing.expect(std.mem.indexOf(u8, generated, "std.mem.eql") == null);
     try std.testing.expect(std.mem.indexOf(u8, generated, "increment_button.event.press") != null);
     try std.testing.expect(std.mem.indexOf(u8, generated, "semantic_source_map") != null);
@@ -33,11 +33,11 @@ test "Zig codegen emits counter source with numeric source dispatch" {
     try std.testing.expect(std.mem.indexOf(u8, generated, ".boon_start = ") != null);
     try std.testing.expect(std.mem.indexOf(u8, generated, ".generated_start = ") != null);
     try std.testing.expect(std.mem.indexOf(u8, generated, "render_blueprint") != null);
-    try std.testing.expect(std.mem.indexOf(u8, generated, "state[0]=") != null);
     try std.testing.expect(std.mem.indexOf(u8, generated, "const boon = @import(\"boon\")") != null);
     try std.testing.expect(std.mem.indexOf(u8, generated, "generated_physical_program") != null);
     try std.testing.expect(std.mem.indexOf(u8, generated, "runGeneratedPhysicalRuntimeAdapter") != null);
-    try std.testing.expect(std.mem.indexOf(u8, generated, "GeneratedRuntimeAdapterMismatch") != null);
+    try std.testing.expect(std.mem.indexOf(u8, generated, "GeneratedRuntimeAdapterMismatch") == null);
+    try std.testing.expect(std.mem.indexOf(u8, generated, "switch (source_slot_id)") == null);
 }
 
 test "Zig codegen emits direct payload state updates for TodoMVC source lane" {
@@ -81,8 +81,11 @@ test "Zig codegen emits direct payload state updates for TodoMVC source lane" {
     defer std.testing.allocator.free(generated);
 
     try std.testing.expect(std.mem.indexOf(u8, generated, "sources.new_todo.event.change") != null);
-    try std.testing.expect(std.mem.indexOf(u8, generated, "0 => self.state_0 = payload") != null);
+    try std.testing.expect(std.mem.indexOf(u8, generated, ".payload = .{ .text = \"Write tests\" }") != null);
+    try std.testing.expect(std.mem.indexOf(u8, generated, "runtime.processQueuedEvents") != null);
+    try std.testing.expect(std.mem.indexOf(u8, generated, "runGeneratedPhysicalRuntimeAdapter") != null);
     try std.testing.expect(std.mem.indexOf(u8, generated, "std.mem.eql") == null);
+    try std.testing.expect(std.mem.indexOf(u8, generated, "AppState") == null);
 }
 
 test "Zig codegen folds static List/latest initial state" {
@@ -110,8 +113,11 @@ test "Zig codegen folds static List/latest initial state" {
     const generated = try boon.codegen_zig.generateAlloc(std.testing.allocator, &program, .{});
     defer std.testing.allocator.free(generated);
 
-    try std.testing.expect(std.mem.indexOf(u8, generated, "state_0: RuntimeValue = .{ .number = 2 }") != null);
+    try std.testing.expect(std.mem.indexOf(u8, generated, "generated_physical_program") != null);
+    try std.testing.expect(std.mem.indexOf(u8, generated, "physical_runtime.Runtime.initAlloc") != null);
+    try std.testing.expect(std.mem.indexOf(u8, generated, ".list_latest") != null);
     try std.testing.expect(std.mem.indexOf(u8, generated, "std.mem.eql") == null);
+    try std.testing.expect(std.mem.indexOf(u8, generated, "AppState") == null);
 }
 
 test "Zig codegen emits dynamic List/latest fan-in support coverage" {

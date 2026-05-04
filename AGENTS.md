@@ -28,14 +28,14 @@
 
 - On this COSMIC desktop, any command, test, script, or tool that opens a
   visible native or browser window must launch the window-creating command
-  through `cosmic-background-launch -- <command> [args...]`.
+  through `cosmic-background-launch --workspace boon-zig -- <command> [args...]`.
 - Keep `cosmic-background-launch` as close as possible to the process that
   actually creates the window so the child inherits
   `COSMIC_BACKGROUND_LAUNCH_ID`. Prior local implementation notes live in
   `~/repos/pop*` and `~/repos/cosmic-comp`.
 - Headless browser capture commands that do not create visible windows may stay
   headless, but if they are changed to visible/manual mode, wrap the browser
-  process with `cosmic-background-launch --`.
+  process with `cosmic-background-launch --workspace boon-zig --`.
 
 ## Raybox Renderer
 

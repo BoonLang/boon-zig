@@ -98,7 +98,7 @@ pub fn declarePlaygroundShell(stats: ShellStats) void {
         .backgroundColor = color(25, 29, 35, 255),
         .border = border(color(69, 78, 94, 255), 1),
     });
-    text("boon-playground-raybox", 0, 30, color(246, 248, 252, 255));
+    text("Boon Zig Playground", 0, 30, color(246, 248, 252, 255));
     text(stats.example_name, 0, 24, color(185, 199, 220, 255));
     element(.{ .layout = layout(.{ .width = grow(), .height = fixed(1) }) });
     close();
@@ -211,17 +211,9 @@ fn tabLabel(name: []const u8) []const u8 {
     return if (name.len > 15) name[0..15] else name;
 }
 
-fn inputHint(example_name: []const u8) void {
-    if (std.mem.eql(u8, example_name, "pong")) {
-        text("Keyboard: Up/Down, Enter, Space, R", 0, 24, color(218, 229, 244, 255));
-        text("Use on-preview controls or keyboard", 0, 24, color(218, 229, 244, 255));
-    } else if (std.mem.eql(u8, example_name, "cells") or std.mem.eql(u8, example_name, "cells_dynamic")) {
-        text("Grid examples are render-only in v0", 0, 24, color(218, 229, 244, 255));
-        text("Use tabs, Previous/Next, or F5", 0, 24, color(218, 229, 244, 255));
-    } else {
-        text("Click preview input, then type", 0, 24, color(218, 229, 244, 255));
-        text("Buttons and checkboxes are clickable", 0, 24, color(218, 229, 244, 255));
-    }
+fn inputHint(_: []const u8) void {
+    text("Use visible controls or keyboard bindings exposed by the app", 0, 24, color(218, 229, 244, 255));
+    text("Tabs switch projects; Previous, Next, and F5 control the shell", 0, 24, color(218, 229, 244, 255));
 }
 
 fn sourcePanel(title: []const u8, preview: []const u8, scroll_line: usize) void {
@@ -379,7 +371,7 @@ test "Clay bridge can produce shell render commands" {
     var bridge = try ClayBridge.init(std.testing.allocator, &fonts, 1280, 800);
     defer bridge.deinit();
     bridge.beginFrame(.{}, 1280, 800, 1.0 / 60.0);
-    declarePlaygroundShell(.{ .example_name = "todo_mvc_physical", .frame_index = 1, .command_count = 0, .trace_count = 12 });
+    declarePlaygroundShell(.{ .example_name = "generic_project", .frame_index = 1, .command_count = 0, .trace_count = 12 });
     const commands = bridge.endFrame(1.0 / 60.0);
     try std.testing.expect(commands.length > 0);
 }

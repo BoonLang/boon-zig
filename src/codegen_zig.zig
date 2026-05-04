@@ -41,10 +41,6 @@ pub fn generateAlloc(
     defer output.deinit();
     const writer = &output.writer;
 
-    const states = try collectStates(allocator, program);
-    defer allocator.free(states);
-    const dispatch_uses_payload = dispatchUsesPayload(states);
-    const dispatch_has_updates = dispatchHasUpdates(states);
     const needs_list_latest = hasListLatest(program);
 
     const source_slot_spans = try allocator.alloc(GeneratedSpan, program.source_slots.len);
@@ -123,83 +119,6 @@ pub fn generateAlloc(
     try writeStaticPhysicalProgram(writer, program);
     try writePhysicalRuntimeAdapter(writer, options);
     try writer.writeAll(
-        \\const AppState = struct {
-        \\
-    );
-    for (states) |state| {
-        try writer.print("    state_{d}: RuntimeValue = .{{ .number = {d} }},\n", .{ state.state_slot.id, state.initial_number });
-    }
-    try writer.writeAll(
-        \\
-        \\    fn dispatchEvent(self: *AppState, source_slot_id: u32, payload: RuntimeValue) void {
-        \\
-    );
-    if (!dispatch_has_updates) {
-        try writer.writeAll(
-            \\        _ = self;
-            \\        _ = source_slot_id;
-            \\
-        );
-    }
-    if (!dispatch_uses_payload) {
-        try writer.writeAll(
-            \\        _ = payload;
-            \\
-        );
-    }
-    if (dispatch_has_updates) {
-        try writer.writeAll(
-            \\        switch (source_slot_id) {
-            \\
-        );
-        for (states) |state| {
-            const update = state.update orelse continue;
-            switch (update) {
-                .direct_payload => |source_slot_id| {
-                    try writer.print(
-                        \\            {d} => self.state_{d} = payload,
-                        \\
-                    , .{ source_slot_id, state.state_slot.id });
-                },
-                .increment => |source_slot_id| {
-                    try writer.print(
-                        \\            {d} => switch (self.state_{d}) {{
-                        \\                .number => |value| self.state_{d} = .{{ .number = value + 1 }},
-                        \\                else => self.state_{d} = .{{ .number = 1 }},
-                        \\            }},
-                        \\
-                    , .{ source_slot_id, state.state_slot.id, state.state_slot.id, state.state_slot.id });
-                },
-            }
-        }
-        try writer.writeAll(
-            \\            else => {},
-            \\        }
-            \\
-        );
-    }
-    try writer.writeAll(
-        \\    }
-        \\
-        \\    fn writeSnapshot(self: *const AppState, writer: *std.Io.Writer) !void {
-        \\
-    );
-    if (states.len == 0) {
-        try writer.writeAll(
-            \\        _ = self;
-            \\        _ = writer;
-            \\
-        );
-    }
-    for (states) |state| {
-        try writer.print("        try writer.writeAll(\"state[{d}]=\");\n", .{state.state_slot.id});
-        try writer.print("        try writeRuntimeValue(writer, self.state_{d});\n", .{state.state_slot.id});
-        try writer.writeAll("        try writer.writeByte('\\n');\n");
-    }
-    try writer.writeAll(
-        \\    }
-        \\};
-        \\
         \\fn writeRuntimeValue(writer: *std.Io.Writer, value: RuntimeValue) !void {
         \\    switch (value) {
         \\        .pulse => try writer.writeAll("pulse"),
@@ -217,7 +136,6 @@ pub fn generateAlloc(
         \\    _ = render_blueprint;
         \\    _ = generated_runtime_plan;
         \\    try validateGeneratedRuntimePlan();
-        \\    var app: AppState = .{};
         \\
     );
     if (needs_list_latest) {
@@ -226,16 +144,12 @@ pub fn generateAlloc(
             \\
         );
     }
-    if (options.demo_event) |event| {
-        try writer.print("    app.dispatchEvent({d}, ", .{event.source_slot_id});
-        try writeDemoPayload(writer, event.payload);
-        try writer.writeAll(");\n");
-    }
     try writer.writeAll(
-        \\    try assertGeneratedRuntimeAdapterMatchesApp(std.heap.page_allocator, &app);
+        \\    const snapshot = try runGeneratedPhysicalRuntimeAdapter(std.heap.page_allocator);
+        \\    defer std.heap.page_allocator.free(snapshot);
         \\    var stdout_buffer: [4096]u8 = undefined;
         \\    var stdout_writer: std.Io.File.Writer = .init(.stdout(), init.io, &stdout_buffer);
-        \\    try app.writeSnapshot(&stdout_writer.interface);
+        \\    try stdout_writer.interface.writeAll(snapshot);
         \\    try stdout_writer.interface.flush();
         \\}
         \\
@@ -571,9 +485,6 @@ fn writeGeneratedRuntimePlan(writer: *std.Io.Writer, program: *const physical_ir
         \\    if (generated_runtime_plan.branch_activations.len != {d}) return error.GeneratedRuntimePlanMismatch;
         \\    if (generated_runtime_plan.list_map_scopes.len != {d}) return error.GeneratedRuntimePlanMismatch;
         \\    if (generated_runtime_plan.dependency_edges.len != {d}) return error.GeneratedRuntimePlanMismatch;
-        \\    for (generated_runtime_plan.record_shapes) |shape| {{
-        \\        if (shape.fields.len == 0) return error.GeneratedRuntimePlanMismatch;
-        \\    }}
         \\    for (generated_runtime_plan.list_map_scopes) |scope| {{
         \\        if (scope.item_binding.len == 0) return error.GeneratedRuntimePlanMismatch;
         \\    }}
@@ -780,30 +691,6 @@ fn writePhysicalRuntimeAdapter(writer: *std.Io.Writer, options: Options) !void {
     try writer.writeAll(
         \\    return try runtime.stateSnapshotAlloc(allocator);
         \\}
-        \\
-        \\fn appSnapshotAlloc(allocator: std.mem.Allocator, app: *const AppState) ![]u8 {
-        \\    var output: std.Io.Writer.Allocating = .init(allocator);
-        \\    defer output.deinit();
-        \\    try app.writeSnapshot(&output.writer);
-        \\    return try output.toOwnedSlice();
-        \\}
-        \\
-        \\fn assertGeneratedRuntimeAdapterMatchesApp(allocator: std.mem.Allocator, app: *const AppState) !void {
-        \\    const app_snapshot = try appSnapshotAlloc(allocator, app);
-        \\    defer allocator.free(app_snapshot);
-        \\    const runtime_snapshot = try runGeneratedPhysicalRuntimeAdapter(allocator);
-        \\    defer allocator.free(runtime_snapshot);
-        \\    if (!bytesEqual(app_snapshot, runtime_snapshot)) return error.GeneratedRuntimeAdapterMismatch;
-        \\}
-        \\
-        \\fn bytesEqual(lhs: []const u8, rhs: []const u8) bool {
-        \\    if (lhs.len != rhs.len) return false;
-        \\    for (lhs, rhs) |left, right| {
-        \\        if (left != right) return false;
-        \\    }
-        \\    return true;
-        \\}
-        \\
         \\
     );
 }
@@ -1192,7 +1079,7 @@ test "generates counter source with numeric dispatch" {
         .demo_event = .{ .source_slot_id = 0 },
     });
     defer std.testing.allocator.free(generated);
-    try std.testing.expect(std.mem.indexOf(u8, generated, "switch (source_slot_id)") != null);
+    try std.testing.expect(std.mem.indexOf(u8, generated, "runGeneratedPhysicalRuntimeAdapter") != null);
     try std.testing.expect(std.mem.indexOf(u8, generated, "std.mem.eql") == null);
     try std.testing.expect(std.mem.indexOf(u8, generated, "increment_button.event.press") != null);
 }

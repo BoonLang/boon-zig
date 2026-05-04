@@ -1,0 +1,4 @@
+increment_button: [event: [press: SOURCE]]
+counter: 0 |> HOLD counter {
+    increment_button.event.press |> THEN { counter + 1 }
+}

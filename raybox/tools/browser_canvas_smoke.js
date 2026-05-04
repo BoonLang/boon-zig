@@ -27,8 +27,6 @@ async function main() {
   fs.mkdirSync(path.dirname(reportPath), { recursive: true });
 
   const chrome = findChrome();
-  const visual = readVisualReport();
-  validateVisualReport(visual);
   const server = await startServer(webDir);
   try {
     const url = `http://127.0.0.1:${server.port}/boon-playground-raybox.html`;
@@ -42,8 +40,12 @@ async function main() {
       if (!bridge.methods.includes(method)) throw new Error(`window.__rayboxTest is missing ${method}`);
     }
     const expectedBridge = await verifyPhysicalExpectedBridge(chrome, url);
+    const canvasShot = await captureReadyCanvas(chrome, url, screenshotPath);
+    const visual = analyzeScreenshot(screenshotPath);
     writeReport("DONE", "browser canvas smoke passed", {
-      screenshot: visual.screenshot || screenshotPath,
+      screenshot: screenshotPath,
+      screenshot_bytes: canvasShot.bytes,
+      screenshot_data_url_bytes: canvasShot.dataUrlBytes,
       width: visual.width,
       height: visual.height,
       distinct_colors: visual.distinct_colors,
@@ -64,7 +66,9 @@ async function main() {
       expected_bridge_render_commands: expectedBridge.renderCommands,
     });
   } finally {
-    await new Promise((resolve) => server.http.close(resolve));
+    const closing = new Promise((resolve) => server.http.close(resolve));
+    if (typeof server.http.closeAllConnections === "function") server.http.closeAllConnections();
+    await closing;
   }
 }
 
@@ -83,6 +87,67 @@ function validateVisualReport(visual) {
   if (visual.clay_shell_pixels < 10000) throw new Error(`browser canvas is missing the Clay shell color bands: ${visual.clay_shell_pixels}`);
   if (visual.physical_preview_pixels < minPhysicalPreviewPixels) {
     throw new Error(`browser canvas is missing the Boon physical preview projection: ${visual.physical_preview_pixels}`);
+  }
+}
+
+function analyzeScreenshot(filePath) {
+  const result = spawnSync("convert", [filePath, "-format", "%c", "histogram:info:-"], { encoding: "utf8" });
+  if (result.status !== 0) throw new Error(`failed to analyze ready browser screenshot: ${result.stderr || result.stdout}`);
+  const stats = {
+    width: 0,
+    height: 0,
+    distinct_colors: 0,
+    non_black_pixels: 0,
+    clay_shell_pixels: 0,
+    physical_preview_pixels: 0,
+  };
+  const identify = spawnSync("identify", ["-format", "%w %h", filePath], { encoding: "utf8" });
+  if (identify.status === 0) {
+    const [width, height] = identify.stdout.trim().split(/\s+/).map((value) => Number.parseInt(value, 10));
+    stats.width = width || 0;
+    stats.height = height || 0;
+  }
+  for (const rawLine of result.stdout.split(/\n/)) {
+    const line = rawLine.trim();
+    const match = line.match(/^([0-9]+): \(([^)]*)\)/);
+    if (!match) continue;
+    const count = Number.parseInt(match[1], 10);
+    const parts = match[2].split(",").slice(0, 3).map((value) => Number.parseInt(value.trim(), 10));
+    if (parts.length < 3 || parts.some((value) => !Number.isFinite(value))) continue;
+    const [r, g, b] = parts;
+    stats.distinct_colors += 1;
+    if (r !== 0 || g !== 0 || b !== 0) stats.non_black_pixels += count;
+    if (closeColor(r, g, b, 36, 40, 48) || closeColor(r, g, b, 28, 32, 38) || closeColor(r, g, b, 45, 53, 65)) {
+      stats.clay_shell_pixels += count;
+    }
+    if (closeColor(r, g, b, 245, 242, 237) || closeColor(r, g, b, 255, 252, 247) || closeColor(r, g, b, 199, 107, 59) || closeColor(r, g, b, 82, 133, 217)) {
+      stats.physical_preview_pixels += count;
+    }
+  }
+  validateVisualReport({ ...stats, status: "DONE", runtime_failure_seen: false });
+  return stats;
+}
+
+function closeColor(r, g, b, er, eg, eb) {
+  return Math.abs(r - er) <= 12 && Math.abs(g - eg) <= 12 && Math.abs(b - eb) <= 12;
+}
+
+async function captureReadyCanvas(chrome, url, outPath) {
+  const cdp = await launchCdpChrome(chrome, url);
+  try {
+    await waitForCdpTestBridge(cdp);
+    await waitForBridgeIdle(cdp);
+    const screenshot = await cdp.send("Page.captureScreenshot", { format: "png", fromSurface: true });
+    if (!screenshot || typeof screenshot.data !== "string" || screenshot.data.length === 0) {
+      throw new Error("Chrome did not return a ready-page screenshot");
+    }
+    const bytes = Buffer.from(screenshot.data, "base64");
+    if (bytes.length < 16 * 1024) throw new Error(`ready browser canvas screenshot is too small: ${bytes.length} bytes`);
+    fs.mkdirSync(path.dirname(outPath), { recursive: true });
+    fs.writeFileSync(outPath, bytes);
+    return { bytes: bytes.length, dataUrlBytes: screenshot.data.length };
+  } finally {
+    await cdp.close();
   }
 }
 

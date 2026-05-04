@@ -1,0 +1,20 @@
+document: Document/new(
+    root: Element/stripe(
+        element: []
+        direction: Column
+        gap: 0
+        style: []
+        items: LIST {
+            Element/label(
+                element: []
+                style: []
+                label: TEXT { Generic Browser Fixture }
+            )
+            Element/label(
+                element: []
+                style: []
+                label: TEXT { Loaded from an arbitrary user path }
+            )
+        }
+    )
+)

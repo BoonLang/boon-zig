@@ -184,84 +184,7 @@ pub const RenderTrace = struct {
     viewport: Viewport,
 
     pub fn project(allocator: std.mem.Allocator, semantic: SemanticTree, viewport: Viewport) !RenderTrace {
-        if (!usesPhysicalTodoLayout(semantic)) return projectGeneric(allocator, semantic, viewport);
-
-        const theme = Theme.fromSemantic(semantic);
-        const mode = Mode.fromSemantic(semantic);
-        var commands = std.ArrayList(TraceCommand).empty;
-        errdefer commands.deinit(allocator);
-
-        const palette = Palette.forTheme(theme, mode);
-        const card_radius: f32 = switch (theme) {
-            .neobrutalism => 0,
-            .neumorphism => 22,
-            else => 12,
-        };
-        const card_shadow_blur: f32 = switch (theme) {
-            .neumorphism => 36,
-            .neobrutalism => 5,
-            else => 15,
-        };
-        const card = geometry.Rect{ .x = 180, .y = 130, .w = 640, .h = 620 };
-        try appendCommand(&commands, allocator, .shadow, "main_card", "", card, card_radius, palette.shadow, .{
-            .z = 8,
-            .blur_radius = card_shadow_blur,
-            .offset = .{ .x = 0, .y = 12 },
-            .alpha = palette.surface.a,
-        });
-        try appendCommand(&commands, allocator, .bevel, "main_card", "", card, card_radius, palette.highlight, .{ .z = 5, .alpha = palette.surface.a });
-
-        const title = geometry.Rect{ .x = 250, .y = 62, .w = 500, .h = 92 };
-        try appendCommand(&commands, allocator, .shadow, "title_text", "todos", title, 0, palette.shadow, .{ .z = 7, .blur_radius = 4, .offset = .{ .x = 0, .y = 3 }, .text_size = 100 });
-        try appendCommand(&commands, allocator, .bevel, "title_text", "todos", title, 0, palette.title, .{ .z = 9, .text_size = 100 });
-
-        for (semantic.inputs, 0..) |input, index| {
-            const y = 176 + @as(f32, @floatFromInt(index)) * 58;
-            const rect = geometry.Rect{ .x = 230, .y = y, .w = 540, .h = 48 };
-            const label = if (input.placeholder.len != 0) input.placeholder else input.text;
-            try appendCommand(&commands, allocator, .cutout_rounded_rect, "text_input", label, rect, 10, palette.surface, .{ .z = -2, .alpha = palette.surface.a });
-            try appendCommand(&commands, allocator, .inner_shadow, "text_input", label, rect, 10, palette.shadow, .{ .z = -3, .blur_radius = 13, .spread = 1 });
-            try appendCommand(&commands, allocator, .bevel, "text_input", label, rect, 10, palette.highlight, .{ .z = -1, .caret_visible = input.focused and input.caret_visible, .caret_text = input.text });
-            if (input.focused) {
-                try appendCommand(&commands, allocator, .glow, "text_input", label, rect, 12, palette.focus, .{ .z = 2, .blur_radius = 20, .alpha = 0.55 });
-            }
-        }
-
-        var button_index: usize = 0;
-        for (semantic.buttons) |button| {
-            const row = button_index / 4;
-            const col = button_index % 4;
-            const rect = geometry.Rect{
-                .x = 230 + @as(f32, @floatFromInt(col)) * 136,
-                .y = 606 + @as(f32, @floatFromInt(row)) * 48,
-                .w = 118,
-                .h = 36,
-            };
-            const radius: f32 = if (theme == .neobrutalism) 0 else 8;
-            try appendCommand(&commands, allocator, .shadow, "button", button.label, rect, radius, palette.shadow, .{ .z = 5, .blur_radius = 8, .offset = .{ .x = 0, .y = 4 } });
-            try appendCommand(&commands, allocator, .bevel, "button", button.label, rect, radius, palette.highlight, .{ .z = 7 });
-            if (button.outlined) {
-                try appendCommand(&commands, allocator, .outline, "button", button.label, rect, radius, palette.focus, .{ .z = 8, .outline_width = 2 });
-            }
-            button_index += 1;
-        }
-
-        for (semantic.checkboxes, 0..) |checkbox, index| {
-            const rect = geometry.Rect{ .x = 240, .y = 270 + @as(f32, @floatFromInt(index)) * 54, .w = 26, .h = 26 };
-            try appendCommand(&commands, allocator, .cutout_rounded_rect, "checkbox", checkbox.label, rect, 6, palette.surface, .{ .z = -1, .alpha = palette.surface.a });
-            try appendCommand(&commands, allocator, .inner_shadow, "checkbox", checkbox.label, rect, 6, palette.shadow, .{ .z = -2, .blur_radius = 9 });
-            try appendCommandIcon(&commands, allocator, .svg_circle, "checkbox", checkbox.label, "checkbox_active", rect, 13, palette.focus, .{ .z = 0, .outline_width = 2 });
-            if (checkbox.checked) {
-                try appendCommandIcon(&commands, allocator, .svg_path, "checkbox", checkbox.label, "checkbox_completed", rect, 6, palette.focus, .{ .z = 1 });
-            }
-        }
-
-        return .{
-            .commands = try commands.toOwnedSlice(allocator),
-            .theme = theme,
-            .mode = mode,
-            .viewport = viewport,
-        };
+        return projectGeneric(allocator, semantic, viewport);
     }
 
     pub fn deinit(self: *RenderTrace, allocator: std.mem.Allocator) void {
@@ -274,123 +197,9 @@ pub const RenderTrace = struct {
     }
 };
 
-fn usesPhysicalTodoLayout(semantic: SemanticTree) bool {
-    if (semantic.inputs.len == 0) return false;
-    for (semantic.buttons) |button| {
-        if (containsVisible(button.label, "Professional")) return true;
-        if (containsVisible(button.label, "Glass")) return true;
-        if (containsVisible(button.label, "Brutalist")) return true;
-        if (containsVisible(button.label, "Neumorphic")) return true;
-    }
-    return false;
-}
-
-fn usesGenericTodoLayout(semantic: SemanticTree) bool {
-    if (semantic.inputs.len == 0 or semantic.checkboxes.len < 2 or semantic.buttons.len < 3) return false;
-    var saw_all = false;
-    var saw_active = false;
-    var saw_completed = false;
-    for (semantic.buttons) |button| {
-        saw_all = saw_all or containsVisible(button.label, "All");
-        saw_active = saw_active or containsVisible(button.label, "Active");
-        saw_completed = saw_completed or containsVisible(button.label, "Completed");
-    }
-    return saw_all and saw_active and saw_completed;
-}
-
-fn projectGenericTodoLayout(allocator: std.mem.Allocator, semantic: SemanticTree, viewport: Viewport) !RenderTrace {
-    const theme: Theme = .professional;
-    const mode: Mode = .light;
-    const palette = Palette.forTheme(theme, mode);
-    var commands = std.ArrayList(TraceCommand).empty;
-    errdefer commands.deinit(allocator);
-
-    const card = geometry.Rect{ .x = 90, .y = 45, .w = 820, .h = 800 };
-    try appendCommand(&commands, allocator, .shadow, "main_card", "", card, 12, palette.shadow, .{
-        .z = 4,
-        .blur_radius = 10,
-        .offset = .{ .x = 0, .y = 10 },
-    });
-    try appendCommand(&commands, allocator, .bevel, "main_card", "", card, 12, palette.highlight, .{ .z = 5 });
-    try appendCommand(&commands, allocator, .bevel, "title_text", "todos", .{ .x = 130, .y = 78, .w = 240, .h = 36 }, 0, colors.ColorPremul.rgba(0, 0, 0, 0), .{ .z = 9, .text_size = 30 });
-
-    const input_x: f32 = 215;
-    const input_w: f32 = 570;
-    const input_start_y: f32 = 126;
-    const input_h: f32 = 54;
-    for (semantic.inputs, 0..) |input, index| {
-        const y = input_start_y + @as(f32, @floatFromInt(index)) * 62;
-        if (y + input_h > card.y + card.h - 96) break;
-        const rect = geometry.Rect{ .x = input_x, .y = y, .w = input_w, .h = input_h };
-        const label = inputLabelSlice(input, 54);
-        try appendCommand(&commands, allocator, .cutout_rounded_rect, "text_input", label, rect, 4, palette.surface, .{ .z = 6, .alpha = palette.surface.a, .text_size = 20 });
-        try appendCommand(&commands, allocator, .bevel, "text_input", label, rect, 4, palette.highlight, .{ .z = 7, .text_size = 20, .caret_visible = input.focused and input.caret_visible, .caret_text = visibleLabelSlice(input.text, 54) });
-        if (input.focused) {
-            try appendCommand(&commands, allocator, .outline, "text_input", label, rect, 4, palette.focus, .{ .z = 8, .outline_width = 2 });
-        }
-    }
-
-    const row_start_y = input_start_y + @as(f32, @floatFromInt(@max(semantic.inputs.len, 1))) * 62 + 14;
-    const row_h: f32 = 26;
-    const footer_y: f32 = card.y + card.h - 46;
-    const max_rows: usize = @intFromFloat(@max(0, @floor((footer_y - row_start_y - 10) / row_h)));
-
-    if (semantic.checkboxes.len != 0) {
-        const toggle_rect = geometry.Rect{ .x = 162, .y = input_start_y + 14, .w = 26, .h = 26 };
-        try appendCommand(&commands, allocator, .cutout_rounded_rect, "checkbox", "", toggle_rect, 2, palette.surface, .{ .z = 6, .alpha = palette.surface.a });
-        try appendCommandIcon(&commands, allocator, .svg_circle, "checkbox", "", "checkbox_active", toggle_rect, 13, palette.focus, .{ .z = 8, .outline_width = 2 });
-        if (semantic.checkboxes[0].checked) {
-            try appendCommandIcon(&commands, allocator, .svg_path, "checkbox", "", "checkbox_completed", toggle_rect, 6, palette.focus, .{ .z = 9 });
-        }
-    }
-
-    var visible_rows: usize = 0;
-    for (semantic.checkboxes[if (semantic.checkboxes.len == 0) 0 else 1..], 0..) |checkbox, item_index| {
-        if (visible_rows >= max_rows) break;
-        const y = row_start_y + @as(f32, @floatFromInt(item_index)) * row_h;
-        const rect = geometry.Rect{ .x = 162, .y = y + 1, .w = 22, .h = 22 };
-        const label = visibleLabelSlice(todoRowLabelFromRenderedText(semantic.rendered_text, item_index) orelse checkbox.label, 56);
-        try appendCommand(&commands, allocator, .cutout_rounded_rect, "checkbox", label, rect, 2, palette.surface, .{ .z = 6, .alpha = palette.surface.a });
-        try appendCommandIcon(&commands, allocator, .svg_circle, "checkbox", label, "checkbox_active", rect, 11, palette.focus, .{ .z = 8, .outline_width = 2 });
-        if (checkbox.checked) {
-            try appendCommandIcon(&commands, allocator, .svg_path, "checkbox", label, "checkbox_completed", rect, 6, palette.focus, .{ .z = 9 });
-        }
-        visible_rows += 1;
-    }
-
-    const count_label = todoFooterCountSlice(semantic.rendered_text);
-    if (count_label.len != 0) {
-        try appendCommand(&commands, allocator, .bevel, "plain_text", count_label, .{ .x = 140, .y = footer_y + 10, .w = 210, .h = 26 }, 0, colors.ColorPremul.rgba(0, 0, 0, 0), .{ .z = 9, .text_size = 24 });
-    }
-
-    for (semantic.buttons, 0..) |button, index| {
-        if (index >= 3) break;
-        const rect = geometry.Rect{
-            .x = 230 + @as(f32, @floatFromInt(index)) * 154,
-            .y = footer_y,
-            .w = 132,
-            .h = 44,
-        };
-        try appendCommand(&commands, allocator, .shadow, "button", button.label, rect, 6, palette.shadow, .{ .z = 5, .blur_radius = 8, .offset = .{ .x = 0, .y = 4 } });
-        try appendCommand(&commands, allocator, .bevel, "button", button.label, rect, 6, palette.highlight, .{ .z = 7, .text_size = 18 });
-        if (button.outlined) {
-            try appendCommand(&commands, allocator, .outline, "button", button.label, rect, 6, palette.focus, .{ .z = 8, .outline_width = 2 });
-        }
-    }
-
-    return .{
-        .commands = try commands.toOwnedSlice(allocator),
-        .theme = theme,
-        .mode = mode,
-        .viewport = viewport,
-    };
-}
-
 fn projectGeneric(allocator: std.mem.Allocator, semantic: SemanticTree, viewport: Viewport) !RenderTrace {
-    if (usesGenericTodoLayout(semantic)) return projectGenericTodoLayout(allocator, semantic, viewport);
-
-    const theme: Theme = .professional;
-    const mode: Mode = .light;
+    const theme = Theme.fromSemantic(semantic);
+    const mode = Mode.fromSemantic(semantic);
     const palette = Palette.forTheme(theme, mode);
     var commands = std.ArrayList(TraceCommand).empty;
     errdefer commands.deinit(allocator);
@@ -402,12 +211,22 @@ fn projectGeneric(allocator: std.mem.Allocator, semantic: SemanticTree, viewport
         geometry.Rect{ .x = 110, .y = 80, .w = 780, .h = 760 }
     else
         geometry.Rect{ .x = 160, .y = 120, .w = 680, .h = 620 };
-    try appendCommand(&commands, allocator, .shadow, "main_card", "", card, 12, palette.shadow, .{
+    const card_radius: f32 = switch (theme) {
+        .neobrutalism => 0,
+        .neumorphism => 22,
+        else => 12,
+    };
+    const card_shadow_blur: f32 = switch (theme) {
+        .neumorphism => 36,
+        .neobrutalism => 5,
+        else => 10,
+    };
+    try appendCommand(&commands, allocator, .shadow, "main_card", "", card, card_radius, palette.shadow, .{
         .z = 4,
-        .blur_radius = 10,
+        .blur_radius = card_shadow_blur,
         .offset = .{ .x = 0, .y = 10 },
     });
-    try appendCommand(&commands, allocator, .bevel, "main_card", "", card, 12, palette.highlight, .{ .z = 5 });
+    try appendCommand(&commands, allocator, .bevel, "main_card", "", card, card_radius, palette.highlight, .{ .z = 5 });
 
     if (display_text.len != 0) {
         const role: []const u8 = if (terminal) "terminal_text" else "plain_text";
@@ -418,8 +237,8 @@ fn projectGeneric(allocator: std.mem.Allocator, semantic: SemanticTree, viewport
         try appendCommand(&commands, allocator, .bevel, role, display_text, rect, 0, colors.ColorPremul.rgba(0, 0, 0, 0), .{ .z = 9, .text_size = if (terminal) 26 else 34 });
     }
 
-    if (terminal and containsVisible(display_text, "PONG")) {
-        const labels = [_][]const u8{ "up", "down", "serve", "tick", "restart" };
+    if (terminal) {
+        const labels = [_][]const u8{ "up", "down", "enter", "space", "r" };
         for (labels, 0..) |label, index| {
             const rect = geometry.Rect{
                 .x = 150 + @as(f32, @floatFromInt(index)) * 140,
@@ -448,6 +267,7 @@ fn projectGeneric(allocator: std.mem.Allocator, semantic: SemanticTree, viewport
         try appendCommand(&commands, allocator, .bevel, "text_input", label, rect, 10, palette.highlight, .{ .z = 7, .text_size = 20, .caret_visible = input.focused and input.caret_visible, .caret_text = input.text });
         if (input.focused) {
             try appendCommand(&commands, allocator, .outline, "text_input", label, rect, 10, palette.focus, .{ .z = 8, .outline_width = 2 });
+            try appendCommand(&commands, allocator, .glow, "text_input", label, rect, 12, palette.focus, .{ .z = 9, .blur_radius = 20, .alpha = 0.55 });
         }
     }
 
@@ -461,12 +281,21 @@ fn projectGeneric(allocator: std.mem.Allocator, semantic: SemanticTree, viewport
             text_bottom + 44,
         );
     const checkbox_row_h: f32 = 48;
+    const checkbox_button_gap: f32 = if (semantic.checkboxes.len == 0) 0 else 22;
+    const checkbox_flow_count: usize = if (dense_checkbox_list and semantic.checkboxes.len != 0) 1 else semantic.checkboxes.len;
+    const button_start_y: f32 = if (dense_checkbox_list)
+        card.y + card.h - 72
+    else
+        @max(360, checkbox_start_y + @as(f32, @floatFromInt(checkbox_flow_count)) * checkbox_row_h + checkbox_button_gap);
+    const checkbox_limit_y = if (semantic.buttons.len == 0) card.y + card.h - 28 else button_start_y - 12;
     for (semantic.checkboxes, 0..) |checkbox, index| {
         const rect = if (dense_checkbox_list and index > 0)
             geometry.Rect{ .x = 180, .y = 188 + @as(f32, @floatFromInt(index - 1)) * 34, .w = 26, .h = 26 }
         else
             geometry.Rect{ .x = 240, .y = checkbox_start_y + @as(f32, @floatFromInt(index)) * checkbox_row_h, .w = 26, .h = 26 };
+        if (rect.y + rect.h > checkbox_limit_y) break;
         try appendCommand(&commands, allocator, .cutout_rounded_rect, "checkbox", checkbox.label, rect, 6, palette.surface, .{ .z = 6, .alpha = palette.surface.a });
+        try appendCommand(&commands, allocator, .inner_shadow, "checkbox", checkbox.label, rect, 6, palette.shadow, .{ .z = 7, .blur_radius = 9 });
         try appendCommandIcon(&commands, allocator, .svg_circle, "checkbox", checkbox.label, "checkbox_active", rect, 13, palette.focus, .{ .z = 8, .outline_width = 2 });
         if (checkbox.checked) {
             try appendCommandIcon(&commands, allocator, .svg_path, "checkbox", checkbox.label, "checkbox_completed", rect, 6, palette.focus, .{ .z = 9 });
@@ -491,9 +320,6 @@ fn projectGeneric(allocator: std.mem.Allocator, semantic: SemanticTree, viewport
         }
     }
 
-    const checkbox_button_gap: f32 = if (semantic.checkboxes.len == 0) 0 else 22;
-    const checkbox_flow_count: usize = if (dense_checkbox_list and semantic.checkboxes.len != 0) 1 else semantic.checkboxes.len;
-    const button_start_y: f32 = @max(360, checkbox_start_y + @as(f32, @floatFromInt(checkbox_flow_count)) * checkbox_row_h + checkbox_button_gap);
     for (semantic.buttons, 0..) |button, index| {
         const row = index / 4;
         const col = index % 4;
@@ -559,36 +385,6 @@ fn visibleLabelSlice(label: []const u8, max_bytes: usize) []const u8 {
     var end = max_bytes;
     while (end > 0 and (trimmed[end] & 0xc0) == 0x80) end -= 1;
     return trimmed[0..end];
-}
-
-fn todoFooterCountSlice(text: []const u8) []const u8 {
-    const items_pos = std.mem.indexOf(u8, text, "itemsleft") orelse
-        std.mem.indexOf(u8, text, "itemleft") orelse return "";
-    var start = items_pos;
-    while (start > 0 and std.ascii.isDigit(text[start - 1])) start -= 1;
-    if (start == items_pos) return "";
-    const suffix_len: usize = if (std.mem.startsWith(u8, text[items_pos..], "itemsleft")) "itemsleft".len else "itemleft".len;
-    return text[start .. items_pos + suffix_len];
-}
-
-fn todoRowLabelFromRenderedText(text: []const u8, row_index: usize) ?[]const u8 {
-    var current_row: usize = 0;
-    var cursor: usize = 0;
-    while (cursor <= text.len) {
-        const line_end = std.mem.indexOfScalarPos(u8, text, cursor, '\n') orelse text.len;
-        defer cursor = line_end + 1;
-        const line = std.mem.trim(u8, text[cursor..line_end], " \t\r\n");
-        if (line.len == 0) continue;
-        if (containsVisible(line, "todos")) continue;
-        if (std.mem.indexOf(u8, line, "itemsleft") != null or std.mem.indexOf(u8, line, "itemleft") != null) continue;
-        if (containsVisible(line, "Double-click")) continue;
-        if (containsVisible(line, "Created by")) continue;
-        if (containsVisible(line, "Part of")) continue;
-        if (containsVisible(line, "All") and containsVisible(line, "Active") and containsVisible(line, "Completed")) continue;
-        if (current_row == row_index) return line;
-        current_row += 1;
-    }
-    return null;
 }
 
 const CommandOptions = struct {
@@ -1422,7 +1218,7 @@ pub fn containsVisible(haystack: []const u8, needle: []const u8) bool {
 
 test "physical projection emits required input commands" {
     const semantic = SemanticTree{
-        .rendered_text = @constCast("todos Professional Glass Brutalist Neumorphic Dark mode"),
+        .rendered_text = @constCast("Panel Professional Glass Brutalist Neumorphic Dark mode"),
         .inputs = @constCast(&[_]SemanticInput{.{ .text = @constCast(""), .placeholder = @constCast("What needs to be done?"), .focused = true, .disabled = false }}),
         .buttons = @constCast(&[_]SemanticButton{.{ .label = @constCast("Professional"), .disabled = false, .outlined = true }}),
         .checkboxes = @constCast(&[_]SemanticCheckbox{}),
@@ -1442,7 +1238,7 @@ test "physical projection emits required input commands" {
     try std.testing.expect(saw_glow);
 }
 
-test "generic TodoMVC projection keeps many rows above footer and caret inside input" {
+test "generic projection keeps dense rows above action buttons and caret inside input" {
     const typed_text = "rgrrhththththththththththththth";
     var checkboxes: [23]SemanticCheckbox = undefined;
     checkboxes[0] = .{ .label = @constCast("Toggle all"), .checked = false };
@@ -1450,12 +1246,12 @@ test "generic TodoMVC projection keeps many rows above footer and caret inside i
         checkbox.* = .{ .label = @constCast("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), .checked = index % 2 == 0 };
     }
     const semantic = SemanticTree{
-        .rendered_text = @constCast("todos22itemsleft[All][Active][Completed]"),
+        .rendered_text = @constCast("Open tasks 22 remaining [All][Active][Done]"),
         .inputs = @constCast(&[_]SemanticInput{.{ .text = @constCast(typed_text), .placeholder = @constCast("What needs to be done?"), .focused = true, .disabled = false }}),
         .buttons = @constCast(&[_]SemanticButton{
             .{ .label = @constCast("All"), .disabled = false, .outlined = true },
             .{ .label = @constCast("Active"), .disabled = false, .outlined = false },
-            .{ .label = @constCast("Completed"), .disabled = false, .outlined = false },
+            .{ .label = @constCast("Done"), .disabled = false, .outlined = false },
         }),
         .checkboxes = &checkboxes,
     };
@@ -1488,7 +1284,7 @@ test "generic TodoMVC projection keeps many rows above footer and caret inside i
 }
 
 test "readable rendered text strips input markers" {
-    const readable = try readableRenderedTextAlloc(std.testing.allocator, "Temperature Converter\n<> Celsius = <> Fahrenheit\n10is55\n>\nItalic0.68What 2itemsleft");
+    const readable = try readableRenderedTextAlloc(std.testing.allocator, "Unit Converter\n<> Source = <> Target\n10is55\n>\nItalic0.68What 2 items");
     defer std.testing.allocator.free(readable);
-    try std.testing.expectEqualStrings("Temperature Converter\nCelsius = Fahrenheit\n10 is 55\nWhat 2 items left", readable);
+    try std.testing.expectEqualStrings("Unit Converter\nSource = Target\n10 is 55\nWhat 2 items", readable);
 }

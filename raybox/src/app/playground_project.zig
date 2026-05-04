@@ -16,7 +16,7 @@ const files = [_]bridge.ProjectFile{
 
 pub fn project() bridge.Project {
     return .{
-        .name = "todo_mvc_physical",
+        .name = "bundled_multi_file_project",
         .entry_file = "RUN.bn",
         .files = @constCast(files[0..]),
     };

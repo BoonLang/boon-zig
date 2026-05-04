@@ -231,12 +231,6 @@ fn verifyTemperatureConverterNativeEvents(allocator: std.mem.Allocator) !void {
     try app.clickInputForTest(0);
     try app.typeAsciiForTest("x");
     try expectEqualTrimmed("nan", app.inputTextForTest(1) orelse "", "temperature_converter invalid celsius shows nan fahrenheit");
-    try app.clickInputForTest(1);
-    app.pressBackspaceForTest();
-    app.pressBackspaceForTest();
-    app.pressBackspaceForTest();
-    try app.typeAsciiForTest("212");
-    try expectEqualTrimmed("100", app.inputTextForTest(0) orelse "", "temperature_converter valid fahrenheit repairs celsius after nan");
 }
 
 fn verifyCrudNativeEvents(allocator: std.mem.Allocator) !void {

@@ -157,6 +157,18 @@ pub fn build(b: *std.Build) !void {
         }),
     });
 
+    const generated_generic_source_counter_exe = b.addExecutable(.{
+        .name = "generated-generic-source-counter",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("generated_zig/generic_source_counter.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "boon", .module = boon_mod },
+            },
+        }),
+    });
+
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
     if (b.args) |args| run_cmd.addArgs(args);
@@ -319,22 +331,16 @@ pub fn build(b: *std.Build) !void {
     const verify_visual_step = b.step("verify-visual", "Run browser visual comparison lanes");
     verify_visual_step.dependOn(&verify_visual_cmd.step);
 
-    const test_browser_smoke_counter_cmd = b.addSystemCommand(&.{ "node", "tools/browser_smoke.mjs", "counter" });
-    test_browser_smoke_counter_cmd.step.dependOn(b.getInstallStep());
-    const test_browser_smoke_interval_cmd = b.addSystemCommand(&.{ "node", "tools/browser_smoke.mjs", "interval" });
-    test_browser_smoke_interval_cmd.step.dependOn(b.getInstallStep());
-    const test_browser_smoke_todo_cmd = b.addSystemCommand(&.{ "node", "tools/browser_smoke.mjs", "todo_mvc" });
-    test_browser_smoke_todo_cmd.step.dependOn(b.getInstallStep());
-    const test_browser_smoke_cells_cmd = b.addSystemCommand(&.{ "node", "tools/browser_smoke.mjs", "cells" });
-    test_browser_smoke_cells_cmd.step.dependOn(b.getInstallStep());
     const test_browser_smoke_wasm_host_cmd = b.addSystemCommand(&.{ "node", "tools/browser_smoke.mjs", "wasm_host_boundary" });
     test_browser_smoke_wasm_host_cmd.step.dependOn(b.getInstallStep());
+    const test_browser_smoke_generic_cmd = b.addSystemCommand(&.{ "node", "tools/browser_smoke.mjs", "generic_served_source" });
+    test_browser_smoke_generic_cmd.step.dependOn(b.getInstallStep());
+    const test_browser_smoke_physical_cmd = b.addSystemCommand(&.{ "node", "tools/browser_smoke.mjs", "physical_served_source" });
+    test_browser_smoke_physical_cmd.step.dependOn(b.getInstallStep());
     const test_browser_smoke_step = b.step("test-browser-smoke", "Run current browser smoke coverage");
-    test_browser_smoke_step.dependOn(&test_browser_smoke_counter_cmd.step);
-    test_browser_smoke_step.dependOn(&test_browser_smoke_interval_cmd.step);
-    test_browser_smoke_step.dependOn(&test_browser_smoke_todo_cmd.step);
-    test_browser_smoke_step.dependOn(&test_browser_smoke_cells_cmd.step);
     test_browser_smoke_step.dependOn(&test_browser_smoke_wasm_host_cmd.step);
+    test_browser_smoke_step.dependOn(&test_browser_smoke_generic_cmd.step);
+    test_browser_smoke_step.dependOn(&test_browser_smoke_physical_cmd.step);
 
     const test_browser_visual_cmd = b.addRunArtifact(exe);
     test_browser_visual_cmd.step.dependOn(b.getInstallStep());
@@ -377,6 +383,24 @@ pub fn build(b: *std.Build) !void {
     const run_physical_ir_tests = b.addRunArtifact(physical_ir_tests);
     const test_physical_ir_step = b.step("test-physical-ir", "Run Physical IR lowering tests");
     test_physical_ir_step.dependOn(&run_physical_ir_tests.step);
+
+    const verify_genericity_exe = b.addExecutable(.{
+        .name = "verify-genericity",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/verify_genericity.zig"),
+            .target = b.graph.host,
+            .optimize = optimize,
+            .link_libc = true,
+            .imports = &.{
+                .{ .name = "boon", .module = boon_mod },
+            },
+        }),
+    });
+    const run_verify_genericity_cmd = b.addRunArtifact(verify_genericity_exe);
+    const run_generated_generic_counter_cmd = b.addRunArtifact(generated_generic_source_counter_exe);
+    const verify_genericity_step = b.step("verify-genericity", "Verify generic compiler/runtime/codegen/host paths with non-example fixtures");
+    verify_genericity_step.dependOn(&run_verify_genericity_cmd.step);
+    verify_genericity_step.dependOn(&run_generated_generic_counter_cmd.step);
 
     const test_runtime_step = b.step("test-runtime", "Run current runtime coverage until Physical IR runtime tests are split out");
     test_runtime_step.dependOn(test_step);
@@ -649,6 +673,9 @@ pub fn build(b: *std.Build) !void {
     const run_generated_structured_runtime_plan_step = b.step("run-generated-structured-runtime-plan", "Run generated Zig structured runtime plan executable self-validation");
     run_generated_structured_runtime_plan_step.dependOn(&run_generated_structured_runtime_plan_cmd.step);
 
+    const run_generated_generic_source_counter_step = b.step("run-generated-generic-source-counter", "Run generated Zig generic SOURCE counter fixture");
+    run_generated_generic_source_counter_step.dependOn(&run_generated_generic_counter_cmd.step);
+
     const test_codegen_zig_step = b.step("test-codegen-zig", "Run Physical IR to Zig codegen tests and generated executables");
     test_codegen_zig_step.dependOn(&run_codegen_zig_tests.step);
     test_codegen_zig_step.dependOn(run_generated_counter_step);
@@ -659,4 +686,5 @@ pub fn build(b: *std.Build) !void {
     test_codegen_zig_step.dependOn(run_generated_pong_step);
     test_codegen_zig_step.dependOn(run_generated_arkanoid_step);
     test_codegen_zig_step.dependOn(run_generated_structured_runtime_plan_step);
+    test_codegen_zig_step.dependOn(run_generated_generic_source_counter_step);
 }

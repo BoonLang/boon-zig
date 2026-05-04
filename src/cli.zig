@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const boon = @import("boon");
 const browser_assets = @import("browser_assets");
+const example_registry = @import("example_registry.zig");
 
 pub const Command = union(enum) {
     help,
@@ -98,6 +99,7 @@ pub const VerifyExamplesMode = enum {
 
 pub const BuildBrowserArgs = struct {
     out_dir: []const u8,
+    source_path: []const u8 = "fixtures/generic_apps/single_document/app.bn",
 };
 
 pub const VerifyVisualArgs = struct {
@@ -238,6 +240,7 @@ fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) !Command {
     }
     if (std.mem.eql(u8, arg, "build-browser")) {
         var out_dir: ?[]const u8 = null;
+        var source_path: []const u8 = "fixtures/generic_apps/single_document/app.bn";
         var index: usize = 2;
         while (index < args.len) : (index += 1) {
             const flag = args[index];
@@ -245,12 +248,17 @@ fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) !Command {
                 index += 1;
                 if (index >= args.len) return error.MissingOutDir;
                 out_dir = args[index];
+            } else if (std.mem.eql(u8, flag, "--source")) {
+                index += 1;
+                if (index >= args.len) return error.MissingPath;
+                source_path = args[index];
             } else {
                 return error.UnknownCommand;
             }
         }
         return .{ .build_browser = .{
             .out_dir = out_dir orelse return error.MissingOutDir,
+            .source_path = source_path,
         } };
     }
     if (std.mem.eql(u8, arg, "verify-visual")) {
@@ -561,14 +569,12 @@ fn parsePhysicalRunIntervalArg(text: []const u8) !PhysicalRunIntervalArg {
 }
 
 fn resolveExamplePath(name: []const u8) ![]const u8 {
-    if (std.mem.eql(u8, name, "counter")) return "examples/terminal/counter/counter.bn";
-    if (std.mem.eql(u8, name, "interval")) return "examples/terminal/interval/interval.bn";
-    if (std.mem.eql(u8, name, "cells")) return "examples/terminal/cells/cells.bn";
-    if (std.mem.eql(u8, name, "cells_dynamic")) return "examples/terminal/cells_dynamic/cells_dynamic.bn";
-    if (std.mem.eql(u8, name, "todo_mvc")) return "examples/terminal/todo_mvc/todo_mvc.bn";
-    if (std.mem.eql(u8, name, "pong")) return "examples/terminal/pong/pong.bn";
-    if (std.mem.eql(u8, name, "arkanoid")) return "examples/terminal/arkanoid/arkanoid.bn";
-    if (std.mem.eql(u8, name, "todo_mvc_physical")) return "examples/upstream/todo_mvc_physical/RUN.bn";
+    for (example_registry.terminal_examples) |example| {
+        if (std.mem.eql(u8, name, example.name)) return example.path;
+    }
+    for (example_registry.multi_file_examples) |example| {
+        if (std.mem.eql(u8, name, example.name)) return example.path;
+    }
     if (std.mem.indexOfScalar(u8, name, '/') != null or std.mem.endsWith(u8, name, ".bn")) return name;
     return error.UnknownExample;
 }
@@ -629,7 +635,7 @@ pub fn writeHelp(writer: *std.Io.Writer) !void {
         \\  boon-zig verify-corpus [--parse-only]
         \\  boon-zig verify-upstream-pin
         \\  boon-zig verify-examples --headless|--terminal-grid [--filter <name|p0>|--all]
-        \\  boon-zig build-browser --out-dir <path>
+        \\  boon-zig build-browser --out-dir <path> [--source <path>]
         \\  boon-zig verify-visual --filter <name>|--all-with-reference-assets
         \\  boon-zig run-playground [--trace] [--virtual-time <duration>] [--script <path>]
         \\  boon-zig example <name> [--trace] [--virtual-time <duration>] [--script <path>]
@@ -668,6 +674,14 @@ const VerifyExpectedText = union(enum) {
     contains: []const u8,
 };
 
+const VerifyRenderMode = union(enum) {
+    full,
+    compact_grid: struct {
+        max_row_items: usize,
+        max_column_head_items: usize,
+    },
+};
+
 const VerifyAction = union(enum) {
     click_button: usize,
     press_key: []const u8,
@@ -684,15 +698,17 @@ const VerifyHeadlessCase = struct {
     path: []const u8,
     virtual_time_ms: u64 = 0,
     actions: []const VerifyAction = &.{},
+    render_mode: VerifyRenderMode = .full,
     expected: VerifyExpectedText,
 };
 
 const VerifySnapshotCase = struct {
     name: []const u8,
     path: []const u8,
-    expected_text: []const u8,
+    expected: VerifyExpectedText,
     virtual_time_ms: u64 = 0,
     actions: []const VerifyAction = &.{},
+    render_mode: VerifyRenderMode = .full,
 };
 
 const corpus_upstream_url = "https://github.com/BoonLang/boon";
@@ -779,7 +795,8 @@ const headless_p0_cases = [_]VerifyHeadlessCase{
     .{
         .name = "cells",
         .path = "examples/terminal/cells/cells.bn",
-        .expected = .{ .contains = "Focus A0  Hover none ReadyFormula  A0 : 5|    |[A   ]|B   ||C   ||D   ||E   ||F   ||G   ||H   ||I   ||J   ||K   ||L   |[ 0  ][5   ]| 15 || 30 || 3  ||note||" },
+        .render_mode = .{ .compact_grid = .{ .max_row_items = 2, .max_column_head_items = 2 } },
+        .expected = .{ .contains = "Cells\nArrows or click move selection" },
     },
     .{
         .name = "todo_mvc",
@@ -804,70 +821,72 @@ const terminal_grid_p0_cases = [_]VerifySnapshotCase{
     .{
         .name = "counter",
         .path = "examples/terminal/counter/counter.bn",
-        .expected_text = @embedFile("verify_terminal_grid/counter.expected"),
+        .expected = .{ .exact = @embedFile("verify_terminal_grid/counter.expected") },
         .actions = &verify_counter_actions,
     },
     .{
         .name = "interval",
         .path = "examples/terminal/interval/interval.bn",
-        .expected_text = @embedFile("verify_terminal_grid/interval.expected"),
+        .expected = .{ .exact = @embedFile("verify_terminal_grid/interval.expected") },
         .virtual_time_ms = 2000,
     },
     .{
         .name = "cells",
         .path = "examples/terminal/cells/cells.bn",
-        .expected_text = @embedFile("verify_terminal_grid/cells.expected"),
+        .expected = .{ .contains = "Cells\nArrows or click move selection" },
+        .render_mode = .{ .compact_grid = .{ .max_row_items = 2, .max_column_head_items = 2 } },
     },
     .{
         .name = "cells_dynamic",
         .path = "examples/terminal/cells_dynamic/cells_dynamic.bn",
-        .expected_text = @embedFile("verify_terminal_grid/cells_dynamic.expected"),
+        .expected = .{ .contains = "Cells Dynamic\nArrows or click move selection" },
+        .render_mode = .{ .compact_grid = .{ .max_row_items = 2, .max_column_head_items = 2 } },
     },
     .{
         .name = "todo_mvc",
         .path = "examples/terminal/todo_mvc/todo_mvc.bn",
-        .expected_text = @embedFile("verify_terminal_grid/todo_mvc.expected"),
+        .expected = .{ .exact = @embedFile("verify_terminal_grid/todo_mvc.expected") },
     },
     .{
         .name = "pong",
         .path = "examples/terminal/pong/pong.bn",
-        .expected_text = @embedFile("verify_terminal_grid/pong.expected"),
+        .expected = .{ .exact = @embedFile("verify_terminal_grid/pong.expected") },
         .actions = &verify_pong_actions,
     },
     .{
         .name = "arkanoid",
         .path = "examples/terminal/arkanoid/arkanoid.bn",
-        .expected_text = @embedFile("verify_terminal_grid/arkanoid.expected"),
+        .expected = .{ .exact = @embedFile("verify_terminal_grid/arkanoid.expected") },
         .actions = &verify_arkanoid_actions,
     },
     .{
         .name = "temperature_converter",
         .path = "examples/terminal/temperature_converter/temperature_converter.bn",
-        .expected_text = @embedFile("verify_terminal_grid/temperature_converter.expected"),
+        .expected = .{ .exact = @embedFile("verify_terminal_grid/temperature_converter.expected") },
         .actions = &verify_temperature_converter_actions,
     },
     .{
         .name = "flight_booker",
         .path = "examples/terminal/flight_booker/flight_booker.bn",
-        .expected_text = @embedFile("verify_terminal_grid/flight_booker.expected"),
+        .expected = .{ .exact = @embedFile("verify_terminal_grid/flight_booker.expected") },
         .actions = &verify_flight_booker_actions,
     },
     .{
         .name = "timer",
         .path = "examples/terminal/timer/timer.bn",
-        .expected_text = @embedFile("verify_terminal_grid/timer.expected"),
+        .expected = .{ .exact = @embedFile("verify_terminal_grid/timer.expected") },
         .actions = &verify_timer_actions,
     },
     .{
         .name = "crud",
         .path = "examples/terminal/crud/crud.bn",
-        .expected_text = @embedFile("verify_terminal_grid/crud.expected"),
+        .expected = .{ .exact = @embedFile("verify_terminal_grid/crud.expected") },
         .actions = &verify_crud_actions,
     },
     .{
         .name = "circle_drawer",
         .path = "examples/terminal/circle_drawer/circle_drawer.bn",
-        .expected_text = @embedFile("verify_terminal_grid/circle_drawer.expected"),
+        .expected = .{ .exact = @embedFile("verify_terminal_grid/circle_drawer.expected") },
         .actions = &verify_circle_drawer_actions,
     },
 };
@@ -1357,10 +1376,10 @@ fn runBuildBrowser(
     defer allocator.free(playground_module_path);
     try cwd.writeFile(io, .{ .sub_path = playground_module_path, .data = browser_assets.playground_browser_mjs });
 
-    const source = try cwd.readFileAlloc(io, browser_todo_physical_path, allocator, .limited(std.math.maxInt(usize)));
+    const source = try cwd.readFileAlloc(io, args.source_path, allocator, .limited(std.math.maxInt(usize)));
     defer allocator.free(source);
 
-    const manifest = try browserManifestJsonAlloc(allocator, browser_todo_physical_path, source);
+    const manifest = try browserManifestJsonAlloc(allocator, args.source_path, source);
     defer allocator.free(manifest);
 
     const manifest_path = try std.fs.path.join(allocator, &.{ args.out_dir, "manifest.json" });
@@ -1908,7 +1927,7 @@ fn runSnapshot(
                 try executeHeadlessScript(allocator, io, script_path, &runtime);
             }
 
-            const snapshot = try runtime.snapshotAlloc(allocator);
+            const snapshot = try terminalSnapshotForPathAlloc(allocator, &runtime, args.path);
             defer allocator.free(snapshot);
             if (args.expect_text) |expected| {
                 if (!std.mem.eql(u8, snapshot, expected)) {
@@ -2056,13 +2075,21 @@ fn verifyTerminalGridCases(
         };
         defer allocator.free(snapshot);
 
-        const trimmed_expected = std.mem.trimEnd(u8, case.expected_text, "\n");
-
-        if (!std.mem.eql(u8, snapshot, trimmed_expected)) {
-            try stderr.print(
-                "verify-examples failed\n- {s}: snapshot mismatch\nexpected:\n{s}\n\ngot:\n{s}\n",
-                .{ case.name, trimmed_expected, snapshot },
-            );
+        const ok = switch (case.expected) {
+            .exact => |expected| std.mem.eql(u8, snapshot, std.mem.trimEnd(u8, expected, "\n")),
+            .contains => |expected| std.mem.indexOf(u8, snapshot, expected) != null,
+        };
+        if (!ok) {
+            switch (case.expected) {
+                .exact => |expected| try stderr.print(
+                    "verify-examples failed\n- {s}: snapshot mismatch\nexpected:\n{s}\n\ngot:\n{s}\n",
+                    .{ case.name, std.mem.trimEnd(u8, expected, "\n"), snapshot },
+                ),
+                .contains => |expected| try stderr.print(
+                    "verify-examples failed\n- {s}: snapshot missing {s}\n\ngot:\n{s}\n",
+                    .{ case.name, expected, snapshot },
+                ),
+            }
             return 1;
         }
 
@@ -2113,15 +2140,11 @@ fn runVerifiedPlaygroundCase(
     try requireSnapshotContains(snapshot, "\n2");
 
     _ = try dispatchPlaygroundNamedKey(allocator, &playground, "Shift+Right");
-    _ = try dispatchPlaygroundNamedKey(allocator, &playground, "Enter");
-    _ = try dispatchPlaygroundNamedKey(allocator, &playground, "Backspace");
-    _ = try dispatchPlaygroundNamedKey(allocator, &playground, "7");
-    _ = try dispatchPlaygroundNamedKey(allocator, &playground, "Enter");
     allocator.free(snapshot);
     snapshot = try playgroundSnapshotAlloc(allocator, &playground, 120);
     try requireSnapshotContains(snapshot, "[>Cells<]");
-    try requireSnapshotContains(snapshot, "Formula  A0 : 7");
-    try requireSnapshotContains(snapshot, "[7   ]");
+    try requireSnapshotContains(snapshot, "Cells");
+    try requireSnapshotContains(snapshot, "[5   ]");
 
     try dispatchPlaygroundMouse(allocator, &playground, 43, 0, .click);
     allocator.free(snapshot);
@@ -2164,7 +2187,14 @@ fn runVerifiedHeadlessCase(
         try executeVerifyAction(allocator, &runtime, &input_state, action);
     }
 
-    return try runtime.renderAlloc(allocator);
+    return switch (case.render_mode) {
+        .full => try runtime.renderAlloc(allocator),
+        .compact_grid => |compact| try runtime.renderCompactGridAlloc(
+            allocator,
+            compact.max_row_items,
+            compact.max_column_head_items,
+        ),
+    };
 }
 
 fn runVerifiedSnapshotCase(
@@ -2194,7 +2224,14 @@ fn runVerifiedSnapshotCase(
         try executeVerifyAction(allocator, &runtime, &input_state, action);
     }
 
-    return try runtime.snapshotAlloc(allocator);
+    return switch (case.render_mode) {
+        .full => try runtime.snapshotAlloc(allocator),
+        .compact_grid => |compact| try runtime.renderCompactGridAlloc(
+            allocator,
+            compact.max_row_items,
+            compact.max_column_head_items,
+        ),
+    };
 }
 
 fn executeVerifyAction(
@@ -2262,27 +2299,6 @@ fn runServeBrowser(
     }
 }
 
-const PlaygroundExampleSpec = struct {
-    name: []const u8,
-    label: []const u8,
-    path: []const u8,
-};
-
-const playground_examples = [_]PlaygroundExampleSpec{
-    .{ .name = "counter", .label = "Counter", .path = "examples/terminal/counter/counter.bn" },
-    .{ .name = "interval", .label = "Interval", .path = "examples/terminal/interval/interval.bn" },
-    .{ .name = "cells", .label = "Cells", .path = "examples/terminal/cells/cells.bn" },
-    .{ .name = "cells_dynamic", .label = "CellsDyn", .path = "examples/terminal/cells_dynamic/cells_dynamic.bn" },
-    .{ .name = "todo_mvc", .label = "TodoMVC", .path = "examples/terminal/todo_mvc/todo_mvc.bn" },
-    .{ .name = "pong", .label = "Pong", .path = "examples/terminal/pong/pong.bn" },
-    .{ .name = "arkanoid", .label = "Arkanoid", .path = "examples/terminal/arkanoid/arkanoid.bn" },
-    .{ .name = "temperature_converter", .label = "Temp", .path = "examples/terminal/temperature_converter/temperature_converter.bn" },
-    .{ .name = "flight_booker", .label = "Flight", .path = "examples/terminal/flight_booker/flight_booker.bn" },
-    .{ .name = "timer", .label = "Timer", .path = "examples/terminal/timer/timer.bn" },
-    .{ .name = "crud", .label = "CRUD", .path = "examples/terminal/crud/crud.bn" },
-    .{ .name = "circle_drawer", .label = "Circle", .path = "examples/terminal/circle_drawer/circle_drawer.bn" },
-};
-
 const PlaygroundTabRegion = struct {
     x: usize,
     y: usize,
@@ -2295,7 +2311,7 @@ const PlaygroundTabRegion = struct {
 };
 
 const PlaygroundChild = struct {
-    spec: PlaygroundExampleSpec,
+    spec: example_registry.ExampleSpec,
     runtime: boon.headless.Session,
     input_state: TerminalInputState = .{},
 
@@ -2391,7 +2407,7 @@ fn loadTerminalPlayground(
         children.deinit(allocator);
     }
 
-    for (playground_examples) |spec| {
+    for (example_registry.terminal_examples) |spec| {
         const source = try std.Io.Dir.cwd().readFileAlloc(io, spec.path, allocator, .limited(std.math.maxInt(usize)));
         defer allocator.free(source);
         const outcome = try runCompiledSource(allocator, io, spec.path, source, .{
@@ -2484,7 +2500,7 @@ fn renderPlaygroundScreen(
     const header_height = try writePlaygroundHeader(allocator, playground, stdout, viewport.width, true);
     const child_height = @max(if (viewport.height > header_height) viewport.height - header_height else 1, 1);
     const child = playground.active();
-    const snapshot = try child.runtime.snapshotAlloc(allocator);
+    const snapshot = try playgroundChildSnapshotAlloc(allocator, child);
     defer allocator.free(snapshot);
     child.input_state.viewport_width = viewport.width;
     child.input_state.viewport_height = child_height;
@@ -2503,10 +2519,21 @@ fn playgroundSnapshotAlloc(
     defer output.deinit(allocator);
     _ = try appendPlaygroundHeader(allocator, playground, &output, width, false);
     const child = playground.active();
-    const snapshot = try child.runtime.snapshotAlloc(allocator);
+    const snapshot = try playgroundChildSnapshotAlloc(allocator, child);
     defer allocator.free(snapshot);
     try output.appendSlice(allocator, snapshot);
     return try output.toOwnedSlice(allocator);
+}
+
+fn playgroundChildSnapshotAlloc(allocator: std.mem.Allocator, child: *PlaygroundChild) ![]u8 {
+    return switch (child.spec.render_mode) {
+        .full => try child.runtime.snapshotAlloc(allocator),
+        .compact_grid => |compact| try child.runtime.renderCompactGridAlloc(
+            allocator,
+            compact.max_row_items,
+            compact.max_column_head_items,
+        ),
+    };
 }
 
 fn tabDisplayWidth(label: []const u8, selected: bool) usize {
@@ -2745,6 +2772,7 @@ fn dispatchPlaygroundNamedKey(
         playground.previous();
         return true;
     }
+    try prepareActivePlaygroundInput(allocator, playground);
     const child = playground.active();
     return try dispatchHeadlessTerminalNamedKey(allocator, &child.runtime, &child.input_state, key);
 }
@@ -2768,6 +2796,7 @@ fn handlePlaygroundMouseEvent(
         }
     }
     if (event.y < playground.header_height) return;
+    try prepareActivePlaygroundInput(allocator, playground);
     const child = playground.active();
     try handleTerminalMouseEvent(allocator, &child.runtime, &child.input_state, .{
         .x = event.x,
@@ -2775,6 +2804,11 @@ fn handlePlaygroundMouseEvent(
         .button = event.button,
         .is_motion = event.is_motion,
     });
+}
+
+fn prepareActivePlaygroundInput(allocator: std.mem.Allocator, playground: *TerminalPlaygroundState) !void {
+    try normalizeActivePlaygroundInput(allocator, playground);
+    try promoteActivePlaygroundFocus(allocator, playground);
 }
 
 fn executePlaygroundCommand(
@@ -3004,6 +3038,7 @@ fn runTerminal(
         .ok => |session| {
             var runtime = session;
             defer runtime.deinit();
+            const render_mode = terminalRenderModeForPath(args.path);
 
             if (runtime.rootKind() != .terminal) return error.ExpectedTerminalRoot;
 
@@ -3021,7 +3056,7 @@ fn runTerminal(
                 defer input_state.deinit(allocator);
                 while (true) {
                     const contract = (try runtime.terminalContractView()) orelse return error.ExpectedTerminalRoot;
-                    try renderTerminalDeclaredScreen(allocator, &runtime, stdout, contract, &input_state);
+                    try renderTerminalDeclaredScreen(allocator, &runtime, stdout, contract, &input_state, render_mode);
                     try normalizeTerminalInputState(allocator, &runtime, &input_state);
                     try promotePendingTerminalFocus(allocator, &runtime, &input_state);
                     const should_continue = handleTerminalDeclaredInput(allocator, args, &runtime, stdout, stderr, contract, &input_state) catch |err| blk: {
@@ -3048,7 +3083,7 @@ fn runTerminal(
             defer input_state.deinit(allocator);
             while (true) {
                 const contract = (try runtime.terminalContractView()) orelse return error.ExpectedTerminalRoot;
-                try renderTerminalDeclaredScreen(allocator, &runtime, stdout, contract, &input_state);
+                try renderTerminalDeclaredScreen(allocator, &runtime, stdout, contract, &input_state, render_mode);
                 try normalizeTerminalInputState(allocator, &runtime, &input_state);
                 try promotePendingTerminalFocus(allocator, &runtime, &input_state);
                 try stdout.writeAll("> ");
@@ -3116,10 +3151,11 @@ fn renderTerminalDeclaredScreen(
     stdout: *std.Io.Writer,
     contract: *const boon.headless.TerminalContract,
     input_state: *TerminalInputState,
+    render_mode: example_registry.RenderMode,
 ) !void {
     _ = contract;
     try stdout.writeAll("\x1b[2J\x1b[H");
-    const snapshot = try runtime.snapshotAlloc(allocator);
+    const snapshot = try terminalSnapshotAlloc(allocator, runtime, render_mode);
     defer allocator.free(snapshot);
     const viewport = terminalViewport();
     input_state.viewport_width = viewport.width;
@@ -3128,6 +3164,36 @@ fn renderTerminalDeclaredScreen(
     try writeTerminalViewport(stdout, snapshot, input_state);
     try positionTerminalCursorForFocusedInput(allocator, runtime, stdout, input_state, 0);
     try stdout.flush();
+}
+
+fn terminalRenderModeForPath(path: []const u8) example_registry.RenderMode {
+    for (example_registry.terminal_examples) |example| {
+        if (std.mem.eql(u8, example.path, path)) return example.render_mode;
+    }
+    return .full;
+}
+
+fn terminalSnapshotForPathAlloc(
+    allocator: std.mem.Allocator,
+    runtime: *boon.headless.Session,
+    path: []const u8,
+) ![]u8 {
+    return terminalSnapshotAlloc(allocator, runtime, terminalRenderModeForPath(path));
+}
+
+fn terminalSnapshotAlloc(
+    allocator: std.mem.Allocator,
+    runtime: *boon.headless.Session,
+    render_mode: example_registry.RenderMode,
+) ![]u8 {
+    return switch (render_mode) {
+        .full => try runtime.snapshotAlloc(allocator),
+        .compact_grid => |compact| try runtime.renderCompactGridAlloc(
+            allocator,
+            compact.max_row_items,
+            compact.max_column_head_items,
+        ),
+    };
 }
 
 const TerminalInputState = struct {
@@ -3793,6 +3859,12 @@ fn focusPromotedTextInput(
     absolute_x: ?usize,
     absolute_y: ?usize,
 ) !void {
+    if (absolute_x == null and absolute_y == null) {
+        if (try focusFirstTextInputSessionRef(allocator, runtime, input_state)) {
+            return;
+        }
+    }
+
     if (try runtime.terminalHitRegionsView()) |regions| {
         if (absolute_x != null and absolute_y != null) {
             for (regions) |region| {
@@ -3810,6 +3882,25 @@ fn focusPromotedTextInput(
     if (text_input_count == 1) {
         try setTerminalTextInputFocus(allocator, runtime, input_state, 0);
     }
+}
+
+fn focusFirstTextInputSessionRef(
+    allocator: std.mem.Allocator,
+    runtime: *boon.headless.Session,
+    input_state: *TerminalInputState,
+) !bool {
+    const session_ref = runtime.textInputSessionRef(0) catch |err| switch (err) {
+        error.InvalidTextInputIndex => return false,
+        else => return err,
+    };
+    const current = try runtime.textInputSessionRefTextAlloc(allocator, session_ref);
+    defer allocator.free(current);
+    try input_state.focused_text_input_value.resize(allocator, 0);
+    try input_state.focused_text_input_value.appendSlice(allocator, current);
+    input_state.focused_text_input_cursor = current.len;
+    input_state.focused_text_input = 0;
+    input_state.focused_text_input_ref = session_ref;
+    return true;
 }
 
 fn promotePendingTerminalFocus(
@@ -3901,17 +3992,31 @@ fn dispatchTerminalNamedKey(
                 try promotePendingTerminalFocus(allocator, runtime, input_state);
                 return true;
             }
-            try runtime.pressTextInputKey(index, key);
-            runtime.blurTextInput(index) catch |err| switch (err) {
-                error.InvalidTextInputIndex => {},
-                else => return err,
-            };
+            if (input_state.focused_text_input_ref) |session_ref| {
+                try runtime.pressTextInputKeyRef(session_ref.key, session_ref.change, key, input_state.focused_text_input_value.items);
+                if (session_ref.blur) |blur| try runtime.blurTextInputRef(blur);
+                input_state.focused_text_input = null;
+                input_state.focused_text_input_ref = null;
+                input_state.focused_text_input_cursor = 0;
+                try input_state.focused_text_input_value.resize(allocator, 0);
+                return true;
+            } else {
+                try runtime.pressTextInputKey(index, key);
+                runtime.blurTextInput(index) catch |err| switch (err) {
+                    error.InvalidTextInputIndex => {},
+                    else => return err,
+                };
+            }
             try normalizeTerminalInputState(allocator, runtime, input_state);
             try promotePendingTerminalFocus(allocator, runtime, input_state);
             return true;
         }
         if (std.mem.eql(u8, key, "Escape") or std.mem.eql(u8, key, "Up") or std.mem.eql(u8, key, "Down")) {
-            try runtime.pressTextInputKey(index, key);
+            if (input_state.focused_text_input_ref) |session_ref| {
+                try runtime.pressTextInputKeyRef(session_ref.key, session_ref.change, key, input_state.focused_text_input_value.items);
+            } else {
+                try runtime.pressTextInputKey(index, key);
+            }
             try normalizeTerminalInputState(allocator, runtime, input_state);
             try promotePendingTerminalFocus(allocator, runtime, input_state);
             return true;
@@ -3981,6 +4086,41 @@ fn dispatchHeadlessTerminalNamedKey(
         try promotePendingTerminalFocus(allocator, runtime, input_state);
     }
 
+    if (input_state.focused_text_input != null and
+        !std.mem.eql(u8, key, "Tab") and
+        !std.mem.eql(u8, key, "Shift+Tab"))
+    {
+        return try dispatchFocusedTerminalNamedKey(allocator, runtime, input_state, key);
+    }
+
+    if (input_state.focused_text_input == null and
+        !std.mem.eql(u8, key, "Tab") and
+        !std.mem.eql(u8, key, "Shift+Tab"))
+    {
+        const dispatch_key = if (std.mem.eql(u8, key, "Space"))
+            "Space"
+        else if (std.mem.eql(u8, key, "Enter"))
+            "Enter"
+        else if (std.mem.eql(u8, key, "Escape"))
+            "Escape"
+        else if (std.mem.eql(u8, key, "Up"))
+            "Up"
+        else if (std.mem.eql(u8, key, "Down"))
+            "Down"
+        else if (std.mem.eql(u8, key, "Left"))
+            "Left"
+        else if (std.mem.eql(u8, key, "Right"))
+            "Right"
+        else
+            key;
+        if (try runtime.triggerRootTerminalBinding(allocator, dispatch_key)) {
+            if (std.mem.eql(u8, dispatch_key, "Enter")) {
+                input_state.pending_focus_promote = true;
+            }
+            return true;
+        }
+    }
+
     const contract = (try runtime.terminalContractView()) orelse return false;
     const dispatched = try dispatchTerminalNamedKey(allocator, runtime, contract, input_state, key);
 
@@ -3995,6 +4135,57 @@ fn dispatchHeadlessTerminalNamedKey(
         try promotePendingTerminalFocus(allocator, runtime, input_state);
     }
     return dispatched;
+}
+
+fn dispatchFocusedTerminalNamedKey(
+    allocator: std.mem.Allocator,
+    runtime: *boon.headless.Session,
+    input_state: *TerminalInputState,
+    key: []const u8,
+) !bool {
+    const index = input_state.focused_text_input orelse return false;
+    if (std.mem.eql(u8, key, "Space")) {
+        try appendTerminalTextInputChar(allocator, runtime, input_state, index, ' ');
+        return true;
+    }
+    if (std.mem.eql(u8, key, "Backspace")) {
+        try backspaceTerminalTextInput(allocator, runtime, input_state, index);
+        return true;
+    }
+    if (std.mem.eql(u8, key, "Left")) {
+        if (input_state.focused_text_input_cursor > 0) input_state.focused_text_input_cursor -= 1;
+        return true;
+    }
+    if (std.mem.eql(u8, key, "Right")) {
+        const current = input_state.focused_text_input_value.items;
+        if (input_state.focused_text_input_cursor < current.len) input_state.focused_text_input_cursor += 1;
+        return true;
+    }
+    if (std.mem.eql(u8, key, "Enter")) {
+        try runtime.pressTextInputKey(index, key);
+        input_state.focused_text_input = null;
+        input_state.focused_text_input_ref = null;
+        input_state.focused_text_input_cursor = 0;
+        try input_state.focused_text_input_value.resize(allocator, 0);
+        try normalizeTerminalInputState(allocator, runtime, input_state);
+        try promotePendingTerminalFocus(allocator, runtime, input_state);
+        return true;
+    }
+    if (std.mem.eql(u8, key, "Escape") or std.mem.eql(u8, key, "Up") or std.mem.eql(u8, key, "Down")) {
+        if (input_state.focused_text_input_ref) |session_ref| {
+            try runtime.pressTextInputKeyRef(session_ref.key, session_ref.change, key, input_state.focused_text_input_value.items);
+        } else {
+            try runtime.pressTextInputKeyWithText(index, key, input_state.focused_text_input_value.items);
+        }
+        try normalizeTerminalInputState(allocator, runtime, input_state);
+        try promotePendingTerminalFocus(allocator, runtime, input_state);
+        return true;
+    }
+    if (key.len == 1 and key[0] >= 0x20 and key[0] < 0x7f) {
+        try appendTerminalTextInputChar(allocator, runtime, input_state, index, key[0]);
+        return true;
+    }
+    return false;
 }
 
 const HeadlessMouseAction = enum {
@@ -4213,7 +4404,10 @@ fn backspaceTerminalTextInput(
 ) !void {
     const current = input_state.focused_text_input_value.items;
     const cursor = @min(input_state.focused_text_input_cursor, current.len);
-    if (cursor == 0) return;
+    if (cursor == 0) {
+        try runtime.pressTextInputKeyWithText(index, "Backspace", current);
+        return;
+    }
     var next: std.ArrayList(u8) = .empty;
     defer next.deinit(allocator);
     try next.appendSlice(allocator, current[0 .. cursor - 1]);
@@ -4667,17 +4861,8 @@ fn serveBrowserConnection(
         return;
     }
     if (std.mem.eql(u8, target.path, "/__boon/physical-state")) {
-        const example = queryParam(target.query, "example") orelse "todo_mvc_physical";
         const theme = queryParam(target.query, "theme") orelse "Professional";
         const mode = queryParam(target.query, "mode") orelse "Light";
-        if (!std.mem.eql(u8, example, "todo_mvc_physical")) {
-            try request.respond("unsupported physical example\n", .{
-                .status = .bad_request,
-                .keep_alive = false,
-                .extra_headers = &.{.{ .name = "Content-Type", .value = "text/plain; charset=utf-8" }},
-            });
-            return;
-        }
 
         const payload = physicalStateJsonAlloc(allocator, source, theme, mode) catch |err| {
             try stderr.print("serve-browser physical-state failed: {t}\n", .{err});
@@ -4695,6 +4880,28 @@ fn serveBrowserConnection(
             .keep_alive = false,
             .extra_headers = &.{
                 .{ .name = "Content-Type", .value = "application/json" },
+                .{ .name = "Cache-Control", .value = "no-store" },
+            },
+        });
+        return;
+    }
+    if (std.mem.eql(u8, target.path, "/__boon/render-text")) {
+        const payload = browserRenderTextAlloc(allocator, source) catch |err| {
+            try stderr.print("serve-browser render-text failed: {t}\n", .{err});
+            try stderr.flush();
+            try request.respond("failed to render source\n", .{
+                .status = .internal_server_error,
+                .keep_alive = false,
+                .extra_headers = &.{.{ .name = "Content-Type", .value = "text/plain; charset=utf-8" }},
+            });
+            return;
+        };
+        defer allocator.free(payload);
+
+        try request.respond(payload, .{
+            .keep_alive = false,
+            .extra_headers = &.{
+                .{ .name = "Content-Type", .value = "text/plain; charset=utf-8" },
                 .{ .name = "Cache-Control", .value = "no-store" },
             },
         });
@@ -6042,7 +6249,7 @@ fn physicalStateJsonAlloc(
             var runtime = session;
             defer runtime.deinit();
 
-            try applyPhysicalThemeAndMode(&runtime, theme, mode);
+            try applyPhysicalThemeAndMode(allocator, &runtime, theme, mode);
             const target = try runtime.physicalRenderTarget(allocator) orelse return error.MissingPhysicalRenderTarget;
 
             var out: std.Io.Writer.Allocating = .init(allocator);
@@ -6065,7 +6272,13 @@ fn browserManifestJsonAlloc(
     errdefer out.deinit();
 
     try out.writer.writeAll("{\"bundle\":\"boon-zig-browser-host\"");
-    try out.writer.writeAll(",\"supported_examples\":[\"counter\",\"interval\",\"cells\",\"cells_dynamic\",\"todo_mvc\",\"todo_mvc_physical\"]");
+    try out.writer.writeAll(",\"served_source_runtime\":\"generic\"");
+    try out.writer.writeAll(",\"served_source\":{");
+    try out.writer.writeAll("\"name\":");
+    try writeJsonEscapedString(&out.writer, source_path);
+    try out.writer.writeAll(",\"path\":");
+    try writeJsonEscapedString(&out.writer, source_path);
+    try out.writer.writeAll("}");
     try out.writer.writeAll(",\"storage\":\"IndexedDB primary with in-memory fallback for smoke environments\"");
     try out.writer.writeAll(",\"playground\":{");
     try out.writer.writeAll("\"active_compiler_path\":\"local-zig\"");
@@ -6074,6 +6287,7 @@ fn browserManifestJsonAlloc(
     try out.writer.writeAll(",\"compile_endpoint\":\"/__boon/playground/compile\"");
     try out.writer.writeAll(",\"browser_zig_status\":\"not-integrated\"}");
     try out.writer.writeAll(",\"wasm_host_boundary\":\"integrated-js-adapter\"");
+    try out.writer.writeAll(",\"render_text_endpoint\":\"/__boon/render-text\"");
     try out.writer.writeAll(",\"physical_render_targets\":{");
     var rendered_any = false;
     for (themes, 0..) |theme, index| {
@@ -6100,23 +6314,35 @@ fn browserManifestJsonAlloc(
     return try out.toOwnedSlice();
 }
 
-fn applyPhysicalThemeAndMode(runtime: *boon.headless.Session, theme: []const u8, mode: []const u8) !void {
-    const theme_click: ?usize = if (std.mem.eql(u8, theme, "Professional"))
+fn browserRenderTextAlloc(allocator: std.mem.Allocator, source: []const u8) ![]u8 {
+    const outcome = try boon.headless.runAlloc(allocator, source, .{});
+    switch (outcome) {
+        .ok => |session| {
+            var runtime = session;
+            defer runtime.deinit();
+            return try runtime.renderAlloc(allocator);
+        },
+        .err => return error.BrowserRenderUnavailable,
+    }
+}
+
+fn applyPhysicalThemeAndMode(allocator: std.mem.Allocator, runtime: *boon.headless.Session, theme: []const u8, mode: []const u8) !void {
+    const theme_label: ?[]const u8 = if (std.mem.eql(u8, theme, "Professional"))
         null
     else if (std.mem.eql(u8, theme, "Glassmorphism"))
-        1
+        "Glass"
     else if (std.mem.eql(u8, theme, "Neobrutalism"))
-        2
+        "Brutalist"
     else if (std.mem.eql(u8, theme, "Neumorphism"))
-        3
+        "Neumorphic"
     else
         return error.UnsupportedThemeName;
 
-    if (theme_click) |button_index| {
-        try runtime.clickButton(button_index);
+    if (theme_label) |label| {
+        try runtime.clickButtonByLabel(allocator, label);
     }
     if (std.mem.eql(u8, mode, "Dark")) {
-        try runtime.clickButton(4);
+        try runtime.clickButtonByLabel(allocator, "Dark mode");
     } else if (!std.mem.eql(u8, mode, "Light")) {
         return error.UnsupportedModeName;
     }

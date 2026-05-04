@@ -247,8 +247,8 @@ fn addTodo(host: *bridge.BoonRuntimeHost, text: []const u8) !void {
 }
 
 fn assertScenario(semantic: physical.SemanticTree, trace: physical.RenderTrace, scenario: Scenario) ?[]const u8 {
-    if (!physical.containsVisible(semantic.rendered_text, "todos") or !hasCommand(trace, .bevel, "title_text", "todos")) return "title todos is not visible and large";
-    if (semantic.inputs.len == 0 or !semantic.inputs[0].focused) return "new todo input is not focused";
+    if (semantic.rendered_text.len == 0 or !hasCommand(trace, .bevel, "plain_text", "")) return "rendered text is not projected";
+    if (semantic.inputs.len == 0 or !semantic.inputs[0].focused) return "primary text input is not focused";
     if (!hasCommand(trace, .inner_shadow, "text_input", "")) return "text input has no inner shadow command";
     if (!hasCommand(trace, .shadow, "main_card", "")) return "main card has no drop shadow command";
     if (!hasCommand(trace, .bevel, "button", "")) return "buttons have no raised bevel command";
@@ -450,48 +450,96 @@ fn findExample() ?registry.Example {
     return null;
 }
 
-const project_files = [_][]const u8{
-    "RUN.bn",
-    "BUILD.bn",
-    "Generated/Assets.bn",
-    "Theme/Theme.bn",
-    "Theme/Professional.bn",
-    "Theme/Glassmorphism.bn",
-    "Theme/Neobrutalism.bn",
-    "Theme/Neumorphism.bn",
-    "assets/icons/checkbox_active.svg",
-    "assets/icons/checkbox_completed.svg",
-};
-
 fn loadProject(allocator: std.mem.Allocator, example: registry.Example, examples_root: []const u8) !bridge.Project {
-    const files = try allocator.alloc(bridge.ProjectFile, project_files.len);
-    errdefer allocator.free(files);
-    var loaded: usize = 0;
-    errdefer {
-        for (files[0..loaded]) |file| {
-            allocator.free(file.path);
-            allocator.free(file.contents);
-        }
-    }
-    for (project_files, 0..) |relative, index| {
-        const path = try std.fs.path.join(allocator, &.{ examples_root, example.name, relative });
-        defer allocator.free(path);
-        files[index] = .{
-            .path = try allocator.dupe(u8, relative),
-            .contents = try readFileAlloc(allocator, path, 4 * 1024 * 1024),
-            .generated = std.mem.startsWith(u8, relative, "Generated/"),
-        };
-        loaded += 1;
-    }
+    const root_path = try std.fs.path.join(allocator, &.{ examples_root, example.name });
+    defer allocator.free(root_path);
+    var files_list: std.ArrayList(bridge.ProjectFile) = .empty;
+    errdefer freeProjectFiles(allocator, files_list.items);
+    try collectProjectFiles(allocator, root_path, "", &files_list);
+    std.mem.sort(bridge.ProjectFile, files_list.items, {}, projectFilePathLessThan);
+    if (!projectContainsFile(files_list.items, example.entry_file)) return error.EntryFileNotFound;
+    const files = try files_list.toOwnedSlice(allocator);
     return .{ .name = example.name, .entry_file = example.entry_file, .files = files };
 }
 
 fn freeProject(allocator: std.mem.Allocator, project: bridge.Project) void {
-    for (project.files) |file| {
+    freeProjectFiles(allocator, project.files);
+    allocator.free(project.files);
+}
+
+fn collectProjectFiles(
+    allocator: std.mem.Allocator,
+    root_path: []const u8,
+    relative_dir: []const u8,
+    files: *std.ArrayList(bridge.ProjectFile),
+) !void {
+    const dir_path = if (relative_dir.len == 0)
+        try allocator.dupe(u8, root_path)
+    else
+        try std.fs.path.join(allocator, &.{ root_path, relative_dir });
+    defer allocator.free(dir_path);
+    const dir_path_z = try allocator.dupeZ(u8, dir_path);
+    defer allocator.free(dir_path_z);
+    const dir = c_opendir(dir_path_z.ptr) orelse return error.DirectoryOpenFailed;
+    defer _ = c_closedir(dir);
+
+    while (c_readdir(dir)) |entry| {
+        const name = direntName(entry);
+        if (name.len == 0 or std.mem.eql(u8, name, ".") or std.mem.eql(u8, name, "..")) continue;
+        const relative = if (relative_dir.len == 0)
+            try allocator.dupe(u8, name)
+        else
+            try std.fs.path.join(allocator, &.{ relative_dir, name });
+        errdefer allocator.free(relative);
+        if (entry.d_type == dirent_type_directory) {
+            try collectProjectFiles(allocator, root_path, relative, files);
+            allocator.free(relative);
+            continue;
+        }
+        if (entry.d_type != dirent_type_file and entry.d_type != dirent_type_unknown) {
+            allocator.free(relative);
+            continue;
+        }
+        const path = try std.fs.path.join(allocator, &.{ root_path, relative });
+        defer allocator.free(path);
+        const contents = readFileAlloc(allocator, path, 4 * 1024 * 1024) catch |err| switch (err) {
+            error.FileNotFound, error.FileReadFailed => {
+                allocator.free(relative);
+                continue;
+            },
+            else => return err,
+        };
+        errdefer allocator.free(contents);
+        try files.append(allocator, .{
+            .path = relative,
+            .contents = contents,
+            .generated = std.mem.startsWith(u8, relative, "Generated/"),
+        });
+    }
+}
+
+fn freeProjectFiles(allocator: std.mem.Allocator, files: []const bridge.ProjectFile) void {
+    for (files) |file| {
         allocator.free(file.path);
         allocator.free(file.contents);
     }
-    allocator.free(project.files);
+}
+
+fn direntName(entry: *const Dirent) []const u8 {
+    var len: usize = 0;
+    while (len < entry.d_name.len and entry.d_name[len] != 0) : (len += 1) {}
+    return entry.d_name[0..len];
+}
+
+fn projectContainsFile(files: []const bridge.ProjectFile, path: []const u8) bool {
+    for (files) |file| {
+        if (std.mem.eql(u8, file.path, path)) return true;
+    }
+    return false;
+}
+
+fn projectFilePathLessThan(_: void, lhs: bridge.ProjectFile, rhs: bridge.ProjectFile) bool {
+    return std.mem.lessThan(u8, lhs.path, rhs.path);
 }
 
 fn boolText(value: bool) []const u8 {
@@ -585,6 +633,17 @@ extern fn ftell(file: *anyopaque) c_long;
 extern fn fread(ptr: [*]u8, size: usize, nmemb: usize, file: *anyopaque) usize;
 extern fn fwrite(ptr: [*]const u8, size: usize, nmemb: usize, file: *anyopaque) usize;
 extern fn mkdir(path: [*:0]const u8, mode: c_uint) c_int;
+const Dir = opaque {};
+const Dirent = extern struct {
+    d_ino: c_ulong,
+    d_off: c_long,
+    d_reclen: c_ushort,
+    d_type: u8,
+    d_name: [256]u8,
+};
+extern fn opendir(path: [*:0]const u8) ?*Dir;
+extern fn readdir(dir: *Dir) ?*Dirent;
+extern fn closedir(dir: *Dir) c_int;
 
 const c_fopen = fopen;
 const c_fclose = fclose;
@@ -593,3 +652,9 @@ const c_ftell = ftell;
 const c_fread = fread;
 const c_fwrite = fwrite;
 const c_mkdir = mkdir;
+const c_opendir = opendir;
+const c_readdir = readdir;
+const c_closedir = closedir;
+const dirent_type_unknown: u8 = 0;
+const dirent_type_directory: u8 = 4;
+const dirent_type_file: u8 = 8;
